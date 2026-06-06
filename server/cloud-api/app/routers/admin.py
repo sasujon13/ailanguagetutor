@@ -1,0 +1,144 @@
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from app.database import get_db
+from app.models import AiProvider, AiRoutingPolicy, PromoCode, ReferralPolicy
+from app.schemas import AdminPromoCodeDto, AdminPromoPatchDto, AiProviderToggleRequest, AiRoutingPolicyUpdateRequest, ReferralPolicyPatchDto
+from app.security import quota_used_percent
+
+router = APIRouter(prefix="/admin", tags=["admin"])
+
+
+@router.get("/promo-codes")
+def list_promo_codes(db: Session = Depends(get_db)) -> dict:
+    rows = db.scalars(select(PromoCode).order_by(PromoCode.paywall_slot, PromoCode.code)).all()
+    return {
+        "codes": [
+            {"code": r.code, "discount_percent": r.discount_percent, "active": r.active}
+            for r in rows
+        ]
+    }
+
+
+@router.post("/promo-codes")
+def create_promo_code(body: AdminPromoCodeDto, db: Session = Depends(get_db)) -> dict:
+    code = body.code.upper().strip()
+    if db.scalar(select(PromoCode).where(PromoCode.code == code)):
+        raise HTTPException(409, "Promo code already exists")
+    row = PromoCode(code=code, discount_percent=body.discount_percent, active=body.active)
+    db.add(row)
+    db.commit()
+    return {"code": row.code, "discount_percent": row.discount_percent, "active": row.active}
+
+
+@router.patch("/promo-codes/{code}")
+def patch_promo_code(code: str, body: AdminPromoPatchDto, db: Session = Depends(get_db)) -> dict:
+    row = db.scalar(select(PromoCode).where(PromoCode.code == code.upper()))
+    if not row:
+        raise HTTPException(404, "Promo not found")
+    if body.discount_percent is not None:
+        row.discount_percent = body.discount_percent
+        if body.discount_percent == 0:
+            row.active = False
+    if body.active is not None:
+        row.active = body.active
+    db.commit()
+    return {"code": row.code, "discount_percent": row.discount_percent, "active": row.active}
+
+
+@router.patch("/referral-policy")
+def patch_referral_policy(body: ReferralPolicyPatchDto, db: Session = Depends(get_db)) -> dict:
+    pol = db.scalar(select(ReferralPolicy).limit(1))
+    if not pol:
+        pol = ReferralPolicy()
+        db.add(pol)
+    if body.active is not None:
+        pol.active = body.active
+    if body.buyer_discount_percent is not None:
+        pol.buyer_discount_percent = body.buyer_discount_percent
+    if body.commission_percent is not None:
+        pol.commission_percent = body.commission_percent
+    if body.notice_text is not None:
+        pol.notice_text = body.notice_text
+    db.commit()
+    return {
+        "active": pol.active,
+        "buyer_discount_percent": pol.buyer_discount_percent,
+        "commission_percent": pol.commission_percent,
+        "notice_text": pol.notice_text,
+    }
+
+
+@router.get("/ai/providers")
+def ai_providers(db: Session = Depends(get_db)) -> dict:
+    providers = db.scalars(select(AiProvider)).all()
+    routing = db.scalar(select(AiRoutingPolicy).limit(1))
+    mode = routing.mode if routing else "random_free"
+    prefer_paid = routing.prefer_paid_when_free_exhausted if routing else True
+    dto_list = []
+    total = 0
+    free_ok = False
+    exhausted = 0
+    for p in providers:
+        total += p.requests_today
+        pct = quota_used_percent(p.requests_today, p.quota_daily_limit)
+        if p.tier == "free" and p.enabled and p.health == "healthy":
+            free_ok = True
+        if p.health == "exhausted":
+            exhausted += 1
+        dto_list.append(
+            {
+                "id": p.id,
+                "display_name": p.display_name,
+                "tier": p.tier,
+                "health": p.health,
+                "quota_used_percent": pct,
+                "requests_today": p.requests_today,
+                "quota_daily_limit": p.quota_daily_limit,
+                "last_error": p.last_error,
+                "last_used_at": p.last_used_at_ms,
+                "enabled": p.enabled,
+            }
+        )
+    summary = f"{mode}: {len([x for x in providers if x.enabled])} providers configured."
+    return {
+        "providers": dto_list,
+        "routing_policy": {"mode": mode, "prefer_paid_when_free_exhausted": prefer_paid},
+        "total_requests_today": total,
+        "free_pool_available": free_ok,
+        "recommend_paid_upgrade": exhausted > 0 and not free_ok,
+        "summary": summary,
+    }
+
+
+@router.patch("/ai/routing")
+def update_ai_routing(body: AiRoutingPolicyUpdateRequest, db: Session = Depends(get_db)) -> dict:
+    routing = db.scalar(select(AiRoutingPolicy).limit(1))
+    if not routing:
+        routing = AiRoutingPolicy()
+        db.add(routing)
+    routing.mode = body.mode
+    if body.prefer_paid_when_free_exhausted is not None:
+        routing.prefer_paid_when_free_exhausted = body.prefer_paid_when_free_exhausted
+    db.commit()
+    return {
+        "mode": routing.mode,
+        "prefer_paid_when_free_exhausted": routing.prefer_paid_when_free_exhausted,
+    }
+
+
+@router.patch("/ai/providers/{provider_id}")
+def toggle_ai_provider(provider_id: str, body: AiProviderToggleRequest, db: Session = Depends(get_db)) -> dict:
+    p = db.get(AiProvider, provider_id)
+    if not p:
+        raise HTTPException(404, "Provider not found")
+    p.enabled = body.enabled
+    db.commit()
+    return {
+        "id": p.id,
+        "display_name": p.display_name,
+        "tier": p.tier,
+        "health": p.health,
+        "enabled": p.enabled,
+    }

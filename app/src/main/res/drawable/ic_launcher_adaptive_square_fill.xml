@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  White mat with ~30% total band (15% inset each side on 108dp), thin gold stroke on outer edge,
+  then logo fills inner square. Launcher mask clips to circle/squircle.
+-->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item>
+        <shape android:shape="rectangle">
+            <solid android:color="#FFFFFFFF" />
+            <stroke
+                android:width="1.5dp"
+                android:color="#C9A227" />
+        </shape>
+    </item>
+    <item
+        android:bottom="16.2dp"
+        android:left="16.2dp"
+        android:right="16.2dp"
+        android:top="16.2dp">
+        <bitmap
+            android:gravity="fill"
+            android:src="@drawable/ic_launcher_foreground" />
+    </item>
+</layer-list>

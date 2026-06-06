@@ -1,0 +1,69 @@
+{
+  "version": "2.0.0",
+  "hardware_target": "Intel Arc 16GB, i7-14700, 64GB RAM",
+  "quantization": {
+    "production": "int8",
+    "low_vram": "int4",
+    "debug_only": "fp16"
+  },
+  "resident_models": ["translation/nllb-600m", "llm/mistral-7b-int4"],
+  "lazy_llm_models": ["llm/qwen2.5-7b-int8", "llm/qwen2.5-14b-int4", "llm/llama3-8b-int4"],
+  "on_demand": ["stt/whisper-small", "tts/piper-en"],
+  "models": [
+    {
+      "id": "qwen2.5-7b-int8",
+      "path": "llm/qwen2.5-7b-int8",
+      "huggingface": "Qwen/Qwen2.5-7B-Instruct",
+      "format": "openvino-int8",
+      "modes": [1, 3],
+      "vram_gb_est": 6
+    },
+    {
+      "id": "qwen2.5-14b-int4",
+      "path": "llm/qwen2.5-14b-int4",
+      "huggingface": "Qwen/Qwen2.5-14B-Instruct",
+      "format": "openvino-int4",
+      "modes": [5],
+      "vram_gb_est": 10,
+      "swap_with": "qwen2.5-7b-int8"
+    },
+    {
+      "id": "mistral-7b-int4",
+      "path": "llm/mistral-7b-int4",
+      "huggingface": "mistralai/Mistral-7B-Instruct-v0.3",
+      "format": "openvino-int4",
+      "modes": [4],
+      "resident": true,
+      "vram_gb_est": 5
+    },
+    {
+      "id": "llama3-8b-int4",
+      "path": "llm/llama3-8b-int4",
+      "huggingface": "meta-llama/Meta-Llama-3-8B-Instruct",
+      "format": "openvino-int4",
+      "fallback": true
+    },
+    {
+      "id": "nllb-600m",
+      "path": "translation/nllb-600m",
+      "huggingface": "facebook/nllb-200-distilled-600M",
+      "format": "openvino-int8",
+      "modes": [2, 3, 5],
+      "resident": true,
+      "vram_gb_est": 2
+    },
+    {
+      "id": "whisper-small",
+      "path": "stt/whisper-small",
+      "huggingface": "openai/whisper-small",
+      "format": "openvino-int8"
+    },
+    {
+      "id": "piper-en",
+      "path": "tts/piper-en",
+      "source": "https://github.com/rhasspy/piper/releases",
+      "format": "piper-onnx",
+      "device": "cpu"
+    }
+  ]
+}

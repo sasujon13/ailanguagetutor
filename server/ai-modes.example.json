@@ -1,0 +1,62 @@
+{
+  "tiers": ["free", "pro", "plus"],
+  "modes": [
+    {
+      "id": 1,
+      "key": "smart_tutor",
+      "label": "Smart Tutor",
+      "emoji": "🔵",
+      "recommended": true,
+      "required_tier": "pro",
+      "selectable_by": ["pro", "plus"],
+      "models": ["qwen2.5-7b", "llama3-8b-fallback"]
+    },
+    {
+      "id": 2,
+      "key": "fast_translation",
+      "label": "Fast Translation",
+      "emoji": "🟢",
+      "required_tier": "pro",
+      "selectable_by": ["pro", "plus"],
+      "models": ["nllb"]
+    },
+    {
+      "id": 3,
+      "key": "balanced",
+      "label": "Balanced",
+      "emoji": "🟣",
+      "required_tier": "pro",
+      "selectable_by": ["pro", "plus"],
+      "models": ["nllb", "qwen2.5-7b-cleanup"]
+    },
+    {
+      "id": 4,
+      "key": "lightweight",
+      "label": "Lightweight",
+      "emoji": "🔴",
+      "required_tier": "pro",
+      "selectable_by": ["pro", "plus"],
+      "auto_on_ocr": true,
+      "models": ["mistral-7b"]
+    },
+    {
+      "id": 5,
+      "key": "high_accuracy",
+      "label": "High Accuracy",
+      "emoji": "🟡",
+      "required_tier": "plus",
+      "selectable_by": ["plus"],
+      "models": ["qwen2.5-14b", "nllb", "qwen2.5-7b-blend"]
+    }
+  ],
+  "tier_mode_picker": {
+    "free": [],
+    "pro": [1, 2, 3],
+    "plus": [1, 2, 3, 5]
+  },
+  "note": "Mode 4 is applied automatically when OCR is active for Pro and Plus. Pro users do not see Mode 5 in the picker.",
+  "pricing": {
+    "pro": { "actual_monthly_usd": 2.0, "actual_yearly_usd": 20.0, "launch50_effective_monthly": 1.0 },
+    "plus": { "actual_monthly_usd": 5.0, "actual_yearly_usd": 50.0, "launch50_effective_monthly": 2.5 }
+  }
+}

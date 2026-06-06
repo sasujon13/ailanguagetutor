@@ -1,0 +1,36 @@
+# Docker Compose — Cheradip Home AI (v2 scaffold)
+# Copy to docker-compose.yml and adjust paths. GPU passthrough requires Linux + Intel drivers.
+
+services:
+  home-ai:
+    build: ..
+    ports:
+      - "8787:8787"
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - MAX_CONCURRENT=4
+      - CACHE_L3_PATH=/data/ai_cache.db
+      - OPENVINO_DEVICE=GPU
+    volumes:
+      - ./models:/models:ro
+      - ai-cache-data:/data
+    depends_on:
+      - redis
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+
+volumes:
+  ai-cache-data:
+  redis-data:
+
+# Optional: Cloudflare tunnel sidecar for remote Android access
+#  cloudflared:
+#    image: cloudflare/cloudflared:latest
+#    command: tunnel --no-autoupdate run
+#    environment:
+#      - TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN}

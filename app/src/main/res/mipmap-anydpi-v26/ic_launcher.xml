@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Square layer filled edge-to-edge so the system circle is the incircle of the bitmap square
+         (touches all four sides), not a zoomed center crop of a loose bitmap. -->
+    <background android:drawable="@drawable/ic_launcher_adaptive_square_fill" />
+    <foreground android:drawable="@drawable/ic_launcher_adaptive_transparent" />
+</adaptive-icon>

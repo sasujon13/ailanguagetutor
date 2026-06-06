@@ -1,0 +1,26 @@
+# Cloudflare Tunnel — Cheradip self-hosted (no external cheradip.com/api/ailt required).
+# Copy to %USERPROFILE%\.cloudflared\config.yml
+#
+#   cloudflared tunnel login
+#   cloudflared tunnel create cheradip-ailt
+#   cloudflared tunnel route dns cheradip-ailt ai.cheradip.com
+#   cloudflared tunnel route dns cheradip-ailt ailt.cheradip.com
+#   cloudflared tunnel run cheradip-ailt
+#
+# Start local services first:
+#   server/v2/scripts/run-dev.ps1         -> 127.0.0.1:8787
+#   server/cloud-api/scripts/run-dev.ps1  -> 127.0.0.1:8790
+
+tunnel: <YOUR-TUNNEL-UUID>
+credentials-file: C:\Users\<YOU>\.cloudflared\<YOUR-TUNNEL-UUID>.json
+
+ingress:
+  # Home AI — Android HOME_AI_BASE_URL
+  - hostname: ai.cheradip.com
+    service: http://127.0.0.1:8787
+
+  # App API — Android API_BASE_URL (server/cloud-api in this repo)
+  - hostname: ailt.cheradip.com
+    service: http://127.0.0.1:8790
+
+  - service: http_status:404

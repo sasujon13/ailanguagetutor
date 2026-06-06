@@ -1,0 +1,11 @@
+{
+  "email": "sashafik.me@gmail.com",
+  "whatsapp": "+8801722710298",
+  "role": "admin",
+  "passwordSource": "ADMIN_SEED_PASSWORD environment variable at deploy time",
+  "notes": [
+    "Never commit real passwords or copy this file with a password field to git.",
+    "Run server seed once on empty database.",
+    "Rotate admin password after first production login."
+  ]
+}

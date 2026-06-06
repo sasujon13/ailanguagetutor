@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">AI Language Tutor</string>
+    <string name="welcome_title">Welcome to AI Language Tutor</string>
+    <string name="welcome_subtitle">243 languages · Scan · Read · Learn offline</string>
+    <string name="privacy_lead">Privacy first: we only process content you choose to scan, type, or import.</string>
+</resources>

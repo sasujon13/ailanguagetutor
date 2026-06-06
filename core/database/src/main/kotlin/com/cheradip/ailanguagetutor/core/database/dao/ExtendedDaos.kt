@@ -1,0 +1,85 @@
+package com.cheradip.ailanguagetutor.core.database.dao
+
+import androidx.room.Dao
+import androidx.room.Insert
+import androidx.room.OnConflictStrategy
+import androidx.room.Query
+import androidx.room.Update
+import com.cheradip.ailanguagetutor.core.database.entity.AiCacheEntity
+import com.cheradip.ailanguagetutor.core.database.entity.LanguagePackStateEntity
+import com.cheradip.ailanguagetutor.core.database.entity.LearningActivityEntity
+import com.cheradip.ailanguagetutor.core.database.entity.TranslationCacheEntity
+import com.cheradip.ailanguagetutor.core.database.entity.TrialStateEntity
+import kotlinx.coroutines.flow.Flow
+
+@Dao
+interface LanguagePackDao {
+    @Query("SELECT * FROM language_pack_state ORDER BY downloadedAt DESC")
+    fun observeAll(): Flow<List<LanguagePackStateEntity>>
+
+    @Query("SELECT * FROM language_pack_state WHERE isActive = 1")
+    fun observeActive(): Flow<List<LanguagePackStateEntity>>
+
+    @Query("SELECT COUNT(*) FROM language_pack_state WHERE isActive = 1")
+    suspend fun activeCount(): Int
+
+    @Query("SELECT * FROM language_pack_state WHERE languageCode = :code LIMIT 1")
+    suspend fun getByCode(code: String): LanguagePackStateEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(entity: LanguagePackStateEntity)
+
+    @Update
+    suspend fun update(entity: LanguagePackStateEntity)
+}
+
+@Dao
+interface TranslationCacheDao {
+    @Query(
+        """
+        SELECT * FROM translation_cache
+        WHERE sourceTextHash = :hash AND sourceLang = :sourceLang AND targetLang = :targetLang
+        LIMIT 1
+        """,
+    )
+    suspend fun find(hash: String, sourceLang: String, targetLang: String): TranslationCacheEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insert(entity: TranslationCacheEntity)
+}
+
+@Dao
+interface LearningActivityDao {
+    @Query("SELECT * FROM learning_activities ORDER BY createdAt DESC")
+    fun observeAll(): Flow<List<LearningActivityEntity>>
+
+    @Query(
+        """
+        SELECT * FROM learning_activities
+        WHERE title LIKE '%' || :query || '%' OR summary LIKE '%' || :query || '%'
+        ORDER BY createdAt DESC
+        """,
+    )
+    fun search(query: String): Flow<List<LearningActivityEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insert(entity: LearningActivityEntity): Long
+}
+
+@Dao
+interface AiCacheDao {
+    @Query("SELECT * FROM ai_cache WHERE cacheKey = :key LIMIT 1")
+    suspend fun get(key: String): AiCacheEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun put(entity: AiCacheEntity)
+}
+
+@Dao
+interface TrialStateDao {
+    @Query("SELECT * FROM trial_state WHERE id = 1 LIMIT 1")
+    suspend fun get(): TrialStateEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(entity: TrialStateEntity)
+}

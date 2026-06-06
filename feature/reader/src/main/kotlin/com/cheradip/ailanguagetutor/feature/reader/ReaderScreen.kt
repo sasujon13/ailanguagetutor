@@ -39,6 +39,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.cheradip.ailanguagetutor.core.model.ProcessingIntent
 import com.cheradip.ailanguagetutor.feature.dictionary.WordDefinitionSheet
+import com.cheradip.ailanguagetutor.ui.components.GrammarDepthChips
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -48,6 +49,7 @@ fun ReaderScreen(
     viewModel: ReaderViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val grammarDepth by viewModel.grammarDepth.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
     LaunchedEffect(documentId) { viewModel.load(documentId) }
     LaunchedEffect(uiState.saveMessage) {
@@ -85,13 +87,25 @@ fun ReaderScreen(
         if (uiState.isLoading) {
             CircularProgressIndicator(modifier = Modifier.padding(padding).padding(24.dp))
         } else {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(padding)
-                    .padding(16.dp)
-                    .verticalScroll(rememberScrollState()),
-            ) {
+            Column(modifier = Modifier.fillMaxSize().padding(padding)) {
+                GrammarDepthChips(
+                    selected = grammarDepth,
+                    onSelected = viewModel::setGrammarDepth,
+                )
+                if (uiState.aiPrefetching) {
+                    Text(
+                        "Warming AI cache…",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
+                    )
+                }
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 16.dp)
+                        .verticalScroll(rememberScrollState()),
+                ) {
                 if (uiState.aiLoading) {
                     CircularProgressIndicator(modifier = Modifier.padding(bottom = 8.dp))
                     Text("Processing with AI…", style = MaterialTheme.typography.bodySmall)
@@ -145,12 +159,13 @@ fun ReaderScreen(
                     ),
                     onClick = { offset -> viewModel.onWordTap(offset) },
                 )
+                }
             }
         }
     }
 
     WordDefinitionSheet(
-        definition = uiState.selectedDefinition,
+        sheet = uiState.wordSheet,
         onDismiss = viewModel::dismissDefinition,
         onSpeak = viewModel::speakWord,
         onSave = viewModel::saveSelectedWord,

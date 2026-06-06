@@ -20,6 +20,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -29,7 +30,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.cheradip.ailanguagetutor.core.model.DeviceLocaleHints
 import com.cheradip.ailanguagetutor.core.model.LanguageCatalogEntry
+import com.cheradip.ailanguagetutor.core.model.LanguageCatalogOrder
 import com.cheradip.ailanguagetutor.core.model.LanguageSearchFilter
 
 @Composable
@@ -41,11 +44,12 @@ fun SearchableLanguageMultiSelect(
     maxSelection: Int = 3,
     searchLabel: String = "Search languages",
     searchPlaceholder: String = "Type to filter (e.g. al, spanish, fr)…",
+    localeHints: LanguageCatalogOrder.Hints = DeviceLocaleHints.current(),
 ) {
     var query by remember { mutableStateOf("") }
     var expanded by remember { mutableStateOf(false) }
-    val filtered = remember(languages, query) {
-        LanguageSearchFilter.filterAndSort(languages, query)
+    val filtered = remember(languages, query, localeHints) {
+        LanguageSearchFilter.filterAndSort(languages, query, localeHints)
     }
     val selectedEntries = remember(languages, selectedCodes) {
         languages.filter { it.code in selectedCodes }
@@ -111,6 +115,7 @@ fun SearchableLanguageMultiSelect(
                     onToggle(lang)
                 },
                 showSelectionCheck = true,
+                localeHints = localeHints,
                 emptyMessage = if (query.isBlank()) "Type to search 243 languages" else "No languages match \"$query\"",
             )
         }
@@ -125,13 +130,14 @@ fun SearchableLanguageDropdown(
     modifier: Modifier = Modifier,
     label: String = "Language",
     searchPlaceholder: String = "Search…",
+    localeHints: LanguageCatalogOrder.Hints = DeviceLocaleHints.current(),
 ) {
     var query by remember(selected) {
         mutableStateOf(selected?.name.orEmpty())
     }
     var expanded by remember { mutableStateOf(false) }
-    val filtered = remember(languages, query) {
-        LanguageSearchFilter.filterAndSort(languages, query)
+    val filtered = remember(languages, query, localeHints) {
+        LanguageSearchFilter.filterAndSort(languages, query, localeHints)
     }
 
     Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -165,6 +171,7 @@ fun SearchableLanguageDropdown(
                     expanded = false
                 },
                 showSelectionCheck = true,
+                localeHints = localeHints,
                 emptyMessage = if (query.isBlank()) "Type to search languages" else "No matches",
             )
         }
@@ -178,8 +185,11 @@ private fun LanguageDropdownList(
     onItemClick: (LanguageCatalogEntry) -> Unit,
     showSelectionCheck: Boolean,
     emptyMessage: String,
+    localeHints: LanguageCatalogOrder.Hints = DeviceLocaleHints.current(),
     modifier: Modifier = Modifier,
 ) {
+    val englishCode = LanguageCatalogOrder.findEnglish(languages)?.code?.lowercase()
+    val regionCode = LanguageCatalogOrder.findRegionLanguage(languages, localeHints)?.code?.lowercase()
     Card(
         modifier = modifier
             .fillMaxWidth()
@@ -194,8 +204,44 @@ private fun LanguageDropdownList(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         } else {
+            val pinnedEnd = languages.indexOfFirst { entry ->
+                val c = entry.code.lowercase()
+                c != englishCode && c != regionCode
+            }.let { if (it < 0) languages.size else it }
             LazyColumn(modifier = Modifier.fillMaxWidth()) {
-                items(languages, key = { it.code }) { lang ->
+                items(languages.size, key = { languages[it].code }) { index ->
+                    val lang = languages[index]
+                    val code = lang.code.lowercase()
+                    when {
+                        index == 0 && code == englishCode -> {
+                            Text(
+                                "Default · English (US)",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+                            )
+                        }
+                        code == regionCode && languages.getOrNull(index - 1)?.code?.lowercase() != regionCode -> {
+                            if (index > 0) {
+                                HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+                            }
+                            Text(
+                                "Your region",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.secondary,
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+                            )
+                        }
+                        index == pinnedEnd && pinnedEnd > 0 -> {
+                            HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+                            Text(
+                                "All languages",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+                            )
+                        }
+                    }
                     val isSelected = lang.code in selectedCodes
                     Row(
                         modifier = Modifier

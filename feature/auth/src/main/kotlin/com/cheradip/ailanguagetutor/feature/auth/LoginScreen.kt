@@ -8,6 +8,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Login
+import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -31,6 +32,8 @@ fun LoginScreen(
     onLoggedIn: () -> Unit,
     modifier: Modifier = Modifier,
     onBack: (() -> Unit)? = null,
+    onNavigateSignUp: (() -> Unit)? = null,
+    subtitle: String = "Email or WhatsApp",
 ) {
     var username by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
@@ -41,7 +44,7 @@ fun LoginScreen(
     CheradipScrollScreen(
         modifier = modifier,
         title = "Sign in",
-        subtitle = "Email or WhatsApp",
+        subtitle = subtitle,
         onBack = onBack,
     ) {
         item {
@@ -86,10 +89,20 @@ fun LoginScreen(
                 enabled = !loading && username.isNotBlank() && password.isNotBlank(),
             )
         }
+        if (onNavigateSignUp != null) {
+            item {
+                Spacer(modifier = Modifier.height(8.dp))
+                IconTextButton(
+                    label = "Sign up",
+                    icon = Icons.Default.PersonAdd,
+                    onClick = onNavigateSignUp,
+                    filled = false,
+                )
+            }
+        }
         item {
-            Spacer(modifier = Modifier.height(8.dp))
             Text(
-                "Admin: use your seeded email + password from server env.",
+                "Only one device can be signed in at a time.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = 8.dp),

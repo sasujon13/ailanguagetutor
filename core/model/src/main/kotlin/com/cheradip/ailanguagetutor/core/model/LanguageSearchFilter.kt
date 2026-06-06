@@ -12,12 +12,13 @@ object LanguageSearchFilter {
     fun filterAndSort(
         languages: List<LanguageCatalogEntry>,
         query: String,
+        localeHints: LanguageCatalogOrder.Hints = LanguageCatalogOrder.Hints(),
     ): List<LanguageCatalogEntry> {
         val q = query.trim().lowercase()
         if (q.isEmpty()) {
-            return languages.sortedBy { it.name.lowercase() }
+            return LanguageCatalogOrder.sort(languages, localeHints)
         }
-        return languages
+        val matched = languages
             .mapNotNull { entry ->
                 val text = haystack(entry)
                 val index = text.indexOf(q)
@@ -30,5 +31,6 @@ object LanguageSearchFilter {
                 ),
             )
             .map { it.first }
+        return LanguageCatalogOrder.sort(matched, localeHints)
     }
 }

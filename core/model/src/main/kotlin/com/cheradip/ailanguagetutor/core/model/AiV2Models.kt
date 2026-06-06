@@ -42,6 +42,13 @@ enum class AiEngineMode(val id: Int) {
     }
 }
 
+fun pickerAiModes(): List<AiEngineMode> = listOf(
+    AiEngineMode.SMART_TUTOR,
+    AiEngineMode.FAST_TRANSLATION,
+    AiEngineMode.BALANCED,
+    AiEngineMode.HIGH_ACCURACY,
+)
+
 fun availableAiModes(tier: SubscriptionTier): List<AiEngineMode> = when (tier) {
     SubscriptionTier.PLUS -> AiEngineMode.entries
     SubscriptionTier.PRO -> listOf(

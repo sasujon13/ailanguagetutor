@@ -8,6 +8,7 @@ from typing import Any
 
 from app.services.model_loader import ModelLoader, ModelSlot
 from app.services.model_selector import fallback_chain
+from app.services.translation_quality import is_short_phrase, nllb_result_suspicious
 
 logger = logging.getLogger(__name__)
 
@@ -53,13 +54,40 @@ class InferenceEngine:
         text: str,
         source_lang: str,
         target_langs: list[str],
+        *,
+        polish: bool = False,
     ) -> dict[str, str]:
         await self.loader.ensure_llm(ModelSlot.NLLB)
         self.last_model_used = ModelSlot.NLLB.value
-        return {
+        translations = {
             lang: await self._infer_nllb(text, source_lang, lang)
             for lang in target_langs
         }
+        if polish:
+            translations = await self.polish_translations(text, source_lang, translations)
+        return translations
+
+    async def polish_translations(
+        self,
+        source_text: str,
+        source_lang: str,
+        translations: dict[str, str],
+    ) -> dict[str, str]:
+        if self.loader.backend_name != "ollama":
+            return translations
+
+        polished: dict[str, str] = {}
+        for target, translated in translations.items():
+            prompt = (
+                f"Polish this machine translation from {source_lang} to {target}.\n"
+                f"Source: {source_text}\n"
+                f"Draft: {translated}\n"
+                "Output ONLY the improved translation. No quotes or explanation."
+            )
+            result, _ = await self.run_llm(ModelSlot.QWEN_7B, prompt, max_tokens=512)
+            polished[target] = result.strip()
+        self.last_translation_backend = "nllb-600m+qwen-polish"
+        return polished
 
     async def _infer(self, slot: ModelSlot, prompt: str, max_tokens: int) -> str:
         backend = self.loader.backend_name
@@ -82,13 +110,28 @@ class InferenceEngine:
         return f"[{slot.value}] {prompt[:300]}"
 
     async def _infer_nllb(self, text: str, source: str, target: str) -> str:
+        if self.loader.backend_name == "ollama" and is_short_phrase(text):
+            translated = await self._ollama_translate(text, source, target)
+            self.last_translation_backend = "ollama-short-phrase"
+            self.fallback_count += 1
+            logger.info("Short phrase LLM translation %s->%s (%d chars)", source, target, len(text))
+            return translated
+
         from app.backends.nllb_translator import get_nllb_translator
 
         nllb = get_nllb_translator(self.loader.settings.models_dir)
         if nllb is not None:
             try:
                 translated = await asyncio.to_thread(nllb.translate, text, source, target)
-                self.last_translation_backend = "nllb-600m"
+                if self.loader.backend_name == "ollama" and nllb_result_suspicious(
+                    source, target, text, translated
+                ):
+                    logger.warning("NLLB suspicious %s->%s — LLM fallback", source, target)
+                    translated = await self._ollama_translate(text, source, target)
+                    self.last_translation_backend = "ollama-quality-fallback"
+                    self.fallback_count += 1
+                else:
+                    self.last_translation_backend = "nllb-600m"
                 logger.info("NLLB translation %s->%s (%d chars)", source, target, len(text))
                 return translated
             except Exception as e:

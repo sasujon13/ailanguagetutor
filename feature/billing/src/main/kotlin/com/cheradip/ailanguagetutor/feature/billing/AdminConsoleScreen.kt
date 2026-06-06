@@ -48,12 +48,104 @@ import com.cheradip.ailanguagetutor.core.ai.AiRoutingMode
 import com.cheradip.ailanguagetutor.core.ai.HomeAiAdminDashboard
 import com.cheradip.ailanguagetutor.core.ai.HomeAiService
 import com.cheradip.ailanguagetutor.core.ai.HomeAiSettingsRepository
+import com.cheradip.ailanguagetutor.core.billing.AdminPromoRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import javax.inject.Inject
+
+@HiltViewModel
+class AdminPromoViewModel @Inject constructor(
+    private val adminPromoRepository: AdminPromoRepository,
+) : ViewModel() {
+    private val _codes = MutableStateFlow<List<AdminPromoRepository.PromoRow>>(emptyList())
+    val codes: StateFlow<List<AdminPromoRepository.PromoRow>> = _codes.asStateFlow()
+
+    private val _loading = MutableStateFlow(false)
+    val loading: StateFlow<Boolean> = _loading.asStateFlow()
+
+    private val _message = MutableStateFlow<String?>(null)
+    val message: StateFlow<String?> = _message.asStateFlow()
+
+    private val _error = MutableStateFlow<String?>(null)
+    val error: StateFlow<String?> = _error.asStateFlow()
+
+    init {
+        refresh()
+    }
+
+    fun refresh() {
+        viewModelScope.launch {
+            _loading.value = true
+            _message.value = null
+            _error.value = null
+            _codes.value = emptyList()
+            adminPromoRepository.listCodes()
+                .onSuccess { _codes.value = it.sortedBy { row -> row.code } }
+                .onFailure {
+                    _codes.value = emptyList()
+                    _error.value = it.message ?: "Could not load promo_codes from server"
+                }
+            _loading.value = false
+        }
+    }
+
+    fun createCode(
+        code: String,
+        discountPercent: Int,
+        paywallSlot: Int = 2,
+        autoApply: Boolean = false,
+    ) {
+        val normalized = code.trim().uppercase()
+        viewModelScope.launch {
+            _message.value = null
+            _error.value = null
+            adminPromoRepository.createCode(
+                code = normalized,
+                discountPercent = discountPercent,
+                autoApply = autoApply,
+                paywallSlot = paywallSlot,
+            )
+                .onSuccess {
+                    _message.value = "Saved to promo_codes: $normalized"
+                    refresh()
+                }
+                .onFailure { _error.value = it.message ?: "Could not save promo code" }
+        }
+    }
+
+    fun updateCode(
+        code: String,
+        discountPercent: Int,
+        active: Boolean,
+        paywallSlot: Int,
+        autoApply: Boolean,
+    ) {
+        viewModelScope.launch {
+            _message.value = null
+            _error.value = null
+            adminPromoRepository.updateCode(
+                code = code,
+                discountPercent = discountPercent,
+                active = active,
+                autoApply = autoApply,
+                paywallSlot = paywallSlot,
+            )
+                .onSuccess {
+                    _message.value = "Updated promo_codes: $code"
+                    refresh()
+                }
+                .onFailure { _error.value = it.message ?: "Could not update promo code" }
+        }
+    }
+
+    fun clearMessage() {
+        _message.value = null
+        _error.value = null
+    }
+}
 
 @HiltViewModel
 class AdminHomeAiViewModel @Inject constructor(
@@ -174,6 +266,9 @@ class AdminAiViewModel @Inject constructor(
 fun AdminConsoleScreen(
     modifier: Modifier = Modifier,
     initialTab: Int = 0,
+    promoViewModel: AdminPromoViewModel = hiltViewModel(),
+    aiViewModel: AdminAiViewModel = hiltViewModel(),
+    homeAiViewModel: AdminHomeAiViewModel = hiltViewModel(),
 ) {
     var tab by remember { mutableIntStateOf(initialTab) }
     Column(modifier = modifier.fillMaxSize()) {
@@ -183,55 +278,182 @@ fun AdminConsoleScreen(
             Tab(selected = tab == 2, onClick = { tab = 2 }, text = { Text("Home AI") })
         }
         when (tab) {
-            0 -> AdminPromoTab(Modifier.fillMaxSize())
-            1 -> AdminAiProvidersTab(Modifier.fillMaxSize())
-            2 -> AdminHomeAiTab(Modifier.fillMaxSize())
+            0 -> AdminPromoTab(Modifier.fillMaxSize(), promoViewModel)
+            1 -> AdminAiProvidersTab(Modifier.fillMaxSize(), aiViewModel)
+            2 -> AdminHomeAiTab(Modifier.fillMaxSize(), homeAiViewModel)
         }
     }
 }
 
 @Composable
-private fun AdminPromoTab(modifier: Modifier = Modifier) {
-    var code by remember { mutableStateOf("") }
-    var discount by remember { mutableStateOf("20") }
-    val saved = remember { mutableStateOf(listOf("LAUNCH20 (20%)", "CHERADIP10 (10%)", "WELCOME (15%)")) }
+private fun AdminPromoTab(
+    modifier: Modifier = Modifier,
+    viewModel: AdminPromoViewModel,
+) {
+    val codes by viewModel.codes.collectAsStateWithLifecycle()
+    val loading by viewModel.loading.collectAsStateWithLifecycle()
+    val message by viewModel.message.collectAsStateWithLifecycle()
+    val error by viewModel.error.collectAsStateWithLifecycle()
+    var newCode by remember { mutableStateOf("") }
+    var newDiscount by remember { mutableStateOf("20") }
+    var newSlot by remember { mutableIntStateOf(2) }
+    var newAutoApply by remember { mutableStateOf(false) }
 
     Column(
         modifier = modifier
             .verticalScroll(rememberScrollState())
             .padding(24.dp),
     ) {
-        Text("Promo codes", style = MaterialTheme.typography.headlineSmall)
-        OutlinedTextField(
-            value = code,
-            onValueChange = { code = it.uppercase() },
-            label = { Text("New code") },
+        Row(
             modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("Promo codes", style = MaterialTheme.typography.headlineSmall)
+            Button(onClick = viewModel::refresh, enabled = !loading) {
+                Text(if (loading) "…" else "Refresh")
+            }
+        }
+        Text(
+            "${codes.size} row(s) from promo_codes table. Saves use POST/PATCH on the server only.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = 4.dp),
         )
         OutlinedTextField(
-            value = discount,
-            onValueChange = { discount = it.filter { c -> c.isDigit() }.take(2) },
+            value = newCode,
+            onValueChange = { newCode = it.uppercase() },
+            label = { Text("New code") },
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 12.dp),
+        )
+        OutlinedTextField(
+            value = newDiscount,
+            onValueChange = { newDiscount = it.filter { c -> c.isDigit() }.take(2) },
             label = { Text("Discount %") },
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(top = 8.dp),
         )
+        Text("Paywall slot", style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(top = 8.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf(0 to "Referral gate", 1 to "Slot 1 auto", 2 to "Slot 2 manual").forEach { (slot, label) ->
+                FilterChip(
+                    selected = newSlot == slot,
+                    onClick = {
+                        newSlot = slot
+                        newAutoApply = slot == 1
+                    },
+                    label = { Text(label) },
+                )
+            }
+        }
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(top = 8.dp),
+        ) {
+            Switch(checked = newAutoApply, onCheckedChange = { newAutoApply = it })
+            Text("Auto-apply at checkout", modifier = Modifier.padding(start = 8.dp))
+        }
         Button(
             onClick = {
-                if (code.isNotBlank() && discount.isNotBlank()) {
-                    saved.value = saved.value + "$code ($discount%)"
-                    code = ""
+                val pct = newDiscount.toIntOrNull() ?: return@Button
+                if (newCode.isNotBlank()) {
+                    viewModel.createCode(newCode, pct, paywallSlot = newSlot, autoApply = newAutoApply)
+                    newCode = ""
                 }
             },
             modifier = Modifier.padding(top = 8.dp),
-        ) { Text("Add promo code") }
+        ) { Text("Save to promo_codes") }
+        message?.let {
+            Text(it, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(top = 8.dp))
+        }
+        error?.let {
+            Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 8.dp))
+        }
         Spacer(modifier = Modifier.height(16.dp))
-        saved.value.forEach { Text(it, modifier = Modifier.padding(vertical = 4.dp)) }
-        Text(
-            "Synced via POST /admin/promo-codes on cheradip.com",
-            style = MaterialTheme.typography.bodySmall,
-            modifier = Modifier.padding(top = 16.dp),
-        )
+        if (loading && codes.isEmpty()) {
+            Text("Loading…", style = MaterialTheme.typography.bodyMedium)
+        } else if (codes.isEmpty()) {
+            Text(
+                "No rows in promo_codes. Connect to cloud-api, then add codes below.",
+                style = MaterialTheme.typography.bodyMedium,
+            )
+        } else {
+            codes.forEach { row ->
+                PromoCodeEditCard(row = row, onSave = viewModel::updateCode)
+            }
+        }
+    }
+}
+
+@Composable
+private fun PromoCodeEditCard(
+    row: AdminPromoRepository.PromoRow,
+    onSave: (code: String, discountPercent: Int, active: Boolean, paywallSlot: Int, autoApply: Boolean) -> Unit,
+) {
+    var discount by remember(row.code, row.discountPercent) {
+        mutableStateOf(row.discountPercent.toString())
+    }
+    var active by remember(row.code, row.active) { mutableStateOf(row.active) }
+    var paywallSlot by remember(row.code, row.paywallSlot) { mutableIntStateOf(row.paywallSlot) }
+    var autoApply by remember(row.code, row.autoApply) { mutableStateOf(row.autoApply) }
+
+    Card(modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column {
+                    Text(row.code, style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        "promo_codes row",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Switch(checked = active, onCheckedChange = { active = it })
+            }
+            OutlinedTextField(
+                value = discount,
+                onValueChange = { discount = it.filter { c -> c.isDigit() }.take(2) },
+                label = { Text("Discount %") },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 8.dp),
+                singleLine = true,
+            )
+            Text("Paywall slot", style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(top = 8.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf(0 to "Gate", 1 to "Slot 1", 2 to "Slot 2").forEach { (slot, label) ->
+                    FilterChip(
+                        selected = paywallSlot == slot,
+                        onClick = {
+                            paywallSlot = slot
+                            if (slot == 1) autoApply = true
+                        },
+                        label = { Text(label) },
+                    )
+                }
+            }
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.padding(top = 8.dp),
+            ) {
+                Switch(checked = autoApply, onCheckedChange = { autoApply = it })
+                Text("Auto-apply", modifier = Modifier.padding(start = 8.dp))
+            }
+            Button(
+                onClick = {
+                    val pct = discount.toIntOrNull() ?: return@Button
+                    onSave(row.code, pct, active, paywallSlot, autoApply)
+                },
+                modifier = Modifier.padding(top = 8.dp),
+            ) { Text("Save to promo_codes") }
+        }
     }
 }
 
@@ -259,6 +481,12 @@ fun AdminAiProvidersTab(
                 Button(onClick = { viewModel.refresh() }, enabled = !loading) {
                     Text(if (loading) "…" else "Refresh")
                 }
+            }
+        }
+
+        if (loading && dashboard == null) {
+            item {
+                Text("Loading provider status…", style = MaterialTheme.typography.bodyMedium)
             }
         }
 
@@ -489,7 +717,7 @@ fun AdminHomeAiTab(
                 Column(modifier = Modifier.padding(16.dp)) {
                     Text("Backend: ${s.inferenceBackend}", style = MaterialTheme.typography.titleMedium)
                     Text("GPU: ${if (s.gpuAvailable) "available" else "unavailable"}")
-                    Text("Model loaded: ${s.modelLoaded ?: "none"}")
+                    Text("Model loaded: ${s.modelLoaded ?: "none (loads on first LLM request)"}")
                     Text("Queue depth: ${s.queueDepth}")
                     Text(
                         "Cache hit rate: ${s.cacheHitRatePct}% " +

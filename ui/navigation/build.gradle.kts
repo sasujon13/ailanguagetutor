@@ -19,6 +19,9 @@ android {
 
 dependencies {
     implementation(project(":ui:theme"))
+    implementation(project(":ui:components"))
+    implementation(project(":core:locale"))
+    implementation(project(":core:model"))
     implementation(project(":core:auth"))
     implementation(project(":core:billing"))
     implementation(project(":core:audio"))
@@ -28,9 +31,11 @@ dependencies {
     implementation(project(":feature:languages"))
     implementation(project(":feature:journal"))
     implementation(project(":feature:practice"))
+    implementation(project(":feature:grammar"))
     implementation(project(":feature:settings"))
     implementation(project(":feature:auth"))
     implementation(project(":feature:billing"))
+    implementation(project(":core:locale"))
     implementation(project(":feature:onboarding"))
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.ui)

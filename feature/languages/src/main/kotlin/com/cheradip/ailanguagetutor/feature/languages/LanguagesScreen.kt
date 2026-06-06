@@ -4,9 +4,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.Search
@@ -14,6 +12,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -28,10 +27,16 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import com.cheradip.ailanguagetutor.core.database.entity.LanguagePackStateEntity
+import com.cheradip.ailanguagetutor.core.locale.AppLocaleManager
+import com.cheradip.ailanguagetutor.core.locale.LocalAppStrings
+import com.cheradip.ailanguagetutor.core.locale.appString
+import com.cheradip.ailanguagetutor.core.locale.localizedString
+import com.cheradip.ailanguagetutor.core.model.DeviceLocaleHints
 import com.cheradip.ailanguagetutor.core.model.LanguageCatalogEntry
 import com.cheradip.ailanguagetutor.core.model.LanguageSearchFilter
 import com.cheradip.ailanguagetutor.core.pack.LanguageCatalogRepository
 import com.cheradip.ailanguagetutor.core.pack.LanguagePackRepository
+import com.cheradip.ailanguagetutor.core.pack.MaxActivePacksException
 import com.cheradip.ailanguagetutor.ui.components.CheradipDropdown
 import com.cheradip.ailanguagetutor.ui.components.CheradipScrollScreen
 import com.cheradip.ailanguagetutor.ui.components.EmptyStateHint
@@ -46,17 +51,23 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
-private enum class PackFilter(val label: String) {
-    ALL("All languages"),
-    DOWNLOADED("Downloaded"),
-    ACTIVE("Active"),
-    NOT_DOWNLOADED("Not downloaded"),
+private enum class PackFilter(val labelKey: String) {
+    ALL("languages_filter_all"),
+    DOWNLOADED("languages_filter_downloaded"),
+    ACTIVE("languages_filter_active"),
+    NOT_DOWNLOADED("languages_filter_not_downloaded"),
 }
+
+data class LanguagesMessage(
+    val text: String,
+    val isWarning: Boolean = false,
+)
 
 @HiltViewModel
 class LanguagesViewModel @Inject constructor(
     private val catalogRepository: LanguageCatalogRepository,
     private val languagePackRepository: LanguagePackRepository,
+    private val appLocaleManager: AppLocaleManager,
 ) : ViewModel() {
     private val _languages = MutableStateFlow<List<LanguageCatalogEntry>>(emptyList())
     val languages: StateFlow<List<LanguageCatalogEntry>> = _languages.asStateFlow()
@@ -64,8 +75,8 @@ class LanguagesViewModel @Inject constructor(
     val packs: StateFlow<List<LanguagePackStateEntity>> = languagePackRepository.observeAll()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    private val _message = MutableStateFlow<String?>(null)
-    val message: StateFlow<String?> = _message.asStateFlow()
+    private val _message = MutableStateFlow<LanguagesMessage?>(null)
+    val message: StateFlow<LanguagesMessage?> = _message.asStateFlow()
 
     init {
         viewModelScope.launch {
@@ -76,8 +87,29 @@ class LanguagesViewModel @Inject constructor(
     fun download(code: String) {
         viewModelScope.launch {
             languagePackRepository.downloadAndActivate(code)
-                .onSuccess { _message.value = "Pack downloaded for $code" }
-                .onFailure { _message.value = it.message }
+                .onSuccess { _message.value = LanguagesMessage(appLocaleManager.t("languages_pack_downloaded", code)) }
+                .onFailure { _message.value = LanguagesMessage(it.message ?: "Download failed", isWarning = true) }
+        }
+    }
+
+    fun setActive(code: String, active: Boolean) {
+        viewModelScope.launch {
+            languagePackRepository.setActive(code, active)
+                .onSuccess {
+                    _message.value = LanguagesMessage(
+                        if (active) appLocaleManager.t("languages_now_active", code)
+                        else appLocaleManager.t("languages_deactivated", code),
+                    )
+                }
+                .onFailure { error ->
+                    _message.value = when (error) {
+                        is MaxActivePacksException -> LanguagesMessage(
+                            appLocaleManager.t("languages_max_active"),
+                            isWarning = true,
+                        )
+                        else -> LanguagesMessage(error.message ?: "Failed", isWarning = true)
+                    }
+                }
         }
     }
 
@@ -94,9 +126,11 @@ fun LanguagesScreen(
     val message by viewModel.message.collectAsStateWithLifecycle()
     var query by remember { mutableStateOf("") }
     var packFilter by remember { mutableStateOf(PackFilter.ALL) }
+    val localeHints = remember { DeviceLocaleHints.current() }
+    val strings = LocalAppStrings.current
     val packMap = remember(packs) { packs.associateBy { it.languageCode.lowercase() } }
-    val filtered = remember(languages, query, packFilter, packMap) {
-        val searched = LanguageSearchFilter.filterAndSort(languages, query)
+    val filtered = remember(languages, query, packFilter, packMap, localeHints) {
+        val searched = LanguageSearchFilter.filterAndSort(languages, query, localeHints)
         when (packFilter) {
             PackFilter.ALL -> searched
             PackFilter.DOWNLOADED -> searched.filter { packMap.containsKey(it.code.lowercase()) }
@@ -107,44 +141,49 @@ fun LanguagesScreen(
 
     CheradipScrollScreen(
         modifier = modifier,
-        title = "Languages",
-        subtitle = "${packs.count { it.isActive }} active · max 3",
+        title = appString("languages_title"),
+        subtitle = "${packs.count { it.isActive }} ${appString("languages_subtitle_active")}",
     ) {
         item {
             OutlinedTextField(
                 value = query,
                 onValueChange = { query = it },
                 modifier = Modifier.fillMaxWidth(),
-                label = { Text("Search") },
-                placeholder = { Text("Filter 243 languages…") },
+                label = { Text(appString("languages_search")) },
+                placeholder = { Text(appString("languages_search_hint")) },
                 singleLine = true,
                 leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
             )
         }
         item {
             CheradipDropdown(
-                label = "Show",
+                label = appString("languages_show"),
                 options = PackFilter.entries.toList(),
                 selected = packFilter,
                 onSelected = { packFilter = it },
-                optionLabel = { it.label },
+                optionLabel = { localizedString(it.labelKey, strings) },
                 leadingIcon = Icons.Default.FilterList,
             )
         }
         item {
             Text(
-                "${filtered.size} shown",
+                "${filtered.size} ${appString("languages_shown")}",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            message?.let {
-                Text(it, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(top = 4.dp))
+            message?.let { msg ->
+                Text(
+                    msg.text,
+                    color = if (msg.isWarning) MaterialTheme.colorScheme.error
+                    else MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(top = 4.dp),
+                )
             }
         }
         if (filtered.isEmpty()) {
             item {
                 EmptyStateHint(
-                    if (query.isBlank() && languages.isEmpty()) "Loading languages…" else "No languages match your filters",
+                    if (query.isBlank() && languages.isEmpty()) appString("languages_loading") else appString("languages_no_match"),
                     icon = Icons.Default.Search,
                 )
             }
@@ -156,6 +195,7 @@ fun LanguagesScreen(
                     lang = lang,
                     pack = pack,
                     onDownload = { viewModel.download(lang.code) },
+                    onActiveChange = { active -> viewModel.setActive(lang.code, active) },
                 )
             }
         }
@@ -167,6 +207,7 @@ private fun LanguageRow(
     lang: LanguageCatalogEntry,
     pack: LanguagePackStateEntity?,
     onDownload: () -> Unit,
+    onActiveChange: (Boolean) -> Unit,
 ) {
     Row(
         modifier = Modifier
@@ -184,18 +225,16 @@ private fun LanguageRow(
             )
             pack?.let {
                 Text(
-                    if (it.isActive) "Downloaded · Active" else "Downloaded",
+                    if (it.isActive) appString("languages_downloaded_active") else appString("languages_downloaded"),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.primary,
                 )
             }
         }
         if (pack != null) {
-            Icon(
-                Icons.Default.CheckCircle,
-                contentDescription = "Downloaded",
-                tint = MaterialTheme.colorScheme.secondary,
-                modifier = Modifier.size(28.dp),
+            Switch(
+                checked = pack.isActive,
+                onCheckedChange = onActiveChange,
             )
         } else {
             IconButton(onClick = onDownload) {

@@ -23,6 +23,15 @@ interface AiltAuthService {
 
     @POST("auth/verify-whatsapp")
     suspend fun verifyWhatsApp(@Body body: OtpVerifyRequest): AuthLoginResponse
+
+    @POST("auth/signup/init")
+    suspend fun signupInit(@Body body: SignupInitRequest): SignupInitResponse
+
+    @POST("auth/signup/verify-email")
+    suspend fun signupVerifyEmail(@Body body: OtpVerifyRequest): AuthLoginResponse
+
+    @POST("auth/signup/verify-whatsapp")
+    suspend fun signupVerifyWhatsApp(@Body body: OtpVerifyRequest): AuthLoginResponse
 }
 
 interface AiltDeviceService {
@@ -51,6 +60,9 @@ interface AiltReferralService {
 
     @GET("referral/balance")
     suspend fun balance(): ReferralBalanceResponse
+
+    @POST("referral/withdraw")
+    suspend fun withdraw(@Body body: ReferralWithdrawRequest): ReferralWithdrawResponse
 }
 
 interface AiltLanguageService {
@@ -67,6 +79,12 @@ interface AiltAdminService {
 
     @POST("admin/promo-codes")
     suspend fun createPromoCode(@Body body: AdminPromoCodeDto): AdminPromoCodeDto
+
+    @PATCH("admin/promo-codes/{code}")
+    suspend fun patchPromoCode(
+        @Path("code") code: String,
+        @Body body: AdminPromoPatchDto,
+    ): AdminPromoCodeDto
 
     /** AI provider pool status — admin only. */
     @GET("admin/ai/providers")

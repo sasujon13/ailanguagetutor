@@ -8,9 +8,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Star
-import androidx.compose.material.icons.filled.QrCodeScanner
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Save
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Translate
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -71,13 +71,6 @@ fun ModeSelectionScreen(
         onBack = onDone,
     ) {
         item {
-            Text(
-                "OCR scans automatically use Lightweight mode (4).",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        item {
             SectionHeader(title = "Step 1 — Intent")
         }
         item {
@@ -98,21 +91,46 @@ fun ModeSelectionScreen(
             ModeCard(
                 meta = meta,
                 selected = state.selectedMode == meta.mode,
+                locked = viewModel.isModeLocked(meta.mode),
                 onClick = { viewModel.selectMode(meta.mode) },
             )
         }
-        item {
-            Card(
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.QrCodeScanner, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                    Text(
-                        " Mode 4 Lightweight applies automatically when you scan with OCR.",
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                }
+        if (state.languageOptions.isNotEmpty()) {
+            item {
+                SectionHeader(title = "Step 3 — Practice languages")
+            }
+            item {
+                Text(
+                    "Input is the language you speak or type. Output is the language you hear in TTS.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            item {
+                val inputOptions = state.languageOptions
+                val selectedInput = inputOptions.firstOrNull {
+                    it.code.equals(state.inputLanguage, ignoreCase = true)
+                } ?: inputOptions.first()
+                CheradipDropdown(
+                    label = "Input language (native / source)",
+                    options = inputOptions,
+                    selected = selectedInput,
+                    onSelected = { viewModel.setInputLanguage(it.code) },
+                    optionLabel = { it.label },
+                )
+            }
+            item {
+                val outputOptions = state.languageOptions
+                val selectedOutput = outputOptions.firstOrNull {
+                    it.code.equals(state.outputLanguage, ignoreCase = true)
+                } ?: outputOptions.first()
+                CheradipDropdown(
+                    label = "Output language (TTS voice)",
+                    options = outputOptions,
+                    selected = selectedOutput,
+                    onSelected = { viewModel.setOutputLanguage(it.code) },
+                    optionLabel = { it.label },
+                )
             }
         }
         item {
@@ -126,16 +144,22 @@ fun ModeSelectionScreen(
 }
 
 @Composable
-private fun ModeCard(meta: AiModeUiMeta, selected: Boolean, onClick: () -> Unit) {
+private fun ModeCard(
+    meta: AiModeUiMeta,
+    selected: Boolean,
+    locked: Boolean,
+    onClick: () -> Unit,
+) {
+    val containerColor = when {
+        selected -> MaterialTheme.colorScheme.primaryContainer
+        locked -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.65f)
+        else -> MaterialTheme.colorScheme.surface
+    }
     Card(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick),
-        colors = if (selected) {
-            CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
-        } else {
-            CardDefaults.cardColors()
-        },
+        colors = CardDefaults.cardColors(containerColor = containerColor),
     ) {
         Row(
             modifier = Modifier.padding(16.dp),
@@ -144,10 +168,23 @@ private fun ModeCard(meta: AiModeUiMeta, selected: Boolean, onClick: () -> Unit)
             Text(meta.emoji, modifier = Modifier.padding(end = 12.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(meta.label, style = MaterialTheme.typography.titleMedium)
-                Text(meta.description, style = MaterialTheme.typography.bodySmall)
+                Text(
+                    meta.description,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
-            if (selected) {
-                Icon(Icons.Default.Check, contentDescription = "Selected", tint = MaterialTheme.colorScheme.primary)
+            when {
+                locked -> Icon(
+                    Icons.Default.Lock,
+                    contentDescription = "Plus required",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                selected -> Icon(
+                    Icons.Default.Check,
+                    contentDescription = "Selected",
+                    tint = MaterialTheme.colorScheme.primary,
+                )
             }
         }
     }
@@ -158,7 +195,8 @@ fun PlusUpgradeSheet(onUpgrade: () -> Unit, onDismiss: () -> Unit) {
     Column(modifier = Modifier.padding(24.dp)) {
         Text("Plus required", style = MaterialTheme.typography.titleLarge)
         Text(
-            "High Accuracy mode (5) needs a Plus subscription. Pro includes modes 1–4.",
+            "High Quality mode needs a Plus subscription. It activates automatically when you upgrade. " +
+                "You can switch to another mode anytime — your Plus plan stays active until you downgrade to Pro.",
             modifier = Modifier.padding(vertical = 12.dp),
         )
         IconTextButton(label = "Upgrade to Plus", icon = Icons.Default.Star, onClick = onUpgrade)

@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import AliasChoices, BaseModel, Field
 
 
 class AuthLoginRequest(BaseModel):
@@ -23,6 +23,33 @@ class OtpVerifyRequest(BaseModel):
     code: str
 
 
+class SignupInitRequest(BaseModel):
+    fullName: str = Field(min_length=2, max_length=80)
+    email: str
+    whatsapp: str
+    username: str = Field(min_length=3, max_length=64)
+    password: str = Field(min_length=8)
+    loginWith: str = Field(description="email or whatsapp")
+
+
+class SignupInitResponse(BaseModel):
+    ok: bool = True
+    message: str = "Email verification code sent"
+
+
+class ReferralWithdrawRequest(BaseModel):
+    method: str = Field(description="paypal, bank_transfer, or mobile_wallet")
+    payoutDetails: str = Field(min_length=3)
+    amountUsd: float | None = None
+
+
+class ReferralWithdrawResponse(BaseModel):
+    ok: bool
+    message: str
+    balanceUsd: float
+    withdrawalId: int | None = None
+
+
 class DeviceRegisterRequest(BaseModel):
     deviceId: str
     model: str
@@ -37,6 +64,8 @@ class DeviceRegisterResponse(BaseModel):
 class BillingVerifyRequest(BaseModel):
     purchaseToken: str
     productId: str
+    slot1Code: str | None = None
+    slot2Code: str | None = None
 
 
 class BillingVerifyResponse(BaseModel):
@@ -48,21 +77,43 @@ class BillingVerifyResponse(BaseModel):
 class PromoValidateRequest(BaseModel):
     code: str
     base_price: float = Field(2.0, alias="base_price")
+    slot1_code: str | None = Field(None, alias="slot1_code")
 
     model_config = {"populate_by_name": True}
 
 
 class AdminPromoCodeDto(BaseModel):
     code: str
-    discount_percent: int = Field(alias="discount_percent")
+    discount_percent: int = Field(
+        validation_alias=AliasChoices("discount_percent", "discountPercent"),
+    )
     active: bool = True
+    auto_apply: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("auto_apply", "autoApply"),
+    )
+    paywall_slot: int = Field(
+        default=2,
+        validation_alias=AliasChoices("paywall_slot", "paywallSlot"),
+    )
 
     model_config = {"populate_by_name": True}
 
 
 class AdminPromoPatchDto(BaseModel):
-    discount_percent: int | None = Field(None, alias="discount_percent")
+    discount_percent: int | None = Field(
+        None,
+        validation_alias=AliasChoices("discount_percent", "discountPercent"),
+    )
     active: bool | None = None
+    auto_apply: bool | None = Field(
+        None,
+        validation_alias=AliasChoices("auto_apply", "autoApply"),
+    )
+    paywall_slot: int | None = Field(
+        None,
+        validation_alias=AliasChoices("paywall_slot", "paywallSlot"),
+    )
 
     model_config = {"populate_by_name": True}
 

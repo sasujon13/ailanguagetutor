@@ -12,6 +12,7 @@ import androidx.compose.material.icons.filled.Keyboard
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.QrCodeScanner
+import androidx.compose.material.icons.filled.AutoStories
 import androidx.compose.material.icons.filled.Translate
 import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
@@ -19,6 +20,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.cheradip.ailanguagetutor.core.locale.appString
 import com.cheradip.ailanguagetutor.ui.components.CheradipScrollScreen
 import com.cheradip.ailanguagetutor.ui.components.QuickAction
 import com.cheradip.ailanguagetutor.ui.components.QuickActionGrid
@@ -28,21 +30,23 @@ import com.cheradip.ailanguagetutor.ui.components.SectionHeader
 fun HomeScreen(
     modifier: Modifier = Modifier,
     onScanClick: () -> Unit = {},
+    onCameraClick: () -> Unit = {},
     onPracticeClick: () -> Unit = {},
     onTypeClick: () -> Unit = {},
     onVoiceClick: () -> Unit = {},
     onImportClick: () -> Unit = {},
     onListenClick: () -> Unit = {},
     onLearningClick: () -> Unit = {},
+    onGrammarClick: () -> Unit = {},
 ) {
     CheradipScrollScreen(
         modifier = modifier,
-        title = "AI Language Tutor",
-        subtitle = "243 languages · Offline-first",
+        title = appString("home_title"),
+        subtitle = appString("home_subtitle"),
     ) {
         item {
             Text(
-                "What would you like to do?",
+                appString("home_prompt"),
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -50,26 +54,26 @@ fun HomeScreen(
         item {
             QuickActionGrid(
                 actions = listOf(
-                    QuickAction("Scan", Icons.Default.QrCodeScanner, onScanClick),
-                    QuickAction("Camera", Icons.Default.CameraAlt, onScanClick),
-                    QuickAction("Import", Icons.Default.PhotoLibrary, onImportClick),
-                    QuickAction("Practice", Icons.Default.Translate, onPracticeClick),
-                    QuickAction("Type", Icons.Default.Keyboard, onTypeClick),
-                    QuickAction("Voice", Icons.Default.Mic, onVoiceClick),
-                    QuickAction("Listen", Icons.AutoMirrored.Filled.VolumeUp, onListenClick),
-                    QuickAction("Learning", Icons.AutoMirrored.Filled.MenuBook, onLearningClick),
+                    QuickAction(appString("action_scan"), Icons.Default.QrCodeScanner, onScanClick),
+                    QuickAction(appString("action_camera"), Icons.Default.CameraAlt, onCameraClick),
+                    QuickAction(appString("action_import"), Icons.Default.PhotoLibrary, onImportClick),
+                    QuickAction(appString("action_practice"), Icons.Default.Translate, onPracticeClick),
+                    QuickAction(appString("action_type"), Icons.Default.Keyboard, onTypeClick),
+                    QuickAction(appString("action_voice"), Icons.Default.Mic, onVoiceClick),
+                    QuickAction(appString("action_listen"), Icons.AutoMirrored.Filled.VolumeUp, onListenClick),
+                    QuickAction(appString("action_learning"), Icons.AutoMirrored.Filled.MenuBook, onLearningClick),
+                    QuickAction(appString("action_grammar"), Icons.Default.AutoStories, onGrammarClick),
                 ),
             )
         }
         item {
             Spacer(modifier = Modifier.height(8.dp))
-            SectionHeader(title = "Quick tips")
+            SectionHeader(title = appString("home_tips_header"))
         }
         item {
             Card(modifier = Modifier.fillMaxWidth()) {
                 Text(
-                    "Scan or import a document → tap words to learn → practice with voice or typing. " +
-                        "Pick up to 3 languages in the Languages tab.",
+                    appString("home_tips_body"),
                     modifier = Modifier.padding(16.dp),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,

@@ -1,6 +1,7 @@
 package com.cheradip.ailanguagetutor.core.pack
 
 import android.content.Context
+import com.cheradip.ailanguagetutor.core.common.AppConfig
 import com.cheradip.ailanguagetutor.core.database.dao.LanguagePackDao
 import com.cheradip.ailanguagetutor.core.database.entity.LanguagePackStateEntity
 import com.cheradip.ailanguagetutor.core.model.LanguageCatalogEntry
@@ -13,6 +14,7 @@ import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -59,13 +61,34 @@ class PackDatabaseConnector @Inject constructor(
         return file.readText().let { packAdapter.fromJson(it) }
     }
 
-    suspend fun lookupWord(word: String, languageCode: String): List<String>? = withContext(Dispatchers.IO) {
+    suspend fun lookupWord(word: String, preferredLanguageCode: String): List<String>? = withContext(Dispatchers.IO) {
         val normalized = normalizeToken(word)
+        if (normalized.isBlank()) return@withContext null
+
+        val tried = mutableSetOf<String>()
+        suspend fun tryLanguage(lang: String): List<String>? {
+            val code = lang.lowercase()
+            if (!tried.add(code)) return null
+            return lookupInLanguage(normalized, code)
+        }
+
+        tryLanguage(preferredLanguageCode)?.let { return@withContext it }
+
+        languagePackDao.listDownloaded()
+            .sortedWith(compareByDescending<LanguagePackStateEntity> { it.isActive }.thenByDescending { it.downloadedAt })
+            .forEach { state ->
+                tryLanguage(state.languageCode)?.let { return@withContext it }
+            }
+
+        tryLanguage("en")
+    }
+
+    private suspend fun lookupInLanguage(normalized: String, languageCode: String): List<String>? {
         val state = languagePackDao.getByCode(languageCode)
         PackInstaller.dictionaryDb(state?.localPath)?.let { db ->
-            PackSqliteReader.lookupWord(db, normalized, languageCode)?.let { return@withContext it }
+            PackSqliteReader.lookupWord(db, normalized, languageCode)?.let { return it }
         }
-        loadPack(languageCode)?.entries?.get(normalized)
+        return loadPack(languageCode)?.entries?.get(normalized)
     }
 
     suspend fun lookupPhrase(phrase: String, languageCode: String): String? = withContext(Dispatchers.IO) {
@@ -149,12 +172,16 @@ class LanguagePackRepository @Inject constructor(
     private val languageService: AiltLanguageService,
     private val packConnector: PackDatabaseConnector,
     private val okHttpClient: OkHttpClient,
+    private val appConfig: AppConfig,
 ) {
     companion object {
         const val MAX_ACTIVE_PACKS = 3
     }
 
     fun observeActive(): Flow<List<LanguagePackStateEntity>> = languagePackDao.observeActive()
+
+    fun observeActiveLanguageCodes(): Flow<List<String>> =
+        observeActive().map { packs -> packs.map { it.languageCode.lowercase() } }
 
     fun observeAll(): Flow<List<LanguagePackStateEntity>> = languagePackDao.observeAll()
 
@@ -167,16 +194,26 @@ class LanguagePackRepository @Inject constructor(
             val existingState = languagePackDao.getByCode(languageCode)
             val hasSqlitePack = PackInstaller.dictionaryDb(existingState?.localPath)?.isFile == true
             if (!hasSqlitePack || info != null) {
-                val downloaded = info?.downloadUrl?.let { url ->
-                    downloadPackFromUrl(url, zipDest)
-                } ?: false
+                val downloadUrls = buildList {
+                    info?.downloadUrl?.let { add(it) }
+                    add(packFileUrl(languageCode))
+                }.distinct()
+                var downloaded = false
+                for (url in downloadUrls) {
+                    if (downloadPackFromUrl(url, zipDest)) {
+                        downloaded = true
+                        break
+                    }
+                }
                 val localPath = if (downloaded && zipDest.isFile) {
                     val installedDb = PackInstaller.installPack(zipDest, languageCode, packsDir)
                     installedDb.parentFile?.absolutePath ?: installedDb.absolutePath
                 } else if (jsonDest.isFile) {
                     jsonDest.absolutePath
-                } else {
+                } else if (languageCode.equals("en", ignoreCase = true)) {
                     copyBundledFallback(jsonDest)
+                } else {
+                    error("SQLite pack for $languageCode not available — start cloud-api and retry")
                 }
                 val version = info?.version ?: 1
                 val existing = languagePackDao.getByCode(languageCode)
@@ -196,6 +233,11 @@ class LanguagePackRepository @Inject constructor(
             packConnector.loadPack(languageCode)
             Unit
         }
+    }
+
+    private fun packFileUrl(languageCode: String): String {
+        val base = appConfig.apiBaseUrl.trimEnd('/')
+        return "$base/languages/${languageCode.lowercase()}/file"
     }
 
     private fun downloadPackFromUrl(url: String, dest: File): Boolean {
@@ -222,7 +264,7 @@ class LanguagePackRepository @Inject constructor(
             val state = languagePackDao.getByCode(languageCode)
                 ?: error("Download pack first")
             if (active && !state.isActive && languagePackDao.activeCount() >= MAX_ACTIVE_PACKS) {
-                error("Maximum $MAX_ACTIVE_PACKS active language packs")
+                throw MaxActivePacksException()
             }
             languagePackDao.update(state.copy(isActive = active))
         }

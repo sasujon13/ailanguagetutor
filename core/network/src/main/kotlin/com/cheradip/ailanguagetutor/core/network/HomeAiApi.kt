@@ -23,6 +23,20 @@ interface HomeAiApi {
     @POST("clean-ocr")
     suspend fun cleanOcr(@Body body: HomeAiRequest): HomeAiCleanOcrResponse
 
+    @POST("prefetch-grammar")
+    suspend fun prefetchGrammar(@Body body: HomeAiGrammarPrefetchRequest): HomeAiGrammarPrefetchResponse
+
+    @POST("prefetch-ai")
+    suspend fun prefetchAi(@Body body: HomeAiPrefetchRequest): HomeAiPrefetchResponse
+
+    @POST("grammar-book")
+    suspend fun grammarBook(@Body body: HomeAiGrammarBookRequest): HomeAiGrammarBookResponse
+
+    @POST("grammar-book/enrich-section")
+    suspend fun grammarBookEnrichSection(
+        @Body body: HomeAiGrammarBookEnrichRequest,
+    ): HomeAiGrammarBookEnrichResponse
+
     @GET("admin/status")
     suspend fun adminStatus(): HomeAiAdminStatusResponse
 }
@@ -57,6 +71,115 @@ data class HomeAiTranslateResponse(
 data class HomeAiCleanOcrResponse(
     @Json(name = "cleaned_text") val cleanedText: String,
     val mode: Int = 4,
+    val cached: Boolean = false,
+)
+
+@JsonClass(generateAdapter = true)
+data class HomeAiGrammarPrefetchItem(
+    @Json(name = "context_text") val contextText: String,
+    @Json(name = "focus_word") val focusWord: String? = null,
+    val offset: Int = 0,
+)
+
+@JsonClass(generateAdapter = true)
+data class HomeAiGrammarPrefetchRequest(
+    @Json(name = "grammar_depth") val grammarDepth: Int,
+    @Json(name = "language_code") val languageCode: String,
+    @Json(name = "target_languages") val targetLanguages: List<String> = emptyList(),
+    @Json(name = "ai_engine_mode") val aiEngineMode: Int = 1,
+    @Json(name = "input_source") val inputSource: String = "typed",
+    @Json(name = "subscription_tier") val subscriptionTier: String = "pro",
+    val items: List<HomeAiGrammarPrefetchItem> = emptyList(),
+)
+
+@JsonClass(generateAdapter = true)
+data class HomeAiGrammarPrefetchResponse(
+    val warmed: Int = 0,
+    val cached: Int = 0,
+    val total: Int = 0,
+    @Json(name = "language_code") val languageCode: String = "en",
+    @Json(name = "target_languages") val targetLanguages: List<String> = emptyList(),
+    val results: List<HomeAiGrammarResultItem> = emptyList(),
+)
+
+@JsonClass(generateAdapter = true)
+data class HomeAiGrammarResultItem(
+    @Json(name = "focus_word") val focusWord: String? = null,
+    val explanation: String = "",
+)
+
+@JsonClass(generateAdapter = true)
+data class HomeAiPrefetchRequest(
+    @Json(name = "grammar_depth") val grammarDepth: Int,
+    @Json(name = "language_code") val languageCode: String,
+    @Json(name = "target_languages") val targetLanguages: List<String> = emptyList(),
+    @Json(name = "ai_engine_mode") val aiEngineMode: Int = 1,
+    @Json(name = "input_source") val inputSource: String = "typed",
+    @Json(name = "subscription_tier") val subscriptionTier: String = "pro",
+    @Json(name = "grammar_items") val grammarItems: List<HomeAiGrammarPrefetchItem> = emptyList(),
+    @Json(name = "explain_text") val explainText: String? = null,
+    @Json(name = "translate_text") val translateText: String? = null,
+)
+
+@JsonClass(generateAdapter = true)
+data class HomeAiPrefetchResponse(
+    val grammar: HomeAiGrammarPrefetchResponse = HomeAiGrammarPrefetchResponse(),
+    @Json(name = "explain_warmed") val explainWarmed: Boolean = false,
+    @Json(name = "explain_cached") val explainCached: Boolean = false,
+    @Json(name = "translate_warmed") val translateWarmed: Boolean = false,
+    @Json(name = "translate_cached") val translateCached: Boolean = false,
+)
+
+@JsonClass(generateAdapter = true)
+data class HomeAiGrammarBookRequest(
+    @Json(name = "language_code") val languageCode: String,
+    @Json(name = "language_name") val languageName: String = "",
+    @Json(name = "ai_engine_mode") val aiEngineMode: Int = 1,
+    @Json(name = "subscription_tier") val subscriptionTier: String = "pro",
+)
+
+@JsonClass(generateAdapter = true)
+data class HomeAiGrammarBookSectionDto(
+    val heading: String = "",
+    val body: String = "",
+    val examples: List<String> = emptyList(),
+)
+
+@JsonClass(generateAdapter = true)
+data class HomeAiGrammarBookChapterDto(
+    val number: Int = 1,
+    val title: String = "",
+    val summary: String = "",
+    val sections: List<HomeAiGrammarBookSectionDto> = emptyList(),
+)
+
+@JsonClass(generateAdapter = true)
+data class HomeAiGrammarBookResponse(
+    val title: String = "",
+    @Json(name = "language_code") val languageCode: String = "en",
+    @Json(name = "language_name") val languageName: String = "",
+    val chapters: List<HomeAiGrammarBookChapterDto> = emptyList(),
+    val cached: Boolean = false,
+)
+
+@JsonClass(generateAdapter = true)
+data class HomeAiGrammarBookEnrichRequest(
+    @Json(name = "language_code") val languageCode: String,
+    @Json(name = "language_name") val languageName: String = "",
+    @Json(name = "chapter_number") val chapterNumber: Int,
+    @Json(name = "chapter_title") val chapterTitle: String = "",
+    @Json(name = "section_heading") val sectionHeading: String = "",
+    @Json(name = "section_body") val sectionBody: String = "",
+    val examples: List<String> = emptyList(),
+    @Json(name = "ai_engine_mode") val aiEngineMode: Int = 1,
+    @Json(name = "subscription_tier") val subscriptionTier: String = "pro",
+)
+
+@JsonClass(generateAdapter = true)
+data class HomeAiGrammarBookEnrichResponse(
+    @Json(name = "expanded_body") val expandedBody: String = "",
+    @Json(name = "extra_examples") val extraExamples: List<String> = emptyList(),
+    @Json(name = "learner_tip") val learnerTip: String = "",
     val cached: Boolean = false,
 )
 

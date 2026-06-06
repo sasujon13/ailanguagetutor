@@ -25,6 +25,22 @@ data class OtpRequest(val target: String)
 data class OtpVerifyRequest(val target: String, val code: String)
 
 @JsonClass(generateAdapter = true)
+data class SignupInitRequest(
+    val fullName: String,
+    val email: String,
+    val whatsapp: String,
+    val username: String,
+    val password: String,
+    val loginWith: String,
+)
+
+@JsonClass(generateAdapter = true)
+data class SignupInitResponse(
+    val ok: Boolean = true,
+    val message: String = "",
+)
+
+@JsonClass(generateAdapter = true)
 data class DeviceRegisterRequest(
     val deviceId: String,
     val model: String,
@@ -41,6 +57,8 @@ data class DeviceRegisterResponse(
 data class BillingVerifyRequest(
     val purchaseToken: String,
     val productId: String,
+    val slot1Code: String? = null,
+    val slot2Code: String? = null,
 )
 
 @JsonClass(generateAdapter = true)
@@ -51,7 +69,11 @@ data class BillingVerifyResponse(
 )
 
 @JsonClass(generateAdapter = true)
-data class PromoValidateRequest(val code: String, @Json(name = "base_price") val basePrice: Double = 1.0)
+data class PromoValidateRequest(
+    val code: String,
+    @Json(name = "base_price") val basePrice: Double = 1.0,
+    @Json(name = "slot1_code") val slot1Code: String? = null,
+)
 
 @JsonClass(generateAdapter = true)
 data class PaywallSlotConfig(
@@ -85,12 +107,30 @@ data class PromoValidateResponse(
 data class ReferralPolicyResponse(
     @Json(name = "commission_percent") val commissionPercent: Int,
     @Json(name = "notice_text") val noticeText: String,
+    @Json(name = "min_withdrawal_usd") val minWithdrawalUsd: Double = 100.0,
 )
 
 @JsonClass(generateAdapter = true)
 data class ReferralBalanceResponse(
     @Json(name = "balance_usd") val balanceUsd: Double,
     @Json(name = "lifetime_earned_usd") val lifetimeEarnedUsd: Double,
+    @Json(name = "min_withdrawal_usd") val minWithdrawalUsd: Double = 100.0,
+    val withdrawable: Boolean = false,
+)
+
+@JsonClass(generateAdapter = true)
+data class ReferralWithdrawRequest(
+    val method: String,
+    val payoutDetails: String,
+    @Json(name = "amountUsd") val amountUsd: Double? = null,
+)
+
+@JsonClass(generateAdapter = true)
+data class ReferralWithdrawResponse(
+    val ok: Boolean,
+    val message: String,
+    @Json(name = "balance_usd") val balanceUsd: Double,
+    @Json(name = "withdrawal_id") val withdrawalId: Int? = null,
 )
 
 @JsonClass(generateAdapter = true)
@@ -109,6 +149,16 @@ data class AdminPromoCodeDto(
     val code: String,
     @Json(name = "discount_percent") val discountPercent: Int,
     val active: Boolean = true,
+    @Json(name = "auto_apply") val autoApply: Boolean = false,
+    @Json(name = "paywall_slot") val paywallSlot: Int = 2,
+)
+
+@JsonClass(generateAdapter = true)
+data class AdminPromoPatchDto(
+    @Json(name = "discount_percent") val discountPercent: Int? = null,
+    val active: Boolean? = null,
+    @Json(name = "auto_apply") val autoApply: Boolean? = null,
+    @Json(name = "paywall_slot") val paywallSlot: Int? = null,
 )
 
 @JsonClass(generateAdapter = true)

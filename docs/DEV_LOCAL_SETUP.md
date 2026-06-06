@@ -31,12 +31,25 @@ cloudflared service start
 
 ---
 
-## 2. One-time: Home AI models (Intel Arc)
+## 2. One-time: Home AI models
+
+**Recommended (current): Ollama + NLLB**
+
+```powershell
+cd D:\VSCode\android\ailanguagetutor\server\v2
+.\scripts\pull-ollama-models.ps1
+.\scripts\pull-nllb-model.ps1
+# .env: INFERENCE_BACKEND=ollama
+```
+
+**Optional: OpenVINO full stack (Whisper STT + Piper TTS weights)**
 
 ```powershell
 cd D:\VSCode\android\ailanguagetutor\server\v2
 .\scripts\setup_models.ps1
 ```
+
+See **`docs/OPTIONAL_FEATURES.md`** for STT/TTS, Mode 3 polish, Play billing, and cache housekeeping.
 
 ---
 
@@ -70,6 +83,7 @@ cloudflared tunnel run cheradip-ailt
 |-------|-----|
 | Home AI | https://ai.cheradip.com/health |
 | App API | https://ailt.cheradip.com/api/ailt/health |
+| Full smoke test | `.\scripts\verify-stack.ps1` (repo root) |
 
 Local only: http://localhost:8787/health and http://localhost:8790/api/ailt/health
 

@@ -26,13 +26,18 @@ object NetworkModule {
 
     @Provides
     @Singleton
-    fun provideOkHttpClient(): OkHttpClient {
+    fun provideOkHttpClient(
+        appLocaleInterceptor: AppLocaleInterceptor,
+        sessionAuthInterceptor: SessionAuthInterceptor,
+    ): OkHttpClient {
         val logging = HttpLoggingInterceptor().apply {
             level = HttpLoggingInterceptor.Level.BASIC
         }
         return OkHttpClient.Builder()
             .connectTimeout(30, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)
+            .addInterceptor(appLocaleInterceptor)
+            .addInterceptor(sessionAuthInterceptor)
             .addInterceptor(logging)
             .build()
     }

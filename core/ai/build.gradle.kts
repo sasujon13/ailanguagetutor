@@ -22,6 +22,7 @@ dependencies {
     implementation(project(":core:common"))
     implementation(project(":core:billing"))
     implementation(project(":core:device"))
+    implementation(project(":core:pack"))
     implementation(libs.androidx.core.ktx)
     implementation(libs.datastore.preferences)
     implementation(libs.hilt.android)

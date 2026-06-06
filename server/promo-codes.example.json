@@ -59,6 +59,15 @@
       "paywallSlot": 2,
       "comebackOnly": true,
       "active": true
+    },
+    {
+      "code": "REFER20",
+      "discountPercent": 20,
+      "autoApplyForAll": false,
+      "paywallSlot": 0,
+      "referralGateOnly": true,
+      "active": true,
+      "notes": "Not entered by users — gates referrer username discount in slot 2"
     }
   ],
   "expiredResponse": {

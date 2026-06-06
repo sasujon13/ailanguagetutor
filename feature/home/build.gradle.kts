@@ -25,6 +25,7 @@ android {
 dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(project(":ui:theme"))
+    implementation(project(":core:locale"))
     implementation(project(":ui:components"))
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.ui)

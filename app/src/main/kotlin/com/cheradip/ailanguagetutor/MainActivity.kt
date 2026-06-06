@@ -12,11 +12,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.lifecycleScope
 import com.cheradip.ailanguagetutor.core.audio.PronunciationEngine
+import com.cheradip.ailanguagetutor.core.audio.VoicePreferenceRepository
 import com.cheradip.ailanguagetutor.core.auth.AuthRepository
 import com.cheradip.ailanguagetutor.core.billing.BillingRepository
 import com.cheradip.ailanguagetutor.core.billing.CheckAppAccessUseCase
 import com.cheradip.ailanguagetutor.core.billing.PromoRepository
 import com.cheradip.ailanguagetutor.core.billing.ReferralRepository
+import com.cheradip.ailanguagetutor.core.locale.AppLocaleManager
+import com.cheradip.ailanguagetutor.core.ai.PlusTierAiModeSync
 import com.cheradip.ailanguagetutor.feature.onboarding.OnboardingPreferences
 import com.cheradip.ailanguagetutor.ui.navigation.AppNavHost
 import com.cheradip.ailanguagetutor.ui.theme.CheradipTheme
@@ -33,12 +36,21 @@ class MainActivity : ComponentActivity() {
     @Inject lateinit var promoRepository: PromoRepository
     @Inject lateinit var referralRepository: ReferralRepository
     @Inject lateinit var pronunciationEngine: PronunciationEngine
+    @Inject lateinit var voicePreferenceRepository: VoicePreferenceRepository
     @Inject lateinit var onboardingPreferences: OnboardingPreferences
+    @Inject lateinit var appLocaleManager: AppLocaleManager
+    @Inject lateinit var plusTierAiModeSync: PlusTierAiModeSync
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         pronunciationEngine.init()
+        lifecycleScope.launch {
+            voicePreferenceRepository.gender.collect { pronunciationEngine.setGender(it) }
+        }
+        lifecycleScope.launch {
+            authRepository.syncSessionFromStore()
+        }
         lifecycleScope.launch {
             onboardingPreferences.isComplete()
         }
@@ -60,6 +72,7 @@ class MainActivity : ComponentActivity() {
                     promoRepository = promoRepository,
                     referralRepository = referralRepository,
                     pronunciationEngine = pronunciationEngine,
+                    appLocaleManager = appLocaleManager,
                     currentUser = currentUser,
                     modifier = Modifier,
                 )

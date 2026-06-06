@@ -17,6 +17,10 @@ class User(Base):
     username: Mapped[str | None] = mapped_column(String(64), unique=True, index=True)
     password_hash: Mapped[str | None] = mapped_column(String(255))
     role: Mapped[str] = mapped_column(String(16), default="user")
+    full_name: Mapped[str | None] = mapped_column(String(80))
+    email_verified: Mapped[bool] = mapped_column(Boolean, default=False)
+    whatsapp_verified: Mapped[bool] = mapped_column(Boolean, default=False)
+    login_with: Mapped[str | None] = mapped_column(String(16))
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
     sessions: Mapped[list[SessionToken]] = relationship(back_populates="user")
@@ -104,6 +108,18 @@ class ReferralBalance(Base):
     lifetime_earned_usd: Mapped[float] = mapped_column(Float, default=0.0)
 
     user: Mapped[User] = relationship(back_populates="referral_balance")
+
+
+class ReferralWithdrawal(Base):
+    __tablename__ = "referral_withdrawals"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    amount_usd: Mapped[float] = mapped_column(Float)
+    method: Mapped[str] = mapped_column(String(32))
+    payout_details: Mapped[str] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(16), default="pending")
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
 
 class LanguagePack(Base):

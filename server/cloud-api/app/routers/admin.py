@@ -10,26 +10,49 @@ from app.security import quota_used_percent
 router = APIRouter(prefix="/admin", tags=["admin"])
 
 
+def _effective_health(provider: AiProvider) -> str:
+    if provider.health in ("disabled", "exhausted"):
+        return provider.health
+    if provider.last_error:
+        return "degraded"
+    return provider.health or "healthy"
+
+
+def _promo_to_dict(row: PromoCode) -> dict:
+    return {
+        "code": row.code,
+        "discount_percent": row.discount_percent,
+        "active": row.active,
+        "auto_apply": row.auto_apply,
+        "paywall_slot": row.paywall_slot,
+    }
+
+
 @router.get("/promo-codes")
 def list_promo_codes(db: Session = Depends(get_db)) -> dict:
+    """All rows from promo_codes table (admin console source of truth)."""
     rows = db.scalars(select(PromoCode).order_by(PromoCode.paywall_slot, PromoCode.code)).all()
-    return {
-        "codes": [
-            {"code": r.code, "discount_percent": r.discount_percent, "active": r.active}
-            for r in rows
-        ]
-    }
+    return {"codes": [_promo_to_dict(r) for r in rows]}
 
 
 @router.post("/promo-codes")
 def create_promo_code(body: AdminPromoCodeDto, db: Session = Depends(get_db)) -> dict:
     code = body.code.upper().strip()
+    if not code:
+        raise HTTPException(400, "Promo code is required")
     if db.scalar(select(PromoCode).where(PromoCode.code == code)):
         raise HTTPException(409, "Promo code already exists")
-    row = PromoCode(code=code, discount_percent=body.discount_percent, active=body.active)
+    row = PromoCode(
+        code=code,
+        discount_percent=max(0, min(body.discount_percent, 100)),
+        active=body.active,
+        auto_apply=body.auto_apply,
+        paywall_slot=body.paywall_slot,
+    )
     db.add(row)
     db.commit()
-    return {"code": row.code, "discount_percent": row.discount_percent, "active": row.active}
+    db.refresh(row)
+    return _promo_to_dict(row)
 
 
 @router.patch("/promo-codes/{code}")
@@ -38,13 +61,18 @@ def patch_promo_code(code: str, body: AdminPromoPatchDto, db: Session = Depends(
     if not row:
         raise HTTPException(404, "Promo not found")
     if body.discount_percent is not None:
-        row.discount_percent = body.discount_percent
+        row.discount_percent = max(0, min(body.discount_percent, 100))
         if body.discount_percent == 0:
             row.active = False
     if body.active is not None:
         row.active = body.active
+    if body.auto_apply is not None:
+        row.auto_apply = body.auto_apply
+    if body.paywall_slot is not None:
+        row.paywall_slot = body.paywall_slot
     db.commit()
-    return {"code": row.code, "discount_percent": row.discount_percent, "active": row.active}
+    db.refresh(row)
+    return _promo_to_dict(row)
 
 
 @router.patch("/referral-policy")
@@ -83,16 +111,17 @@ def ai_providers(db: Session = Depends(get_db)) -> dict:
     for p in providers:
         total += p.requests_today
         pct = quota_used_percent(p.requests_today, p.quota_daily_limit)
-        if p.tier == "free" and p.enabled and p.health == "healthy":
+        health = _effective_health(p)
+        if p.tier == "free" and p.enabled and health == "healthy":
             free_ok = True
-        if p.health == "exhausted":
+        if health == "exhausted":
             exhausted += 1
         dto_list.append(
             {
                 "id": p.id,
                 "display_name": p.display_name,
                 "tier": p.tier,
-                "health": p.health,
+                "health": health,
                 "quota_used_percent": pct,
                 "requests_today": p.requests_today,
                 "quota_daily_limit": p.quota_daily_limit,

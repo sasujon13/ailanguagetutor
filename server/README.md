@@ -10,13 +10,12 @@ Run locally:
 
 ```powershell
 cd server\cloud-api
-python scripts\build_language_packs.py   # tier-1 JSON packs (en, fr, es, de, bn, hi, ar, ja, pt, zh)
 .\scripts\run-dev.ps1
 ```
 
 Or one-click: `cd server; .\scripts\setup-all.ps1`
 
-**Language packs:** stored in `server/cloud-api/packs/{code}/v1.json`, synced to MySQL on startup, served at `GET /languages/{code}/file`.
+**Language packs:** 243 SQLite ZIPs in `server/cloud-api/packs/{code}/v1.zip`, synced to MySQL on startup, served at `GET /languages/{code}/file`. Rebuild: `.\server\cloud-api\scripts\build-all-packs.ps1` or `:tools:pack-builder:run`.
 
 **Cloud AI:** set `GEMINI_API_KEY` / `OPENAI_API_KEY` / `OPENROUTER_API_KEY` in `.env` for live LLM responses on `/ai/*`.
 
@@ -60,7 +59,7 @@ API keys **never** go in the Android APK. Configure providers on the server usin
 | `openai` | OpenAI GPT-4o mini | Free/low-cost tier |
 | `claude` | Anthropic Claude Haiku | Free tier where available |
 | `groq` | Groq (Llama) | High free RPM |
-| `openrouter` | OpenRouter | One key, many models; default `google/gemini-2.0-flash-exp:free` |
+| `openrouter` | OpenRouter | One key, many models; default `openrouter/free` |
 | `mistral` | Mistral | Smaller free quota |
 | `openai_paid` | GPT-4o paid | Enable when free pool exhausted |
 | `claude_paid` | Claude Sonnet paid | Premium fallback |
@@ -107,26 +106,24 @@ ANTHROPIC_PAID_API_KEY=...
 ADMIN_SEED_PASSWORD=...
 ```
 
-## Version 2.0.0 — local home AI (future)
+## Version 2.0.0 — Home AI (local PC)
 
-When upgrading to v2, the **primary AI engine runs on your personal PC** (`server/v2/` FastAPI).
+Primary AI runs on your PC: **`server/v2/`** FastAPI → tunnel **`https://ai.cheradip.com`**.
 
 | Feature | Detail |
 |---------|--------|
-| **Tiers** | **Free** · **Pro** $2/mo actual · **Plus** $5/mo actual |
-| **Pro modes** | 1–4 (pick 1–3; Mode 4 auto OCR) |
-| **Plus modes** | 1–5 (pick 1–3 or 5; Mode 4 auto OCR) |
-| **Translation** | NLLB (not LLM-only) |
-| **Promos** | LAUNCH50 auto 50%; admin adds/edits code name + discount % |
-| **Routing** | Task classifier + complexity + model selector |
-| **Cache** | L1 RAM → L2 Redis → L3 SQLite |
-| **GPU** | Intel Arc + OpenVINO |
+| **Backend** | Ollama (default) or OpenVINO — see `docs/OPTIONAL_FEATURES.md` |
+| **Tiers** | Free · Pro $2/mo · Plus $5/mo |
+| **Modes 1–5** | Smart Tutor, Fast Translation, Balanced (+ polish), Lightweight/OCR, High Accuracy (Plus) |
+| **Translation** | NLLB-600M + short-phrase / Mode 3 Qwen polish |
+| **STT / TTS** | `/stt`, `/tts` stubs until `setup_models.ps1` weights wired |
+| **Cache** | L1 RAM → L2 → L3 SQLite (`clear-cache.ps1`) |
 
 | Config | Purpose |
 |--------|---------|
-| `HOME_AI_BASE_URL` | Android admin → your PC |
-| `server/v2/` | FastAPI inference |
-| `server/v2/docs/ROUTING_AND_CACHE.md` | Router + cache implementation guide |
-| `server/ai-modes.example.json` | Mode + tier config |
+| `HOME_AI_BASE_URL` | Android → your PC |
+| `server/v2/scripts/run-dev.ps1` | Start Home AI |
+| `docs/OPTIONAL_FEATURES.md` | STT, TTS, billing, cache |
+| `server/v2/docs/ROUTING_AND_CACHE.md` | Router + cache |
 
-Full spec: `ailanguagetutor.md` → **Version 2.0.0** (revision 1.4.3).
+Full spec: `ailanguagetutor.md` → **Version 2.0.0**.

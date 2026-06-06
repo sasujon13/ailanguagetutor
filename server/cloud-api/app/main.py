@@ -11,6 +11,7 @@ from sqlalchemy import text
 
 from app.config import settings
 from app.database import engine
+from app.middleware.translate_response import TranslateResponseMiddleware
 from app.routers import admin, ai, auth, billing, device, languages, promo, referral
 from app.seed import init_database
 from app.services.pack_store import list_available_codes
@@ -32,6 +33,7 @@ async def lifespan(_app: FastAPI):
 
 
 app = FastAPI(title="Cheradip AILT API", version="1.0.0", lifespan=lifespan)
+app.add_middleware(TranslateResponseMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],

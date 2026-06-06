@@ -21,6 +21,7 @@ dependencies {
     implementation(project(":ui:theme"))
     implementation(project(":ui:components"))
     implementation(project(":core:database"))
+    implementation(project(":core:pack"))
     implementation(project(":core:model"))
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.ui)

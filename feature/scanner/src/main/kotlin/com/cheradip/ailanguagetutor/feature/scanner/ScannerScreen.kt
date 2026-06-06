@@ -52,12 +52,18 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import java.util.concurrent.Executors
 
+enum class ScannerLaunchMode {
+    CAMERA,
+    IMPORT,
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ScannerScreen(
     documentId: Long?,
     onBack: () -> Unit,
     onDone: (Long) -> Unit,
+    launchMode: ScannerLaunchMode = ScannerLaunchMode.CAMERA,
     viewModel: ScannerViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -80,21 +86,33 @@ fun ScannerScreen(
             viewModel.onGalleryImage(stream.readBytes())
         }
     }
+    var importGalleryOpened by remember { mutableStateOf(false) }
 
     LaunchedEffect(documentId) { viewModel.initDocument(documentId) }
 
-    LaunchedEffect(hasCameraPermission) {
-        if (!hasCameraPermission) permissionLauncher.launch(Manifest.permission.CAMERA)
+    LaunchedEffect(launchMode) {
+        if (launchMode == ScannerLaunchMode.IMPORT && !importGalleryOpened) {
+            importGalleryOpened = true
+            galleryLauncher.launch("image/*")
+        }
     }
+
+    LaunchedEffect(hasCameraPermission, launchMode) {
+        if (launchMode == ScannerLaunchMode.CAMERA && !hasCameraPermission) {
+            permissionLauncher.launch(Manifest.permission.CAMERA)
+        }
+    }
+
+    val isImportMode = launchMode == ScannerLaunchMode.IMPORT
 
     Scaffold(
         topBar = {
             TopAppBar(
                 title = {
                     Column {
-                        Text("Scanner")
+                        Text(if (isImportMode) "Import" else "Scanner")
                         Text(
-                            "Camera · Gallery import",
+                            if (isImportMode) "Gallery import" else "Camera · capture photo",
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -108,7 +126,7 @@ fun ScannerScreen(
             )
         },
         floatingActionButton = {
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            if (isImportMode) {
                 FloatingActionButton(onClick = { galleryLauncher.launch("image/*") }) {
                     Icon(Icons.Default.PhotoLibrary, contentDescription = "Gallery")
                 }
@@ -120,7 +138,34 @@ fun ScannerScreen(
                 .fillMaxSize()
                 .padding(padding),
         ) {
-            if (hasCameraPermission) {
+            if (isImportMode) {
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth(),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Icon(
+                            Icons.Default.PhotoLibrary,
+                            contentDescription = null,
+                            modifier = Modifier.padding(8.dp),
+                            tint = MaterialTheme.colorScheme.primary,
+                        )
+                        Text(
+                            "Pick images from your gallery",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Button(
+                            onClick = { galleryLauncher.launch("image/*") },
+                            modifier = Modifier.padding(top = 12.dp),
+                        ) {
+                            Text("Open gallery")
+                        }
+                    }
+                }
+            } else if (hasCameraPermission) {
                 CameraPreviewWithCapture(
                     modifier = Modifier
                         .weight(1f)

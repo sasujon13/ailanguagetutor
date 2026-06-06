@@ -35,7 +35,7 @@ fun aiModeUiMeta(mode: AiEngineMode): AiModeUiMeta = when (mode) {
     AiEngineMode.HIGH_ACCURACY -> AiModeUiMeta(
         mode,
         "🟡",
-        "High Accuracy",
-        "Difficult texts — Plus subscribers only",
+        "High Quality",
+        "Best quality for difficult texts — Plus only",
     )
 }

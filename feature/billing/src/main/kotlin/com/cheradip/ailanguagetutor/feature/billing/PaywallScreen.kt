@@ -40,6 +40,8 @@ fun PaywallScreen(
     referralRepository: ReferralRepository,
     userEmail: String?,
     userWhatsapp: String?,
+    isLoggedIn: Boolean,
+    onRequireLogin: () -> Unit,
     onSubscribed: () -> Unit,
     modifier: Modifier = Modifier,
     viewModel: PaywallViewModel = hiltViewModel(),
@@ -61,6 +63,14 @@ fun PaywallScreen(
             style = MaterialTheme.typography.bodyMedium,
             modifier = Modifier.padding(top = 4.dp),
         )
+        if (!isLoggedIn) {
+            Text(
+                "Sign in or create an account before subscribing.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(top = 8.dp),
+            )
+        }
         if (!uiState.billingReady) {
             Text(
                 "Connect to Google Play to subscribe. Restore works after Play connects.",
@@ -96,9 +106,9 @@ fun PaywallScreen(
             playPrice = viewModel.displayPrice(PaywallPlan.PRO, period),
             fallbackActual = if (period == BillingPeriod.MONTHLY) "$2.00/mo" else "$20.00/yr",
             effectivePrice = if (period == BillingPeriod.MONTHLY) {
-                "$${viewModel.effectiveMonthlyPrice()}/mo"
+                "$${viewModel.effectiveMonthlyPrice(PaywallPlan.PRO)}/mo"
             } else {
-                "$${viewModel.effectiveYearlyPrice()}/yr"
+                "$${viewModel.effectiveYearlyPrice(PaywallPlan.PRO)}/yr"
             },
             selected = uiState.selectedPlan == PaywallPlan.PRO,
             onSelect = { viewModel.selectPlan(PaywallPlan.PRO) },
@@ -109,9 +119,9 @@ fun PaywallScreen(
             playPrice = viewModel.displayPrice(PaywallPlan.PLUS, period),
             fallbackActual = if (period == BillingPeriod.MONTHLY) "$5.00/mo" else "$50.00/yr",
             effectivePrice = if (period == BillingPeriod.MONTHLY) {
-                "$${viewModel.effectiveMonthlyPrice()}/mo"
+                "$${viewModel.effectiveMonthlyPrice(PaywallPlan.PLUS)}/mo"
             } else {
-                "$${viewModel.effectiveYearlyPrice()}/yr"
+                "$${viewModel.effectiveYearlyPrice(PaywallPlan.PLUS)}/yr"
             },
             selected = uiState.selectedPlan == PaywallPlan.PLUS,
             onSelect = { viewModel.selectPlan(PaywallPlan.PLUS) },
@@ -126,6 +136,11 @@ fun PaywallScreen(
                     onValueChange = {},
                     readOnly = true,
                     label = { Text(config.slot1.label ?: "Launch promo") },
+                    placeholder = {
+                        if (uiState.slot1Code.isBlank()) {
+                            Text("Applied automatically at checkout")
+                        }
+                    },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
                 )
@@ -187,17 +202,24 @@ fun PaywallScreen(
         Spacer(modifier = Modifier.height(16.dp))
         Button(
             onClick = {
+                if (!isLoggedIn) {
+                    onRequireLogin()
+                    return@Button
+                }
                 activity?.let { viewModel.subscribe(it, onSubscribed) }
             },
             modifier = Modifier.fillMaxWidth(),
-            enabled = !uiState.purchaseInProgress && activity != null,
+            enabled = !uiState.purchaseInProgress && (activity != null || !isLoggedIn),
         ) {
             if (uiState.purchaseInProgress) {
                 CircularProgressIndicator(modifier = Modifier.padding(end = 8.dp))
             }
             Text(
-                if (uiState.selectedPlan == PaywallPlan.PLUS) "Subscribe to Plus via Google Play"
-                else "Subscribe to Pro via Google Play",
+                when {
+                    !isLoggedIn -> "Sign in to subscribe"
+                    uiState.selectedPlan == PaywallPlan.PLUS -> "Subscribe to Plus via Google Play"
+                    else -> "Subscribe to Pro via Google Play"
+                },
             )
         }
         OutlinedButton(

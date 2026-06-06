@@ -3,7 +3,9 @@ package com.cheradip.ailanguagetutor.feature.scanner
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.cheradip.ailanguagetutor.core.database.repository.DocumentRepository
+import com.cheradip.ailanguagetutor.core.pack.LanguagePackRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -23,6 +25,7 @@ data class ScannerUiState(
 class ScannerViewModel @Inject constructor(
     private val documentRepository: DocumentRepository,
     private val imageStorage: DocumentImageStorage,
+    private val languagePackRepository: LanguagePackRepository,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(ScannerUiState())
@@ -43,8 +46,11 @@ class ScannerViewModel @Inject constructor(
             }
         } else if (_uiState.value.documentId == null) {
             viewModelScope.launch {
+                val activeLang = languagePackRepository.observeActive().first()
+                    .firstOrNull()?.languageCode ?: "en"
                 val id = documentRepository.createDocument(
                     title = "Scan ${System.currentTimeMillis()}",
+                    languageCode = activeLang,
                 )
                 _uiState.update { it.copy(documentId = id) }
             }

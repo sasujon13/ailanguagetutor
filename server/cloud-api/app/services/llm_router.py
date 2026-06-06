@@ -30,9 +30,19 @@ def routing_pool(db: Session) -> list[AiProvider]:
     return pool
 
 
-def touch_provider(db: Session, provider: AiProvider) -> str:
+def _mark_failure(db: Session, provider: AiProvider, message: str) -> None:
+    provider.last_error = message[:500]
+    if provider.health not in ("exhausted", "disabled"):
+        provider.health = "degraded"
+    db.commit()
+
+
+def _record_success(db: Session, provider: AiProvider) -> str:
     provider.requests_today += 1
     provider.last_used_at_ms = ms_now()
+    provider.last_error = None
+    if provider.health == "degraded":
+        provider.health = "healthy"
     if provider.quota_daily_limit and provider.requests_today >= provider.quota_daily_limit:
         provider.health = "exhausted"
     db.commit()
@@ -54,18 +64,14 @@ async def generate_with_fallback(
     last_id = "local-stub"
     for provider in candidates:
         last_id = provider.id
-        touch_provider(db, provider)
         try:
             text = await generate_text(provider.id, prompt, max_tokens=max_tokens)
             if text and text.strip():
-                provider.last_error = None
-                db.commit()
+                _record_success(db, provider)
                 return text.strip(), provider.id
-            provider.last_error = "empty response"
-            db.commit()
+            _mark_failure(db, provider, "empty response")
             logger.warning("Provider %s returned empty text — trying next", provider.id)
         except Exception as exc:
-            provider.last_error = str(exc)[:500]
-            db.commit()
+            _mark_failure(db, provider, str(exc))
             logger.warning("Provider %s failed (%s) — trying next", provider.id, exc)
     return None, last_id

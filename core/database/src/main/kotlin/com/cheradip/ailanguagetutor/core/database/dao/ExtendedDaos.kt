@@ -23,8 +23,11 @@ interface LanguagePackDao {
     @Query("SELECT COUNT(*) FROM language_pack_state WHERE isActive = 1")
     suspend fun activeCount(): Int
 
-    @Query("SELECT * FROM language_pack_state WHERE languageCode = :code LIMIT 1")
+    @Query("SELECT * FROM language_pack_state WHERE LOWER(languageCode) = LOWER(:code) LIMIT 1")
     suspend fun getByCode(code: String): LanguagePackStateEntity?
+
+    @Query("SELECT * FROM language_pack_state WHERE localPath IS NOT NULL AND localPath != ''")
+    suspend fun listDownloaded(): List<LanguagePackStateEntity>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(entity: LanguagePackStateEntity)
@@ -73,6 +76,19 @@ interface AiCacheDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun put(entity: AiCacheEntity)
+
+    @Query("SELECT COUNT(*) FROM ai_cache")
+    suspend fun count(): Int
+
+    @Query(
+        """
+        DELETE FROM ai_cache WHERE cacheKey IN (
+            SELECT cacheKey FROM ai_cache ORDER BY cachedAt ASC
+            LIMIT MAX(0, (SELECT COUNT(*) FROM ai_cache) - :maxEntries)
+        )
+        """,
+    )
+    suspend fun trimToMax(maxEntries: Int)
 }
 
 @Dao

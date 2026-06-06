@@ -2,6 +2,7 @@ package com.cheradip.ailanguagetutor.di
 
 import com.cheradip.ailanguagetutor.BuildConfig
 import com.cheradip.ailanguagetutor.core.common.AppConfig
+import com.cheradip.ailanguagetutor.core.common.SessionTokenHolder
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -20,4 +21,8 @@ object AppConfigModule {
         override val homeAiBaseUrl: String = BuildConfig.HOME_AI_BASE_URL
         override val homeAiTimeoutMs: Long = BuildConfig.HOME_AI_TIMEOUT_MS
     }
+
+    @Provides
+    @Singleton
+    fun provideSessionTokenHolder(): SessionTokenHolder = SessionTokenHolder()
 }

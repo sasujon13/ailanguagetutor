@@ -1,333 +1,495 @@
 package com.cheradip.ailanguagetutor.feature.practice
 
+
+
+import android.Manifest
+
+import android.content.pm.PackageManager
+
+import androidx.activity.compose.rememberLauncherForActivityResult
+
+import androidx.activity.result.contract.ActivityResultContracts
+
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
+
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
-import androidx.compose.material.icons.filled.AutoAwesome
-import androidx.compose.material.icons.filled.KeyboardArrowRight
-import androidx.compose.material.icons.filled.Mic
-import androidx.compose.material.icons.filled.QrCodeScanner
-import androidx.compose.material.icons.filled.Settings
+
 import androidx.compose.material3.Card
-import androidx.compose.material3.CircularProgressIndicator
+
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
+
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
+
 import androidx.compose.material3.Text
+
 import androidx.compose.runtime.Composable
+
+import androidx.compose.runtime.LaunchedEffect
+
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
+
 import androidx.compose.runtime.mutableStateOf
+
 import androidx.compose.runtime.remember
+
 import androidx.compose.runtime.setValue
+
 import androidx.compose.ui.Alignment
+
 import androidx.compose.ui.Modifier
+
+import androidx.compose.ui.platform.LocalContext
+
 import androidx.compose.ui.unit.dp
+
+import androidx.core.content.ContextCompat
+
 import androidx.hilt.navigation.compose.hiltViewModel
-import androidx.lifecycle.ViewModel
+
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.cheradip.ailanguagetutor.core.ai.UnifiedTextPipeline
-import com.cheradip.ailanguagetutor.core.audio.PronunciationEngine
-import com.cheradip.ailanguagetutor.core.database.repository.LearningActivityRepository
-import com.cheradip.ailanguagetutor.core.model.InputSource
-import com.cheradip.ailanguagetutor.core.model.ProcessingIntent
+
+import com.cheradip.ailanguagetutor.ui.components.CheradipDropdown
+
 import com.cheradip.ailanguagetutor.ui.components.CheradipScrollScreen
-import com.cheradip.ailanguagetutor.ui.components.ExpandableSection
-import com.cheradip.ailanguagetutor.ui.components.IconTextButton
+
 import com.cheradip.ailanguagetutor.ui.components.InputChannel
+
 import com.cheradip.ailanguagetutor.ui.components.InputChannelBar
+
 import com.cheradip.ailanguagetutor.ui.components.SectionHeader
-import androidx.lifecycle.viewModelScope
-import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.launch
-import javax.inject.Inject
 
-private val calibrationWords = listOf(
-    "hello", "world", "learn", "language", "book", "read", "word", "good",
-    "morning", "thank", "you", "practice", "speak", "write", "scan",
-    "listen", "answer", "translate", "study", "voice",
-)
 
-data class PracticeHubUiState(
-    val typedInput: String = "",
-    val aiOutput: String? = null,
-    val aiLoading: Boolean = false,
-    val aiIntent: ProcessingIntent? = null,
-)
-
-@HiltViewModel
-class PracticeHubViewModel @Inject constructor(
-    private val pronunciationEngine: PronunciationEngine,
-    private val learningActivityRepository: LearningActivityRepository,
-    private val unifiedTextPipeline: UnifiedTextPipeline,
-) : ViewModel() {
-    private val _uiState = MutableStateFlow(PracticeHubUiState())
-    val uiState: StateFlow<PracticeHubUiState> = _uiState.asStateFlow()
-
-    init { pronunciationEngine.init() }
-
-    fun speak(text: String) = pronunciationEngine.speak(text)
-
-    fun updateTypedInput(text: String) {
-        _uiState.update { it.copy(typedInput = text) }
-    }
-
-    fun processTypedInput(sourceLang: String = "en", targetLang: String = "fr") {
-        val text = _uiState.value.typedInput.trim()
-        if (text.isBlank()) return
-        viewModelScope.launch {
-            _uiState.update { it.copy(aiLoading = true) }
-            val result = runCatching {
-                unifiedTextPipeline.process(
-                    text = text,
-                    sourceLang = sourceLang,
-                    targetLang = targetLang,
-                    inputSource = InputSource.TYPED,
-                )
-            }.getOrNull()
-            _uiState.update {
-                it.copy(
-                    aiLoading = false,
-                    aiOutput = result?.output ?: "Could not process. Check subscription and network.",
-                    aiIntent = result?.intent,
-                )
-            }
-            learningActivityRepository.record(
-                title = "Practice: typed",
-                activityType = "practice_typed",
-                languageCode = sourceLang,
-                summary = result?.output?.take(120),
-            )
-        }
-    }
-
-    fun recordPractice(mode: String) {
-        viewModelScope.launch {
-            learningActivityRepository.record(
-                title = "Practice: $mode",
-                activityType = mode,
-                languageCode = "en",
-                summary = "Interactive practice session",
-            )
-        }
-    }
-}
 
 @Composable
+
 fun PracticeHubScreen(
+
     onOpenModeSelection: () -> Unit = {},
+
     onScanClick: () -> Unit = {},
+
+    onCameraClick: () -> Unit = {},
+
+    onImportClick: () -> Unit = {},
+
+    startVoiceInput: Boolean = false,
+
     modifier: Modifier = Modifier,
+
     viewModel: PracticeHubViewModel = hiltViewModel(),
+
 ) {
-    var calibrationIndex by remember { mutableIntStateOf(0) }
-    var calibrated by remember { mutableStateOf(false) }
-    var syncedLine by remember { mutableStateOf("") }
+
+    val context = LocalContext.current
+
     var inputChannel by remember { mutableStateOf(InputChannel.TYPE) }
+
+    var syncedLine by remember { mutableStateOf("") }
+
+    var pendingMicAction by remember { mutableStateOf<(() -> Unit)?>(null) }
+
+    var voiceLaunchHandled by remember { mutableStateOf(false) }
+
+
+
     val hubState by viewModel.uiState.collectAsStateWithLifecycle()
-    val progress = (calibrationIndex.toFloat() / calibrationWords.size).coerceIn(0f, 1f)
+
+    val practiceLangs by viewModel.practiceLanguages.collectAsStateWithLifecycle()
+
+    val languageOptions by viewModel.languageOptions.collectAsStateWithLifecycle()
+
+
+
+    var hasMicPermission by remember {
+
+        mutableStateOf(
+
+            ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) ==
+
+                PackageManager.PERMISSION_GRANTED,
+
+        )
+
+    }
+
+    val micPermissionLauncher = rememberLauncherForActivityResult(
+
+        ActivityResultContracts.RequestPermission(),
+
+    ) { granted ->
+
+        hasMicPermission = granted
+
+        if (granted) {
+
+            pendingMicAction?.invoke()
+
+        } else {
+
+            viewModel.setSpeechError("Microphone permission is required for voice input.")
+
+        }
+
+        pendingMicAction = null
+
+    }
+
+
+
+    fun withMicPermission(action: () -> Unit) {
+
+        if (hasMicPermission) {
+
+            action()
+
+        } else {
+
+            pendingMicAction = action
+
+            micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+
+        }
+
+    }
+
+
+
+    LaunchedEffect(startVoiceInput, hasMicPermission) {
+        if (startVoiceInput && !voiceLaunchHandled) {
+            voiceLaunchHandled = true
+            inputChannel = InputChannel.VOICE
+            if (hasMicPermission) {
+                viewModel.startVoiceInput()
+            } else {
+                pendingMicAction = { viewModel.startVoiceInput() }
+                micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+            }
+        }
+    }
 
     CheradipScrollScreen(
+
         modifier = modifier,
+
         title = "Practice",
-        subtitle = "Say · Type · Scan → Answer / Translation",
+
+        subtitle = "Input ${practiceLangs.inputLanguage.uppercase()} → output ${practiceLangs.outputLanguage.uppercase()}",
+
     ) {
+
+        if (languageOptions.isNotEmpty()) {
+
+            item {
+
+                PracticeLanguageSelectors(
+
+                    languageOptions = languageOptions,
+
+                    inputLanguage = practiceLangs.inputLanguage,
+
+                    onInputSelected = { viewModel.setInputLanguage(it.code) },
+
+                )
+
+            }
+
+        }
+
+
+
         item {
+
             InputChannelBar(
+
                 selected = inputChannel,
+
                 onSelect = { channel ->
+
                     inputChannel = channel
+
                     when (channel) {
-                        InputChannel.SCAN, InputChannel.CAMERA, InputChannel.IMPORT -> onScanClick()
+
+                        InputChannel.SCAN -> onScanClick()
+
+                        InputChannel.CAMERA -> onCameraClick()
+
+                        InputChannel.IMPORT -> onImportClick()
+
                         InputChannel.LISTEN -> {
+
                             syncedLine = hubState.aiOutput ?: hubState.typedInput
+
                             if (syncedLine.isNotBlank()) viewModel.speak(syncedLine)
+
                         }
-                        InputChannel.VOICE -> viewModel.recordPractice("say_answer")
-                        InputChannel.TYPE -> Unit
+
+                        InputChannel.VOICE -> withMicPermission { viewModel.startVoiceInput() }
+
+                        InputChannel.TYPE -> viewModel.stopVoiceInput()
+
                     }
+
                 },
+
                 channels = listOf(
+
                     InputChannel.SCAN,
+
+                    InputChannel.CAMERA,
+
+                    InputChannel.IMPORT,
+
                     InputChannel.TYPE,
+
                     InputChannel.VOICE,
+
                     InputChannel.LISTEN,
+
                 ),
+
+                iconsOnly = true,
+
             )
+
         }
 
+
+
         item {
-            IconTextButton(
-                label = "AI mode & intent",
-                icon = Icons.Default.Settings,
-                onClick = onOpenModeSelection,
-                filled = false,
+
+            PracticeInputCard(
+
+                hubState = hubState,
+
+                onInputChange = viewModel::updateTypedInput,
+
+                onProcess = viewModel::processTypedInputWithSavedLanguages,
+
+                onStartVoice = { withMicPermission { viewModel.startVoiceInput() } },
+
+                onStopVoice = viewModel::stopVoiceInput,
+
+                onSpeakOutput = viewModel::speak,
+
             )
+
         }
 
-        item {
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    SectionHeader(title = "Type → AI")
-                    OutlinedTextField(
-                        value = hubState.typedInput,
-                        onValueChange = viewModel::updateTypedInput,
-                        label = { Text("Type a sentence or question") },
-                        modifier = Modifier.fillMaxWidth(),
-                        minLines = 2,
-                        maxLines = 4,
-                    )
-                    IconTextButton(
-                        label = "Process with AI",
-                        icon = Icons.Default.AutoAwesome,
-                        onClick = { viewModel.processTypedInput() },
-                        enabled = !hubState.aiLoading && hubState.typedInput.isNotBlank(),
-                    )
-                    if (hubState.aiLoading) {
-                        CircularProgressIndicator(modifier = Modifier.align(Alignment.CenterHorizontally))
-                    }
-                    hubState.aiOutput?.let { output ->
-                        val label = when (hubState.aiIntent) {
-                            ProcessingIntent.TRANSLATION -> "Translation"
-                            else -> "Answer"
-                        }
-                        Text(
-                            "$label: $output",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.primary,
-                        )
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            IconTextButton(
-                                label = "Listen",
-                                icon = Icons.AutoMirrored.Filled.VolumeUp,
-                                onClick = {
-                                    syncedLine = output
-                                    viewModel.speak(output)
-                                },
-                                modifier = Modifier.weight(1f),
-                            )
-                        }
-                        syncedLine = output
-                    }
-                }
-            }
-        }
+
 
         item {
-            ExpandableSection(title = "Voice calibration (${calibrationWords.size} words)", initiallyExpanded = false) {
-                LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth())
-                Spacer(modifier = Modifier.height(8.dp))
-                Text("Repeat: ${calibrationWords.getOrElse(calibrationIndex) { "done" }}")
-                Spacer(modifier = Modifier.height(8.dp))
-                IconTextButton(
-                    label = "Hear word",
-                    icon = Icons.AutoMirrored.Filled.VolumeUp,
-                    onClick = {
-                        val word = calibrationWords.getOrElse(calibrationIndex) { return@IconTextButton }
-                        syncedLine = word
-                        viewModel.speak(word)
-                    },
-                )
-                IconTextButton(
-                    label = "Next word",
-                    icon = Icons.Default.KeyboardArrowRight,
-                    onClick = {
-                        if (calibrationIndex < calibrationWords.lastIndex) calibrationIndex++
-                        else calibrated = true
-                    },
-                    filled = false,
-                )
-                if (calibrated) {
-                    Text("Calibration complete ✓", color = MaterialTheme.colorScheme.primary)
-                }
-            }
-        }
 
-        item {
-            PracticeModeRow(
-                icon = Icons.Default.Mic,
-                title = "Say → Answer",
-                description = "Speak a prompt; STT when online.",
-                onStart = { viewModel.recordPractice("say_answer") },
+            VoiceCalibrationPanel(
+
+                state = hubState,
+
+                onSelectLanguage = viewModel::selectCalibrationLanguage,
+
+                onSelectTier = viewModel::selectCalibrationTier,
+
+                onStartMic = { withMicPermission { viewModel.startCalibrationMic() } },
+
+                onStopMic = viewModel::stopVoiceInput,
+
             )
+
         }
+
+
+
         item {
-            PracticeModeRow(
-                icon = Icons.AutoMirrored.Filled.VolumeUp,
-                title = "Write → Listen",
-                description = "Process typed text, then hear TTS playback.",
-                onStart = {
+
+            PracticeQuickActions(
+
+                onOpenModeSelection = onOpenModeSelection,
+
+                onScanClick = onScanClick,
+
+                onStartVoice = { withMicPermission { viewModel.startVoiceInput() } },
+
+                onSpeakSynced = {
+
                     syncedLine = hubState.aiOutput ?: hubState.typedInput
+
                     viewModel.speak(syncedLine)
+
                 },
+
+                onRecordPractice = viewModel::recordPractice,
+
             )
+
         }
-        item {
-            PracticeModeRow(
-                icon = Icons.Default.QrCodeScanner,
-                title = "Scan → Translate",
-                description = "Scan from Home, then translate in Reader.",
-                onStart = onScanClick,
-            )
-        }
+
+
 
         if (syncedLine.isNotBlank()) {
+
             item { SyncedTextDisplay(text = syncedLine) }
+
         }
+
     }
+
 }
 
+
+
 @Composable
-private fun PracticeModeRow(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    title: String,
-    description: String,
-    onStart: () -> Unit,
+
+private fun PracticeLanguageSelectors(
+
+    languageOptions: List<PracticeLanguageOption>,
+
+    inputLanguage: String,
+
+    onInputSelected: (PracticeLanguageOption) -> Unit,
+
+    modifier: Modifier = Modifier,
+
 ) {
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(32.dp))
-            Column(modifier = Modifier.weight(1f).padding(horizontal = 12.dp)) {
-                Text(title, style = MaterialTheme.typography.titleSmall)
-                Text(description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+
+    val selectedInput = languageOptions.firstOrNull {
+
+        it.code.equals(inputLanguage, ignoreCase = true)
+
+    } ?: languageOptions.first()
+
+
+
+    BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
+
+        val inline = maxWidth >= 400.dp
+
+        if (inline) {
+
+            Row(
+
+                modifier = Modifier.fillMaxWidth(),
+
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+
+                verticalAlignment = Alignment.CenterVertically,
+
+            ) {
+
+                Text(
+
+                    "Input language",
+
+                    style = MaterialTheme.typography.titleMedium,
+
+                    modifier = Modifier.widthIn(min = 108.dp, max = 132.dp),
+
+                )
+
+                CheradipDropdown(
+
+                    label = "Speak/Type language",
+
+                    options = languageOptions,
+
+                    selected = selectedInput,
+
+                    onSelected = onInputSelected,
+
+                    optionLabel = { it.label },
+
+                    modifier = Modifier.weight(1f),
+
+                )
+
             }
-            IconButton(onClick = onStart) {
-                Icon(icon, contentDescription = "Start", tint = MaterialTheme.colorScheme.primary)
+
+        } else {
+
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+
+                SectionHeader(title = "Input language")
+
+                CheradipDropdown(
+
+                    label = "Speak/Type language",
+
+                    options = languageOptions,
+
+                    selected = selectedInput,
+
+                    onSelected = onInputSelected,
+
+                    optionLabel = { it.label },
+
+                )
+
             }
+
         }
+
     }
+
 }
 
+
+
 @Composable
+
 fun SyncedTextDisplay(text: String, modifier: Modifier = Modifier) {
+
     Card(modifier = modifier.fillMaxWidth()) {
+
         Column(
+
             modifier = Modifier.padding(16.dp),
+
             horizontalAlignment = Alignment.CenterHorizontally,
+
         ) {
+
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.AutoMirrored.Filled.VolumeUp, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                Text(" Synced playback", style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(start = 4.dp))
+
+                Icon(
+
+                    Icons.AutoMirrored.Filled.VolumeUp,
+
+                    contentDescription = null,
+
+                    tint = MaterialTheme.colorScheme.primary,
+
+                )
+
+                Text(
+
+                    " Synced playback",
+
+                    style = MaterialTheme.typography.labelMedium,
+
+                    modifier = Modifier.padding(start = 4.dp),
+
+                )
+
             }
-            Text(text, style = MaterialTheme.typography.headlineSmall, modifier = Modifier.padding(top = 8.dp))
+
+            Text(
+
+                text,
+
+                style = MaterialTheme.typography.headlineSmall,
+
+                modifier = Modifier.padding(top = 8.dp),
+
+            )
+
         }
+
     }
+
 }
+
+

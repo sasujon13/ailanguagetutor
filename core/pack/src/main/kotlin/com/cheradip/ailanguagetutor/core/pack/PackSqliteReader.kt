@@ -13,10 +13,10 @@ internal object PackSqliteReader {
                 """
                 SELECT m.meaning FROM words w
                 JOIN meanings m ON m.word_id = w.id
-                WHERE w.lemma = ? AND w.language = ?
+                WHERE w.language = ? AND (w.lemma = ? OR LOWER(w.word) = ?)
                 ORDER BY m.rank ASC LIMIT 3
                 """.trimIndent(),
-                arrayOf(normalized, languageCode.lowercase()),
+                arrayOf(languageCode.lowercase(), normalized, normalized),
             ).use { cursor ->
                 if (!cursor.moveToFirst()) return null
                 buildList {

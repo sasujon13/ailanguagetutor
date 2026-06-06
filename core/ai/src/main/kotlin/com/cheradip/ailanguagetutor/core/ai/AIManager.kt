@@ -6,10 +6,13 @@ import com.cheradip.ailanguagetutor.core.database.dao.AiCacheDao
 import com.cheradip.ailanguagetutor.core.database.entity.AiCacheEntity
 import com.cheradip.ailanguagetutor.core.model.AiBackend
 import com.cheradip.ailanguagetutor.core.model.AiEngineMode
+import com.cheradip.ailanguagetutor.core.model.GrammarDepth
+import com.cheradip.ailanguagetutor.core.model.GrammarPrefetchTarget
 import com.cheradip.ailanguagetutor.core.model.InputSource
 import com.cheradip.ailanguagetutor.core.model.ProcessingIntent
 import com.cheradip.ailanguagetutor.core.model.SubscriptionTier
 import com.cheradip.ailanguagetutor.core.network.AiActivityMetadataRequest
+import com.cheradip.ailanguagetutor.core.network.HomeAiGrammarResultItem
 import com.cheradip.ailanguagetutor.core.network.AiltAiService
 import com.cheradip.ailanguagetutor.core.network.AiParagraphRequest
 import kotlinx.coroutines.Dispatchers
@@ -99,6 +102,220 @@ class AIManager @Inject constructor(
         inputSource = inputSource,
         intent = ProcessingIntent.TRANSLATION,
     )
+
+    /** Batch grammar explanation (user tap). Meanings still come from SQLite packs only. */
+    suspend fun explainGrammar(
+        contextText: String,
+        focusWord: String?,
+        sourceLang: String,
+        targetLang: String,
+        depth: GrammarDepth,
+        inputSource: InputSource = InputSource.TYPED,
+    ): String = withContext(Dispatchers.IO) {
+        val tier = checkAppAccess.subscriptionTier()
+        if (tier == SubscriptionTier.FREE) {
+            return@withContext "Grammar hints need Pro or Plus. Meanings above are from your offline pack."
+        }
+
+        val prompt = buildGrammarPrompt(contextText, focusWord, sourceLang, targetLang, depth)
+        val key = "grammar:${depth.id}:$sourceLang:${prompt.hashCode()}"
+        aiCacheDao.get(key)?.responseJson?.let { return@withContext it }
+
+        val mode = aiModePrefs.resolvedMode(inputSource, tier)
+        val backend = homeAiSettings.preferredBackend.first()
+        if (backend == AiBackend.LOCAL_HOME) {
+            runCatching {
+                withTimeout(appConfig.homeAiTimeoutMs) {
+                    homeAiService.ask(
+                        text = prompt,
+                        mode = mode,
+                        intent = ProcessingIntent.ANSWER,
+                        inputSource = inputSource,
+                        tier = tier,
+                        languageCode = sourceLang,
+                        targetLang = targetLang,
+                    )
+                }
+            }.onSuccess { result ->
+                lastBackend = AiBackend.LOCAL_HOME
+                aiCacheDao.put(AiCacheEntity(key, result, System.currentTimeMillis()))
+                return@withContext result
+            }.onFailure { e ->
+                val reason = when (e) {
+                    is TimeoutCancellationException -> "home_ai_timeout_${appConfig.homeAiTimeoutMs}ms"
+                    else -> "home_ai_error: ${e.message}"
+                }
+                aiProviderRepository.recordFallback(reason)
+            }
+        }
+
+        val cloud = runCatching {
+            aiService.explainParagraph(
+                AiParagraphRequest(
+                    paragraph = prompt,
+                    sourceLang = sourceLang,
+                    targetLang = targetLang,
+                ),
+            )
+        }.fold(
+            onSuccess = { resp ->
+                aiProviderRepository.recordProviderUsed(resp.providerUsed)
+                lastBackend = AiBackend.CLOUD_POOL
+                resp.explanation
+            },
+            onFailure = { offlineSummary(contextText) },
+        )
+        aiCacheDao.put(AiCacheEntity(key, cloud, System.currentTimeMillis()))
+        cloud
+    }
+
+    /** Warm local + server cache in one Home AI round-trip; no duplicate grammar calls. */
+    suspend fun warmReaderCaches(
+        grammarTargets: List<GrammarPrefetchTarget>,
+        sourceLang: String,
+        targetLangs: List<String>,
+        targetLang: String,
+        depth: GrammarDepth,
+        inputSource: InputSource,
+        intent: ProcessingIntent,
+        explainChunk: String?,
+        translateChunk: String?,
+    ) = withContext(Dispatchers.IO) {
+        if (grammarTargets.isEmpty()) return@withContext
+        val tier = checkAppAccess.subscriptionTier()
+        if (tier == SubscriptionTier.FREE) return@withContext
+
+        val mode = aiModePrefs.resolvedMode(inputSource, tier)
+        val backend = homeAiSettings.preferredBackend.first()
+
+        if (backend == AiBackend.LOCAL_HOME) {
+            runCatching {
+                homeAiService.prefetchAi(
+                    targets = grammarTargets,
+                    sourceLang = sourceLang,
+                    targetLangs = targetLangs,
+                    depth = depth,
+                    mode = mode,
+                    tier = tier,
+                    inputSource = inputSource,
+                    explainChunk = explainChunk,
+                    translateChunk = translateChunk,
+                )?.let { response ->
+                    cacheGrammarResults(
+                        response.grammar.results,
+                        grammarTargets,
+                        sourceLang,
+                        targetLang,
+                        depth,
+                    )
+                }
+            }
+        }
+
+        when (intent) {
+            ProcessingIntent.ANSWER -> explainChunk?.let { chunk ->
+                warmParagraphIfCached(chunk, sourceLang, targetLang, inputSource, ProcessingIntent.ANSWER)
+            }
+            ProcessingIntent.TRANSLATION -> translateChunk?.let { chunk ->
+                warmParagraphIfCached(chunk, sourceLang, targetLang, inputSource, ProcessingIntent.TRANSLATION)
+            }
+        }
+
+        trimAiCacheIfNeeded()
+    }
+
+    private suspend fun warmParagraphIfCached(
+        paragraph: String,
+        sourceLang: String,
+        targetLang: String,
+        inputSource: InputSource,
+        intent: ProcessingIntent,
+    ) {
+        val tier = checkAppAccess.subscriptionTier()
+        if (tier == SubscriptionTier.FREE) return
+        val mode = aiModePrefs.resolvedMode(inputSource, tier)
+        val key = "batch:$sourceLang:$targetLang:${intent.name}:${mode.id}:${inputSource.name}:${paragraph.hashCode()}"
+        if (aiCacheDao.get(key) != null) return
+        processParagraph(paragraph, sourceLang, targetLang, inputSource, intent)
+    }
+
+    private suspend fun cacheGrammarResults(
+        results: List<HomeAiGrammarResultItem>,
+        targets: List<GrammarPrefetchTarget>,
+        sourceLang: String,
+        targetLang: String,
+        depth: GrammarDepth,
+    ) {
+        for (item in results) {
+            if (item.explanation.isBlank()) continue
+            val contextText = targets.firstOrNull { t ->
+                item.focusWord == null || t.focusWord.equals(item.focusWord, ignoreCase = true)
+            }?.contextText ?: targets.firstOrNull()?.contextText ?: ""
+            val prompt = buildGrammarPrompt(
+                contextText,
+                item.focusWord,
+                sourceLang,
+                targetLang,
+                depth,
+            )
+            val key = "grammar:${depth.id}:$sourceLang:${prompt.hashCode()}"
+            aiCacheDao.put(AiCacheEntity(key, item.explanation, System.currentTimeMillis()))
+        }
+    }
+
+    private suspend fun trimAiCacheIfNeeded() {
+        if (aiCacheDao.count() > MAX_AI_CACHE_ENTRIES) {
+            aiCacheDao.trimToMax(MAX_AI_CACHE_ENTRIES)
+        }
+    }
+
+    suspend fun prefetchGrammarBatch(
+        targets: List<GrammarPrefetchTarget>,
+        sourceLang: String,
+        targetLangs: List<String>,
+        depth: GrammarDepth,
+        inputSource: InputSource = InputSource.TYPED,
+    ) = warmReaderCaches(
+        grammarTargets = targets,
+        sourceLang = sourceLang,
+        targetLangs = targetLangs,
+        targetLang = targetLangs.firstOrNull() ?: "en",
+        depth = depth,
+        inputSource = inputSource,
+        intent = aiModePrefs.current().processingIntent,
+        explainChunk = null,
+        translateChunk = null,
+    )
+
+    private fun buildGrammarPrompt(
+        contextText: String,
+        focusWord: String?,
+        sourceLang: String,
+        targetLang: String,
+        depth: GrammarDepth,
+    ): String = when (depth) {
+        GrammarDepth.WORD -> """
+            You are a language tutor. Language: $sourceLang (learner may read notes in $targetLang if helpful).
+            Explain the grammar role of the word "$focusWord" in this sentence only:
+            "$contextText"
+            Cover: part of speech, morphology/inflection if any, and why it appears in this form.
+            Keep it concise (3–5 sentences). No dictionary definitions — grammar only.
+        """.trimIndent()
+
+        GrammarDepth.SENTENCE -> """
+            You are a language tutor. Language: $sourceLang.
+            Explain the grammar of this sentence (structure, tense/mood, clauses, agreement):
+            "$contextText"
+            Include brief notes on key words. Keep it clear for a learner (4–6 sentences).
+        """.trimIndent()
+
+        GrammarDepth.PARAGRAPH -> """
+            You are a language tutor. Language: $sourceLang.
+            Explain the grammar patterns in this paragraph — sentence by sentence overview, then main rules:
+            "$contextText"
+            Be structured and learner-friendly. Max 8 short sentences.
+        """.trimIndent()
+    }
 
     private suspend fun processParagraph(
         paragraph: String,
@@ -196,4 +413,8 @@ class AIManager @Inject constructor(
 
     private fun offlineSummary(paragraph: String) =
         "Offline summary: ${paragraph.take(160)}…"
+
+    companion object {
+        private const val MAX_AI_CACHE_ENTRIES = 200
+    }
 }

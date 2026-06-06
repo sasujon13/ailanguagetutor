@@ -9,6 +9,7 @@ import com.cheradip.ailanguagetutor.core.network.AiltPromoService
 import com.cheradip.ailanguagetutor.core.network.AiltReferralService
 import com.cheradip.ailanguagetutor.core.network.BillingVerifyRequest
 import com.cheradip.ailanguagetutor.core.network.PromoValidateRequest
+import com.cheradip.ailanguagetutor.core.network.ReferralWithdrawRequest
 import com.android.billingclient.api.Purchase
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -20,9 +21,18 @@ import kotlinx.coroutines.launch
 import javax.inject.Inject
 import javax.inject.Singleton
 
-data class ReferralPolicy(val commissionPercent: Int, val noticeText: String)
+data class ReferralPolicy(
+    val commissionPercent: Int,
+    val noticeText: String,
+    val minWithdrawalUsd: Double = 100.0,
+)
 data class PromoValidation(val code: String, val discountPercent: Int, val discountedPrice: String)
-data class ReferralBalance(val balanceUsd: Double, val lifetimeEarnedUsd: Double)
+data class ReferralBalance(
+    val balanceUsd: Double,
+    val lifetimeEarnedUsd: Double,
+    val minWithdrawalUsd: Double = 100.0,
+    val withdrawable: Boolean = false,
+)
 
 data class PaywallSlot(
     val visible: Boolean = false,
@@ -59,14 +69,40 @@ class ReferralRepository @Inject constructor(
     val balance: StateFlow<ReferralBalance> = _balance.asStateFlow()
 
     init {
+        refresh()
+    }
+
+    fun refresh() {
         scope.launch {
             runCatching { referralService.policy() }.onSuccess {
-                _policy.value = ReferralPolicy(it.commissionPercent, it.noticeText)
+                _policy.value = ReferralPolicy(
+                    it.commissionPercent,
+                    it.noticeText,
+                    it.minWithdrawalUsd,
+                )
             }
             runCatching { referralService.balance() }.onSuccess {
-                _balance.value = ReferralBalance(it.balanceUsd, it.lifetimeEarnedUsd)
+                _balance.value = ReferralBalance(
+                    it.balanceUsd,
+                    it.lifetimeEarnedUsd,
+                    it.minWithdrawalUsd,
+                    it.withdrawable,
+                )
             }
         }
+    }
+
+    suspend fun withdraw(method: String, payoutDetails: String): Result<String> = runCatching {
+        val resp = referralService.withdraw(
+            ReferralWithdrawRequest(method = method, payoutDetails = payoutDetails),
+        )
+        _balance.value = ReferralBalance(
+            resp.balanceUsd,
+            _balance.value.lifetimeEarnedUsd,
+            _policy.value.minWithdrawalUsd,
+            resp.balanceUsd >= _policy.value.minWithdrawalUsd,
+        )
+        resp.message
     }
 
     fun shareText(email: String?, whatsapp: String?): String {
@@ -79,13 +115,6 @@ class ReferralRepository @Inject constructor(
 class PromoRepository @Inject constructor(
     private val promoService: AiltPromoService,
 ) {
-    private val localCodes = mapOf(
-        "LAUNCH20" to 20,
-        "LAUNCH50" to 50,
-        "CHERADIP10" to 10,
-        "WELCOME" to 15,
-    )
-
     suspend fun fetchPaywallConfig(productId: String? = null): PaywallConfig =
         runCatching { promoService.paywallConfig(productId) }.map { resp ->
             PaywallConfig(
@@ -107,45 +136,15 @@ class PromoRepository @Inject constructor(
                 referrerBuyerDiscountPercent = resp.referrerBuyerDiscountPercent,
             )
         }.getOrElse {
-            PaywallConfig(
-                showPromoSection = true,
-                slot1 = PaywallSlot(
-                    visible = true,
-                    code = "LAUNCH50",
-                    discountPercent = 50,
-                    readOnly = true,
-                    label = "Launch promo (applied automatically)",
-                ),
-                slot2 = PaywallSlot(
-                    visible = true,
-                    manualEntry = true,
-                    label = "Additional promo code",
-                    placeholder = "Referrer email, WELCOME10…",
-                ),
-                referralActive = true,
-                referrerBuyerDiscountPercent = 20,
-            )
+            PaywallConfig(showPromoSection = false)
         }
 
-    suspend fun validate(code: String, basePrice: Double = 1.0): Result<PromoValidation> {
+    suspend fun validate(code: String, basePrice: Double = 1.0, slot1Code: String? = null): Result<PromoValidation> =
         runCatching {
-            promoService.validate(PromoValidateRequest(code, basePrice))
-        }.onSuccess { resp ->
-            return Result.success(
-                PromoValidation(resp.code, resp.discountPercent, resp.discountedPrice),
-            )
+            promoService.validate(PromoValidateRequest(code, basePrice, slot1Code))
+        }.map { resp ->
+            PromoValidation(resp.code, resp.discountPercent, resp.discountedPrice)
         }
-        val percent = localCodes[code.uppercase()]
-            ?: return Result.failure(IllegalArgumentException("Invalid promo code"))
-        val discounted = basePrice * (100 - percent) / 100.0
-        return Result.success(
-            PromoValidation(
-                code = code.uppercase(),
-                discountPercent = percent,
-                discountedPrice = "$%.2f".format(discounted),
-            ),
-        )
-    }
 }
 
 enum class AccessState { TRIAL_ACTIVE, TRIAL_EXPIRED, SUBSCRIBED, PRO_ACTIVE, PLUS_ACTIVE }
@@ -192,10 +191,12 @@ class BillingRepository @Inject constructor(
         activity: Activity,
         tier: SubscriptionTier,
         period: BillingPeriod,
+        slot1Code: String? = null,
+        slot2Code: String? = null,
     ): Result<Unit> {
         val productId = PlayProductIds.productId(tier, period)
         return playBillingManager.launchSubscription(activity, productId)
-            .mapCatching { purchase -> verifyAndApply(purchase) }
+            .mapCatching { purchase -> verifyAndApply(purchase, slot1Code, slot2Code) }
     }
 
     suspend fun restorePurchases() {
@@ -204,13 +205,19 @@ class BillingRepository @Inject constructor(
         }
     }
 
-    private suspend fun verifyAndApply(purchase: Purchase) {
+    private suspend fun verifyAndApply(
+        purchase: Purchase,
+        slot1Code: String? = null,
+        slot2Code: String? = null,
+    ) {
         val productId = purchase.products.firstOrNull()
             ?: error("Purchase missing product id")
         val response = billingService.verifyPurchase(
             BillingVerifyRequest(
                 purchaseToken = purchase.purchaseToken,
                 productId = productId,
+                slot1Code = slot1Code?.takeIf { it.isNotBlank() },
+                slot2Code = slot2Code?.takeIf { it.isNotBlank() },
             ),
         )
         if (!response.active) error("Subscription verification failed")
@@ -271,12 +278,59 @@ class CheckAppAccessUseCase @Inject constructor(
 class AdminPromoRepository @Inject constructor(
     private val adminService: AiltAdminService,
 ) {
-    suspend fun listCodes() = runCatching { adminService.listPromoCodes().codes }
+    data class PromoRow(
+        val code: String,
+        val discountPercent: Int,
+        val active: Boolean,
+        val autoApply: Boolean = false,
+        val paywallSlot: Int = 2,
+    )
 
-    suspend fun createCode(code: String, discountPercent: Int) =
-        runCatching {
-            adminService.createPromoCode(
-                com.cheradip.ailanguagetutor.core.network.AdminPromoCodeDto(code, discountPercent),
+    suspend fun listCodes(): Result<List<PromoRow>> = runCatching {
+        adminService.listPromoCodes().codes.map {
+            PromoRow(
+                code = it.code,
+                discountPercent = it.discountPercent,
+                active = it.active,
+                autoApply = it.autoApply,
+                paywallSlot = it.paywallSlot,
             )
         }
+    }
+
+    suspend fun createCode(
+        code: String,
+        discountPercent: Int,
+        active: Boolean = true,
+        autoApply: Boolean = false,
+        paywallSlot: Int = 2,
+    ) = runCatching {
+        adminService.createPromoCode(
+            com.cheradip.ailanguagetutor.core.network.AdminPromoCodeDto(
+                code = code,
+                discountPercent = discountPercent,
+                active = active,
+                autoApply = autoApply,
+                paywallSlot = paywallSlot,
+            ),
+        )
+    }
+
+    suspend fun updateCode(
+        code: String,
+        discountPercent: Int,
+        active: Boolean,
+        autoApply: Boolean,
+        paywallSlot: Int,
+    ) = runCatching {
+        adminService.patchPromoCode(
+            code,
+            com.cheradip.ailanguagetutor.core.network.AdminPromoPatchDto(
+                discountPercent = discountPercent,
+                active = active,
+                autoApply = autoApply,
+                paywallSlot = paywallSlot,
+            ),
+        )
+    }
 }

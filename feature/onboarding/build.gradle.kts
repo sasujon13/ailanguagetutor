@@ -23,6 +23,7 @@ dependencies {
     implementation(project(":core:model"))
     implementation(project(":core:pack"))
     implementation(project(":core:audio"))
+    implementation(project(":core:locale"))
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.ui)
     implementation(libs.compose.material3)

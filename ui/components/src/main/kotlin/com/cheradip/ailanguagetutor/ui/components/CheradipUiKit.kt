@@ -1,5 +1,6 @@
 package com.cheradip.ailanguagetutor.ui.components
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -30,13 +31,16 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Translate
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
+import androidx.compose.material3.FilledIconToggleButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -191,14 +195,16 @@ fun QuickActionTile(
     action: QuickAction,
     modifier: Modifier = Modifier,
 ) {
-    Card(
+    val cornerRadius = 8.dp
+    val borderWidth = 1.dp
+    OutlinedCard(
         modifier = modifier
             .clickable(enabled = action.enabled, onClick = action.onClick),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f),
+        shape = RoundedCornerShape(cornerRadius),
+        colors = CardDefaults.outlinedCardColors(
+            containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f),
         ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+        border = BorderStroke(borderWidth, MaterialTheme.colorScheme.outlineVariant),
     ) {
         Column(
             modifier = Modifier
@@ -234,25 +240,44 @@ fun InputChannelBar(
     onSelect: (InputChannel) -> Unit,
     modifier: Modifier = Modifier,
     channels: List<InputChannel> = InputChannel.entries,
+    iconsOnly: Boolean = false,
 ) {
     Row(
         modifier = modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        horizontalArrangement = Arrangement.spacedBy(if (iconsOnly) 4.dp else 6.dp),
     ) {
         channels.forEach { channel ->
-            FilterChip(
-                selected = selected == channel,
-                onClick = { onSelect(channel) },
-                label = { Text(channel.label, maxLines = 1) },
-                leadingIcon = {
+            if (iconsOnly) {
+                FilledIconToggleButton(
+                    checked = selected == channel,
+                    onCheckedChange = { if (it) onSelect(channel) },
+                    modifier = Modifier.weight(1f),
+                    colors = IconButtonDefaults.filledIconToggleButtonColors(
+                        checkedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                        checkedContentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                    ),
+                ) {
                     Icon(
                         channel.icon,
                         contentDescription = channel.label,
-                        modifier = Modifier.size(FilterChipDefaults.IconSize),
+                        modifier = Modifier.size(22.dp),
                     )
-                },
-                modifier = Modifier.weight(1f),
-            )
+                }
+            } else {
+                FilterChip(
+                    selected = selected == channel,
+                    onClick = { onSelect(channel) },
+                    label = { Text(channel.label, maxLines = 1) },
+                    leadingIcon = {
+                        Icon(
+                            channel.icon,
+                            contentDescription = channel.label,
+                            modifier = Modifier.size(FilterChipDefaults.IconSize),
+                        )
+                    },
+                    modifier = Modifier.weight(1f),
+                )
+            }
         }
     }
 }

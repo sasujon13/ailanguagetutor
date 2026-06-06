@@ -51,6 +51,20 @@ class AiModePreferenceRepository @Inject constructor(
         }
     }
 
+    /** Select High Quality when the user upgrades to Plus (they can change it later). */
+    suspend fun activateHighQualityForPlus() {
+        val prefs = current()
+        save(prefs.processingIntent, AiEngineMode.HIGH_ACCURACY)
+    }
+
+    /** User-facing selection — High Quality is not selectable on Pro/Free tiers. */
+    fun displaySelectedMode(selected: AiEngineMode, tier: SubscriptionTier): AiEngineMode =
+        if (tier != SubscriptionTier.PLUS && selected == AiEngineMode.HIGH_ACCURACY) {
+            AiEngineMode.SMART_TUTOR
+        } else {
+            selected
+        }
+
     suspend fun resolvedMode(
         inputSource: InputSource,
         tier: SubscriptionTier,

@@ -3,10 +3,12 @@ package com.cheradip.ailanguagetutor.feature.billing
 import android.app.Activity
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.cheradip.ailanguagetutor.core.auth.AuthRepository
 import com.cheradip.ailanguagetutor.core.billing.BillingPeriod
 import com.cheradip.ailanguagetutor.core.billing.BillingRepository
 import com.cheradip.ailanguagetutor.core.billing.PaywallConfig
 import com.cheradip.ailanguagetutor.core.billing.PlayProductIds
+import com.cheradip.ailanguagetutor.core.billing.PromoCodes
 import com.cheradip.ailanguagetutor.core.billing.PromoRepository
 import com.cheradip.ailanguagetutor.core.billing.PromoValidation
 import com.cheradip.ailanguagetutor.core.billing.PurchaseCancelledException
@@ -15,6 +17,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -41,6 +44,7 @@ data class PaywallUiState(
 class PaywallViewModel @Inject constructor(
     private val promoRepository: PromoRepository,
     private val billingRepository: BillingRepository,
+    private val authRepository: AuthRepository,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(PaywallUiState())
@@ -48,22 +52,23 @@ class PaywallViewModel @Inject constructor(
 
     init {
         viewModelScope.launch {
+            authRepository.currentUser.first()
             val config = promoRepository.fetchPaywallConfig(
                 PlayProductIds.productId(SubscriptionTier.PRO, BillingPeriod.MONTHLY),
             )
-            val slot1 = if (config.slot1.visible) config.slot1.code.orEmpty() else ""
+            val autoCode = PromoCodes.resolveAutoApplyCode(config.slot1)
             billingRepository.loadStorePrices()
             _uiState.update {
                 it.copy(
                     config = config,
-                    slot1Code = slot1,
+                    slot1Code = autoCode,
                     loadingConfig = false,
                     storePrices = billingRepository.storePrices.value,
                     billingReady = billingRepository.billingReady.value,
                 )
             }
-            if (slot1.isNotBlank()) {
-                applySlot1(slot1)
+            if (autoCode.isNotBlank()) {
+                applySlot1(autoCode)
             }
         }
         viewModelScope.launch {
@@ -80,6 +85,10 @@ class PaywallViewModel @Inject constructor(
 
     fun selectPlan(plan: PaywallPlan) {
         _uiState.update { it.copy(selectedPlan = plan, purchaseError = null) }
+        val autoCode = _uiState.value.config?.let { PromoCodes.resolveAutoApplyCode(it.slot1) }.orEmpty()
+        if (autoCode.isNotBlank()) applySlot1(autoCode)
+        val slot2 = _uiState.value.slot2Code.trim()
+        if (slot2.isNotBlank()) applySlot2Internal(slot2)
     }
 
     fun selectBillingPeriod(period: BillingPeriod) {
@@ -93,9 +102,14 @@ class PaywallViewModel @Inject constructor(
     fun applySlot2() {
         val code = _uiState.value.slot2Code.trim()
         if (code.isBlank()) return
-        val base = basePriceForPlan(_uiState.value.selectedPlan)
+        applySlot2Internal(code)
+    }
+
+    private fun applySlot2Internal(code: String) {
+        val base = basePriceForPlan(_uiState.value.selectedPlan, _uiState.value.billingPeriod)
+        val slot1 = _uiState.value.slot1Code.takeIf { it.isNotBlank() }
         viewModelScope.launch {
-            promoRepository.validate(code, base)
+            promoRepository.validate(code, base, slot1Code = slot1)
                 .onSuccess { result ->
                     _uiState.update { it.copy(slot2Result = result, promoError = null) }
                 }
@@ -110,10 +124,19 @@ class PaywallViewModel @Inject constructor(
         val tier = if (state.selectedPlan == PaywallPlan.PLUS) SubscriptionTier.PLUS else SubscriptionTier.PRO
         viewModelScope.launch {
             _uiState.update { it.copy(purchaseInProgress = true, purchaseError = null) }
-            billingRepository.purchaseSubscription(activity, tier, state.billingPeriod)
+            billingRepository.purchaseSubscription(
+                activity = activity,
+                tier = tier,
+                period = state.billingPeriod,
+                slot1Code = state.slot1Code.takeIf { it.isNotBlank() },
+                slot2Code = state.slot2Code.takeIf { it.isNotBlank() },
+            )
                 .onSuccess {
                     _uiState.update { it.copy(purchaseInProgress = false) }
-                    onDone()
+                    billingRepository.refreshAccess()
+                    if (billingRepository.accessState.value != com.cheradip.ailanguagetutor.core.billing.AccessState.TRIAL_EXPIRED) {
+                        onDone()
+                    }
                 }
                 .onFailure { e ->
                     val message = when (e) {
@@ -131,6 +154,7 @@ class PaywallViewModel @Inject constructor(
         viewModelScope.launch {
             _uiState.update { it.copy(purchaseInProgress = true, purchaseError = null) }
             billingRepository.restorePurchases()
+            billingRepository.refreshAccess()
             _uiState.update { it.copy(purchaseInProgress = false) }
             when (billingRepository.accessState.value) {
                 com.cheradip.ailanguagetutor.core.billing.AccessState.PRO_ACTIVE,
@@ -150,45 +174,35 @@ class PaywallViewModel @Inject constructor(
         return _uiState.value.storePrices[productId]
     }
 
-    fun effectiveMonthlyPrice(): String {
-        val state = _uiState.value
-        val base = basePriceForPlan(state.selectedPlan)
-        val discount = combinedDiscountPercent()
-        val price = base * (100 - discount) / 100.0
-        return "$%.2f".format(price)
-    }
+    fun effectiveMonthlyPrice(plan: PaywallPlan): String =
+        "%.2f".format(discountedPrice(basePriceForPlan(plan, BillingPeriod.MONTHLY)))
 
-    fun effectiveYearlyPrice(): String {
-        val state = _uiState.value
-        val base = yearlyBaseForPlan(state.selectedPlan)
-        val discount = combinedDiscountPercent()
-        val price = base * (100 - discount) / 100.0
-        return "$%.2f".format(price)
-    }
+    fun effectiveYearlyPrice(plan: PaywallPlan): String =
+        "%.2f".format(discountedPrice(basePriceForPlan(plan, BillingPeriod.YEARLY)))
 
-    private fun combinedDiscountPercent(): Int =
+    private fun discountedPrice(base: Double): Double {
+        var price = base
         listOfNotNull(
             _uiState.value.slot1Result?.discountPercent,
             _uiState.value.slot2Result?.discountPercent,
-        ).sum().coerceAtMost(90)
+        ).forEach { pct ->
+            if (pct > 0) price *= (100 - pct) / 100.0
+        }
+        return price
+    }
 
     private fun applySlot1(code: String) {
-        val base = basePriceForPlan(_uiState.value.selectedPlan)
+        val base = basePriceForPlan(_uiState.value.selectedPlan, _uiState.value.billingPeriod)
         viewModelScope.launch {
             promoRepository.validate(code, base)
                 .onSuccess { result ->
-                    _uiState.update { it.copy(slot1Result = result) }
+                    _uiState.update { it.copy(slot1Result = result, slot1Code = code) }
                 }
         }
     }
 
-    private fun basePriceForPlan(plan: PaywallPlan) = when (plan) {
-        PaywallPlan.PRO -> 2.0
-        PaywallPlan.PLUS -> 5.0
-    }
-
-    private fun yearlyBaseForPlan(plan: PaywallPlan) = when (plan) {
-        PaywallPlan.PRO -> 20.0
-        PaywallPlan.PLUS -> 50.0
+    private fun basePriceForPlan(plan: PaywallPlan, period: BillingPeriod) = when (plan) {
+        PaywallPlan.PRO -> if (period == BillingPeriod.YEARLY) 20.0 else 2.0
+        PaywallPlan.PLUS -> if (period == BillingPeriod.YEARLY) 50.0 else 5.0
     }
 }

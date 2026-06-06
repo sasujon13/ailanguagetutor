@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.database import Base, SessionLocal, engine
+from app.schema_upgrade import upgrade_schema
 from app.models import (
     AiProvider,
     AiRoutingPolicy,
@@ -52,6 +53,8 @@ def _seed_admin(db: Session) -> None:
         existing.password_hash = hash_password(password)
         existing.role = "admin"
         existing.whatsapp = settings.admin_seed_whatsapp
+        existing.email_verified = True
+        existing.whatsapp_verified = True
         return
     db.add(
         User(
@@ -60,27 +63,34 @@ def _seed_admin(db: Session) -> None:
             username=email.split("@")[0],
             password_hash=hash_password(password),
             role="admin",
+            full_name="Admin",
+            email_verified=True,
+            whatsapp_verified=True,
+            login_with="email",
         )
     )
     logger.info("Seeded admin user %s", email)
 
 
 def _seed_promos(db: Session) -> None:
-    if db.scalar(select(PromoCode).limit(1)):
-        return
     if not PROMO_FILE.is_file():
         return
     data = json.loads(PROMO_FILE.read_text(encoding="utf-8"))
+    existing = {p.code for p in db.scalars(select(PromoCode)).all()}
     for p in data.get("promoCodes", []):
+        code = p["code"].upper()
+        if code in existing:
+            continue
         db.add(
             PromoCode(
-                code=p["code"].upper(),
+                code=code,
                 discount_percent=int(p.get("discountPercent", 0)),
                 active=bool(p.get("active", True)),
                 auto_apply=bool(p.get("autoApplyForAll", False)),
                 paywall_slot=int(p.get("paywallSlot", 2)),
             )
         )
+    db.commit()
 
 
 def _seed_referral_policy(db: Session) -> None:
@@ -135,6 +145,7 @@ def _seed_ai_providers(db: Session) -> None:
 
 def init_database() -> None:
     create_tables()
+    upgrade_schema(engine)
     db = SessionLocal()
     try:
         seed_if_empty(db)

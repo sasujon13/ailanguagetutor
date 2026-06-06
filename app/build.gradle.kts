@@ -158,6 +158,7 @@ afterEvaluate {
 dependencies {
     implementation(project(":ui:theme"))
     implementation(project(":ui:components"))
+    implementation(project(":core:locale"))
     implementation(project(":ui:navigation"))
     implementation(project(":feature:home"))
     implementation(project(":feature:onboarding"))
@@ -172,6 +173,7 @@ dependencies {
     implementation(project(":core:audio"))
     implementation(project(":core:auth"))
     implementation(project(":core:billing"))
+    implementation(project(":core:speech"))
 
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.ui)

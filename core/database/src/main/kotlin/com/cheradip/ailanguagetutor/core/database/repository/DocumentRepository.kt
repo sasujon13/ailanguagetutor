@@ -63,6 +63,7 @@ class DocumentRepository @Inject constructor(
         imagePath: String,
         width: Int,
         height: Int,
+        originalImagePath: String? = null,
     ): Long = withContext(Dispatchers.IO) {
         val pageIndex = documentPageDao.countForDocument(documentId)
         val pageId = documentPageDao.insert(
@@ -70,6 +71,7 @@ class DocumentRepository @Inject constructor(
                 documentId = documentId,
                 pageIndex = pageIndex,
                 imagePath = imagePath,
+                originalImagePath = originalImagePath ?: imagePath,
                 width = width,
                 height = height,
             ),
@@ -83,6 +85,25 @@ class DocumentRepository @Inject constructor(
             )
         }
         pageId
+    }
+
+    suspend fun updatePageImage(
+        pageId: Long,
+        imagePath: String,
+        width: Int,
+        height: Int,
+        editStateJson: String?,
+    ) = withContext(Dispatchers.IO) {
+        documentPageDao.getById(pageId)?.let { page ->
+            documentPageDao.update(
+                page.copy(
+                    imagePath = imagePath,
+                    width = width,
+                    height = height,
+                    editStateJson = editStateJson,
+                ),
+            )
+        }
     }
 
     suspend fun updatePageOcr(
@@ -116,6 +137,8 @@ class DocumentRepository @Inject constructor(
         documentId = documentId,
         pageIndex = pageIndex,
         imagePath = imagePath,
+        originalImagePath = originalImagePath,
+        editStateJson = editStateJson,
         ocrText = ocrText,
         wordMapJson = wordMapJson,
         width = width,

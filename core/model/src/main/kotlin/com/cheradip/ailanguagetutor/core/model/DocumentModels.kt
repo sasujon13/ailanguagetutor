@@ -15,6 +15,8 @@ data class DocumentPage(
     val documentId: Long,
     val pageIndex: Int,
     val imagePath: String,
+    val originalImagePath: String? = null,
+    val editStateJson: String? = null,
     val ocrText: String?,
     val wordMapJson: String?,
     val width: Int,

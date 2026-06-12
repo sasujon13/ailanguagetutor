@@ -1,25 +1,24 @@
 package com.cheradip.ailanguagetutor.feature.scanner
 
 import android.Manifest
+import android.app.Activity
 import android.content.pm.PackageManager
-import android.util.Size
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.camera.core.CameraSelector
-import androidx.camera.core.ImageCapture
-import androidx.camera.core.ImageCaptureException
-import androidx.camera.core.Preview
-import androidx.camera.lifecycle.ProcessCameraProvider
-import androidx.camera.view.PreviewView
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Camera
 import androidx.compose.material.icons.filled.PhotoLibrary
@@ -28,28 +27,32 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import com.cheradip.ailanguagetutor.ui.components.CheradipTopBar
-import java.util.concurrent.Executors
+import com.google.mlkit.vision.documentscanner.GmsDocumentScanningResult
+import kotlinx.coroutines.launch
 
 enum class ScannerLaunchMode {
     CAMERA,
@@ -67,6 +70,7 @@ fun ScannerScreen(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    val snackbarHostState = remember { SnackbarHostState() }
     var hasCameraPermission by remember {
         mutableStateOf(
             ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) ==
@@ -85,7 +89,37 @@ fun ScannerScreen(
             viewModel.onGalleryImage(stream.readBytes())
         }
     }
+    val mlKitScannerLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartIntentSenderForResult(),
+    ) { result ->
+        if (result.resultCode != Activity.RESULT_OK) return@rememberLauncherForActivityResult
+        val scanResult = GmsDocumentScanningResult.fromActivityResultIntent(result.data)
+        val pages = MlKitDocumentScannerHelper.extractPageBytes(scanResult) { uri ->
+            context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                ?: ByteArray(0)
+        }.filter { it.isNotEmpty() }
+        pages.forEach { viewModel.onPhotoCaptured(it) }
+    }
+    val scope = rememberCoroutineScope()
     var importGalleryOpened by remember { mutableStateOf(false) }
+    var initialScanLaunched by remember { mutableStateOf(false) }
+
+    val launchMlKitScan: () -> Unit = {
+        val activity = context as? Activity
+        if (activity != null) {
+            scope.launch {
+                runCatching {
+                    val sender = MlKitDocumentScannerHelper.getScanIntentSender(activity)
+                    mlKitScannerLauncher.launch(IntentSenderRequest.Builder(sender).build())
+                }.onFailure {
+                    snackbarHostState.showSnackbar("Document scanner unavailable")
+                    galleryLauncher.launch("image/*")
+                }
+            }
+        } else {
+            galleryLauncher.launch("image/*")
+        }
+    }
 
     LaunchedEffect(documentId, launchMode) {
         val sourceType = if (launchMode == ScannerLaunchMode.IMPORT) "import" else "scan"
@@ -105,20 +139,81 @@ fun ScannerScreen(
         }
     }
 
+    LaunchedEffect(hasCameraPermission, launchMode, uiState.pages.isEmpty()) {
+        if (
+            launchMode == ScannerLaunchMode.CAMERA &&
+            hasCameraPermission &&
+            uiState.pages.isEmpty() &&
+            !initialScanLaunched
+        ) {
+            initialScanLaunched = true
+            launchMlKitScan()
+        }
+    }
+
+    LaunchedEffect(uiState.exportMessage, uiState.error) {
+        uiState.exportMessage?.let {
+            snackbarHostState.showSnackbar(it)
+            viewModel.clearExportMessage()
+        }
+        uiState.error?.let { snackbarHostState.showSnackbar(it) }
+    }
+
     val isImportMode = launchMode == ScannerLaunchMode.IMPORT
+    val showEditor = uiState.pages.isNotEmpty() && uiState.selectedPageId != null
+
+    if (uiState.showExportDialog) {
+        ScanExportDialog(
+            options = uiState.exportOptions,
+            previewPath = uiState.previewPath ?: uiState.pages.firstOrNull()?.imagePath,
+            onDismiss = viewModel::dismissExportDialog,
+            onExport = viewModel::exportDocument,
+            onUpdate = viewModel::updateExportOptions,
+        )
+    }
+    if (uiState.showExportPreview) {
+        ScanExportPreviewDialog(
+            paths = uiState.exportPreviewPaths,
+            onDismiss = viewModel::dismissExportPreview,
+        )
+    }
+    if (uiState.showVersionCompare) {
+        ScanVersionCompareDialog(
+            label = uiState.versionCompareLabel,
+            beforePath = uiState.versionCompareBeforePath,
+            afterPath = uiState.versionCompareAfterPath,
+            onDismiss = viewModel::dismissVersionCompare,
+        )
+    }
 
     Scaffold(
         topBar = {
             CheradipTopBar(
                 title = if (isImportMode) "Import" else "Scanner",
-                subtitle = if (isImportMode) "Gallery import" else "Camera · capture photo",
+                subtitle = if (showEditor) {
+                    "Edit · then Process & Read"
+                } else if (isImportMode) {
+                    "Gallery import"
+                } else {
+                    "ML Kit document scan"
+                },
                 onBack = onBack,
             )
         },
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         floatingActionButton = {
-            if (isImportMode) {
-                FloatingActionButton(onClick = { galleryLauncher.launch("image/*") }) {
-                    Icon(Icons.Default.PhotoLibrary, contentDescription = "Gallery")
+            if (isImportMode || (showEditor && !isImportMode)) {
+                FloatingActionButton(onClick = {
+                    if (isImportMode) {
+                        galleryLauncher.launch("image/*")
+                    } else {
+                        launchMlKitScan()
+                    }
+                }) {
+                    Icon(
+                        if (isImportMode) Icons.Default.PhotoLibrary else Icons.Default.Camera,
+                        contentDescription = "Add page",
+                    )
                 }
             }
         },
@@ -126,83 +221,103 @@ fun ScannerScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding),
+                .padding(padding)
+                .verticalScroll(rememberScrollState()),
         ) {
-            if (isImportMode) {
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxWidth(),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Icon(
-                            Icons.Default.PhotoLibrary,
-                            contentDescription = null,
-                            modifier = Modifier.padding(8.dp),
-                            tint = MaterialTheme.colorScheme.primary,
-                        )
-                        Text(
-                            "Pick images from your gallery",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        Button(
-                            onClick = { galleryLauncher.launch("image/*") },
-                            modifier = Modifier.padding(top = 12.dp),
-                        ) {
-                            Text("Open gallery")
-                        }
-                    }
-                }
+            if (showEditor) {
+                ScannerPreviewArea(
+                    uiState = uiState,
+                    onUpdateCrop = viewModel::updateDraftCrop,
+                    onUpdateTransition = viewModel::updateDraftTransition,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                )
+            } else if (isImportMode) {
+                MlKitScanPrompt(
+                    title = "Pick images from your gallery",
+                    primaryLabel = "Open gallery",
+                    onPrimary = { galleryLauncher.launch("image/*") },
+                    icon = Icons.Default.PhotoLibrary,
+                )
             } else if (hasCameraPermission) {
-                CameraPreviewWithCapture(
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxWidth(),
-                    onCapture = viewModel::onPhotoCaptured,
+                MlKitScanPrompt(
+                    title = "Scan documents",
+                    subtitle = "Auto edge detection, perspective correction, and multi-page capture.",
+                    primaryLabel = "Scan document",
+                    onPrimary = launchMlKitScan,
+                    icon = Icons.Default.Camera,
+                    secondaryLabel = "Import from gallery",
+                    onSecondary = { galleryLauncher.launch("image/*") },
                 )
             } else {
                 Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxWidth(),
+                    modifier = Modifier.fillMaxWidth().padding(32.dp),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Text("Camera permission required")
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text("Camera permission required")
+                        TextButton(onClick = { permissionLauncher.launch(Manifest.permission.CAMERA) }) {
+                            Text("Grant permission")
+                        }
+                    }
                 }
             }
 
             if (uiState.isSaving) {
-                CircularProgressIndicator(modifier = Modifier.padding(8.dp))
+                CircularProgressIndicator(modifier = Modifier.padding(8.dp).align(Alignment.CenterHorizontally))
             }
-            uiState.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
 
-            if (uiState.pagePaths.isNotEmpty()) {
+            if (uiState.pages.isNotEmpty()) {
                 LazyRow(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(8.dp),
+                    modifier = Modifier.fillMaxWidth().padding(8.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    items(uiState.pagePaths) { path ->
+                    items(uiState.pages, key = { it.id }) { page ->
                         AsyncImage(
-                            model = path,
+                            model = page.imagePath,
                             contentDescription = null,
-                            modifier = Modifier.padding(4.dp),
+                            modifier = Modifier
+                                .padding(4.dp)
+                                .clickable { viewModel.selectPage(page.id) },
+                            contentScale = ContentScale.Crop,
                         )
                     }
                 }
                 Text(
-                    text = "${uiState.pageCount} page(s)",
+                    text = "${uiState.pageCount} page(s) · tap thumbnail to edit",
                     modifier = Modifier.padding(horizontal = 16.dp),
                     style = MaterialTheme.typography.bodySmall,
                 )
+                if (showEditor) {
+                    ScannerEditingControls(
+                        uiState = uiState,
+                        onOpenTool = viewModel::openTool,
+                        onCloseTool = viewModel::closeToolPanel,
+                        onApply = viewModel::applyCurrentTool,
+                        onCompareHold = viewModel::setCompareOriginal,
+                        onBeforeAfter = viewModel::setBeforeAfterSlider,
+                        onUndo = viewModel::undo,
+                        onRedo = viewModel::redo,
+                        onRevertAll = viewModel::revertAllEdits,
+                        onRevertCurrent = viewModel::revertCurrentTool,
+                        onRevertCurrentEffect = viewModel::revertCurrentEffect,
+                        onRevertToOriginal = viewModel::revertToOriginal,
+                        onCompareHistory = viewModel::compareWithHistory,
+                        onRestoreCrop = viewModel::restoreCropBoundaries,
+                        onRestoreColors = viewModel::restoreOriginalColors,
+                        onJumpToHistory = viewModel::jumpToHistoryStage,
+                        onJumpToStage = viewModel::jumpToStage,
+                        onAutoDetect = viewModel::autoDetectEdges,
+                        onCropPreset = viewModel::applyCropPreset,
+                        onUpdateCrop = viewModel::updateDraftCrop,
+                        onUpdateTransition = viewModel::updateDraftTransition,
+                        onUpdateClean = viewModel::updateDraftClean,
+                        onUpdateGray = viewModel::updateDraftGray,
+                        modifier = Modifier.padding(horizontal = 8.dp),
+                    )
+                }
                 Button(
                     onClick = { uiState.documentId?.let(onDone) },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp),
+                    modifier = Modifier.fillMaxWidth().padding(16.dp),
                     enabled = uiState.pageCount > 0 && !uiState.isSaving,
                 ) {
                     Icon(Icons.Default.Camera, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
@@ -214,61 +329,41 @@ fun ScannerScreen(
 }
 
 @Composable
-private fun CameraPreviewWithCapture(
-    modifier: Modifier = Modifier,
-    onCapture: (ByteArray) -> Unit,
+private fun MlKitScanPrompt(
+    title: String,
+    primaryLabel: String,
+    onPrimary: () -> Unit,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    subtitle: String? = null,
+    secondaryLabel: String? = null,
+    onSecondary: (() -> Unit)? = null,
 ) {
-    val context = LocalContext.current
-    val lifecycleOwner = LocalLifecycleOwner.current
-    val imageCapture = remember { ImageCapture.Builder().setTargetResolution(Size(1920, 1080)).build() }
-    val executor = remember { Executors.newSingleThreadExecutor() }
-
-    Box(modifier = modifier) {
-        AndroidView(
-            modifier = Modifier.fillMaxSize(),
-            factory = { ctx ->
-                PreviewView(ctx).also { previewView ->
-                    val cameraProviderFuture = ProcessCameraProvider.getInstance(ctx)
-                    cameraProviderFuture.addListener({
-                        val cameraProvider = cameraProviderFuture.get()
-                        val preview = Preview.Builder().build().also {
-                            it.surfaceProvider = previewView.surfaceProvider
-                        }
-                        cameraProvider.unbindAll()
-                        cameraProvider.bindToLifecycle(
-                            lifecycleOwner,
-                            CameraSelector.DEFAULT_BACK_CAMERA,
-                            preview,
-                            imageCapture,
-                        )
-                    }, ContextCompat.getMainExecutor(ctx))
-                }
-            },
-        )
-        FloatingActionButton(
-            onClick = {
-                val file = java.io.File.createTempFile("capture_", ".jpg", context.cacheDir)
-                val outputOptions = ImageCapture.OutputFileOptions.Builder(file).build()
-                imageCapture.takePicture(
-                    outputOptions,
-                    executor,
-                    object : ImageCapture.OnImageSavedCallback {
-                        override fun onImageSaved(output: ImageCapture.OutputFileResults) {
-                            onCapture(file.readBytes())
-                            file.delete()
-                        }
-
-                        override fun onError(exception: ImageCaptureException) {
-                            file.delete()
-                        }
-                    },
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(280.dp)
+            .padding(32.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(48.dp))
+            Text(title, style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 12.dp))
+            if (subtitle != null) {
+                Text(
+                    subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 4.dp, bottom = 8.dp),
                 )
-            },
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(24.dp),
-        ) {
-            Icon(Icons.Default.Camera, contentDescription = "Capture")
+            }
+            Button(onClick = onPrimary, modifier = Modifier.padding(top = 12.dp)) {
+                Text(primaryLabel)
+            }
+            if (secondaryLabel != null && onSecondary != null) {
+                OutlinedButton(onClick = onSecondary, modifier = Modifier.padding(top = 8.dp)) {
+                    Text(secondaryLabel)
+                }
+            }
         }
     }
 }

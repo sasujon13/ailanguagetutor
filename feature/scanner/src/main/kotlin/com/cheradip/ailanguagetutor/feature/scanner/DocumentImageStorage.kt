@@ -17,27 +17,45 @@ class DocumentImageStorage @Inject constructor(
     private val docsDir: File
         get() = File(context.filesDir, "documents").also { it.mkdirs() }
 
-    fun createPageFile(documentId: Long, pageIndex: Int): File {
+    fun createPageFile(documentId: Long, pageIndex: Int, prefix: String = "page"): File {
         val docDir = File(docsDir, documentId.toString()).also { it.mkdirs() }
-        return File(docDir, "page_${pageIndex}_${timestamp()}.jpg")
+        return File(docDir, "${prefix}_${pageIndex}_${timestamp()}.jpg")
     }
 
     fun copyFromUriBytes(documentId: Long, pageIndex: Int, bytes: ByteArray): SavedImage {
-        val file = createPageFile(documentId, pageIndex)
-        file.writeBytes(bytes)
-        val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        BitmapFactory.decodeFile(file.absolutePath, options)
+        val docDir = File(docsDir, documentId.toString()).also { it.mkdirs() }
+        val ts = timestamp()
+        val originalFile = File(docDir, "original_${pageIndex}_$ts.jpg")
+        originalFile.writeBytes(bytes)
+        val workingFile = File(docDir, "page_${pageIndex}_$ts.jpg")
+        originalFile.copyTo(workingFile, overwrite = true)
+        val (w, h) = decodeBounds(workingFile.absolutePath)
         return SavedImage(
-            path = file.absolutePath,
-            width = options.outWidth,
-            height = options.outHeight,
+            path = workingFile.absolutePath,
+            originalPath = originalFile.absolutePath,
+            width = w,
+            height = h,
         )
     }
 
     fun saveCapturedBytes(documentId: Long, pageIndex: Int, bytes: ByteArray): SavedImage =
         copyFromUriBytes(documentId, pageIndex, bytes)
 
-    data class SavedImage(val path: String, val width: Int, val height: Int)
+    fun createWorkingCopy(documentId: Long, pageKey: Long): File =
+        createPageFile(documentId, pageKey.toInt(), prefix = "edited")
+
+    private fun decodeBounds(path: String): Pair<Int, Int> {
+        val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeFile(path, options)
+        return options.outWidth to options.outHeight
+    }
+
+    data class SavedImage(
+        val path: String,
+        val originalPath: String,
+        val width: Int,
+        val height: Int,
+    )
 
     private fun timestamp(): String =
         SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())

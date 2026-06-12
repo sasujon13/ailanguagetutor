@@ -140,7 +140,37 @@ For Play upload:
 
 ---
 
-## 7. Troubleshooting
+## 7. Design / Split view (Compose previews)
+
+This app is **100% Jetpack Compose** — there are **no `res/layout/*.xml` screens**. Android Studio’s **Design** and **Split** tabs only show a preview when the open `.kt` file contains an `@Preview` function.
+
+### How to use Split / Design
+
+1. Open a preview file in Android Studio, for example:
+   - `ui/components/.../ComposePreviews.kt` — shared UI (dropdowns, input channel bar)
+   - `feature/home/.../HomeScreenPreviews.kt` — Home screen
+   - `feature/practice/.../PracticeHubPreviews.kt` — Practice tab
+   - `ui/theme/.../ThemePreviews.kt` — colors & typography
+2. Click **Split** (editor toolbar) or **View → Tool Windows → Preview**.
+3. Pick a preview from the dropdown above the preview pane (e.g. “Home”, “Practice — input channels”).
+4. **Build → Rebuild Project** once after Gradle sync if the preview pane stays blank.
+
+### If Design / Split is empty
+
+| Problem | Fix |
+|---------|-----|
+| Opened a file with no `@Preview` | Open one of the `*Previews.kt` files listed above |
+| Red `Unresolved reference: Preview` on `@Preview` | **File → Sync Project with Gradle Files**; preview deps are in each module’s `build.gradle.kts` (`compose.ui.tooling.preview`) |
+| “Preview unavailable” / rendering failed | **File → Invalidate Caches → Restart**; then Rebuild |
+| Preview never refreshes | Enable **Settings → Editor → Compose → Enable live edit** (optional) |
+| Only code pane visible | Click **Split** or the **Preview** tool window icon on the right |
+| Opened in VS Code / Cursor | Design preview is **Android Studio only** — open this folder in Android Studio |
+
+Interactive preview: click the **Run** icon in the `@Preview` gutter to open **Interactive Preview**.
+
+---
+
+## 8. Troubleshooting
 
 | Problem | Fix |
 |---------|-----|
@@ -153,7 +183,7 @@ For Play upload:
 
 ---
 
-## 8. Admin login (debug)
+## 9. Admin login (debug)
 
 Email: `sashafik.me@gmail.com`  
 Password: value of `ADMIN_SEED_PASSWORD` in `local.env.properties`

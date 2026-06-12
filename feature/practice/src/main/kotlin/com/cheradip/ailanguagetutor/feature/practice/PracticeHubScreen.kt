@@ -63,10 +63,6 @@ import com.cheradip.ailanguagetutor.ui.components.InputChannel
 
 import com.cheradip.ailanguagetutor.ui.components.InputChannelBar
 
-import com.cheradip.ailanguagetutor.ui.components.SectionHeader
-
-
-
 @Composable
 
 fun PracticeHubScreen(
@@ -189,13 +185,11 @@ fun PracticeHubScreen(
             item {
 
                 PracticeLanguageSelectors(
-
                     languageOptions = languageOptions,
-
                     inputLanguage = practiceLangs.inputLanguage,
-
+                    outputLanguage = practiceLangs.outputLanguage,
                     onInputSelected = { viewModel.setInputLanguage(it.code) },
-
+                    onOutputSelected = { viewModel.setOutputLanguage(it.code) },
                 )
 
             }
@@ -344,7 +338,7 @@ fun PracticeHubScreen(
 
 @Composable
 
-private fun PracticeLanguageSelectors(
+internal fun PracticeLanguageSelectors(
 
     languageOptions: List<PracticeLanguageOption>,
 
@@ -382,13 +376,13 @@ private fun PracticeLanguageSelectors(
 
                 Text(
 
-                    "Input language",
+                    "Input",
 
                     style = MaterialTheme.typography.titleMedium,
 
                     modifier = Modifier.widthIn(min = 108.dp, max = 132.dp),
 
-                )
+                    )
 
                 CheradipDropdown(
 
@@ -404,7 +398,7 @@ private fun PracticeLanguageSelectors(
 
                     modifier = Modifier.weight(1f),
 
-                )
+                    )
 
             }
 
@@ -412,7 +406,7 @@ private fun PracticeLanguageSelectors(
 
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
 
-                SectionHeader(title = "Input language")
+                SectionHeader(title = "Input")
 
                 CheradipDropdown(
 

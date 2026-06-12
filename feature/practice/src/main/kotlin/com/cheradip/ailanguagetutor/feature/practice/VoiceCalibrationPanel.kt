@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.AutoAwesome
@@ -68,7 +69,7 @@ fun VoiceCalibrationContent(
         Text(
             "Read each prompt aloud. The microphone detects your voice — do not use speaker playback. " +
                 "Complete Words, Sentences, and Paragraph for each study language (up to 3). " +
-                "Paragraph unlocks mic input on Practice.",
+                "Paragraph unlocks mic input on Learning.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -214,6 +215,7 @@ fun PracticeInputCard(
     onStopVoice: () -> Unit,
     onSpeakOutput: (String) -> Unit,
     onSave: () -> Unit,
+    onCancelVoiceAutoAi: () -> Unit = {},
     onOpenVoiceCalibration: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
@@ -233,7 +235,13 @@ fun PracticeInputCard(
                         if (hubState.isListening) "Listening… speak now" else "Type or use the mic button",
                     )
                 },
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .onFocusChanged { focusState ->
+                        if (focusState.isFocused && !hubState.isListening) {
+                            onCancelVoiceAutoAi()
+                        }
+                    },
                 minLines = 3,
                 maxLines = 7,
                 trailingIcon = {

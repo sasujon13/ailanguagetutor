@@ -200,7 +200,7 @@ class GrammarBookViewModel @Inject constructor(
                 isSaved = true,
             )
             learningActivitySyncRepository.syncIfLoggedIn()
-            _uiState.update { it.copy(statusMessage = "Grammar chapter saved to Learning") }
+            _uiState.update { it.copy(statusMessage = "Grammar chapter saved to History") }
         }
     }
 

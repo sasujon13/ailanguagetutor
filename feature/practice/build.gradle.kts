@@ -18,6 +18,7 @@ android {
 }
 
 dependencies {
+    implementation(project(":core:locale"))
     implementation(project(":core:model"))
     implementation(project(":core:ai"))
     implementation(project(":core:billing"))

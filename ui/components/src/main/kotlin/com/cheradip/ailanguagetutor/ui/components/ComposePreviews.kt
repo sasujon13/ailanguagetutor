@@ -51,7 +51,7 @@ private fun QuickActionGridPreview() {
             actions = listOf(
                 QuickAction("Scan", Icons.Default.QrCodeScanner, {}),
                 QuickAction("Camera", Icons.Default.QrCodeScanner, {}),
-                QuickAction("Practice", Icons.Default.QrCodeScanner, {}),
+                QuickAction("Learning", Icons.Default.QrCodeScanner, {}),
             ),
             modifier = Modifier.padding(16.dp),
         )

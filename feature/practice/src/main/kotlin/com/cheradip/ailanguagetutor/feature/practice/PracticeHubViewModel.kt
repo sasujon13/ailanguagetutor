@@ -199,9 +199,15 @@ class PracticeHubViewModel @Inject constructor(
         _uiState.update { it.copy(speechError = message, speechErrorLinksCalibration = false) }
     }
 
+    /** Cancels the post-voice 7s auto-AI timer when the user edits the field or starts voice again. */
+    fun cancelVoiceAutoAiTimer() {
+        voiceAutoAiJob?.cancel()
+        voiceAutoAiJob = null
+    }
+
     fun updateTypedInput(text: String) {
         val langs = practiceLanguages.value
-        voiceAutoAiJob?.cancel()
+        cancelVoiceAutoAiTimer()
         _uiState.update {
             it.copy(
                 typedInput = text,
@@ -239,18 +245,18 @@ class PracticeHubViewModel @Inject constructor(
                 processError = null,
             )
         }
-        voiceAutoAiJob?.cancel()
+        cancelVoiceAutoAiTimer()
         lastTypedInput = trimmed
         runProcess { processAuto(inputSource) }
     }
 
     fun processOfflineInput() {
-        voiceAutoAiJob?.cancel()
+        cancelVoiceAutoAiTimer()
         runProcess { processOffline(recordActivity = true) }
     }
 
     fun processTypedInputWithSavedLanguages() {
-        voiceAutoAiJob?.cancel()
+        cancelVoiceAutoAiTimer()
         runProcess { processWithAi(inputSource = InputSource.TYPED) }
     }
 
@@ -286,7 +292,7 @@ class PracticeHubViewModel @Inject constructor(
     }
 
     private fun scheduleVoiceAutoAi() {
-        voiceAutoAiJob?.cancel()
+        cancelVoiceAutoAiTimer()
         voiceAutoAiJob = viewModelScope.launch {
             delay(VOICE_AUTO_AI_DELAY_MS)
             val text = _uiState.value.typedInput.trim()
@@ -297,7 +303,7 @@ class PracticeHubViewModel @Inject constructor(
 
     private fun runProcess(block: suspend () -> Unit) {
         offlineTypingJob?.cancel()
-        voiceAutoAiJob?.cancel()
+        cancelVoiceAutoAiTimer()
         activeProcessJob?.cancel()
         activeProcessJob = viewModelScope.launch {
             block()
@@ -324,7 +330,7 @@ class PracticeHubViewModel @Inject constructor(
                     intent = aiResult.intent,
                     offline = false,
                     activityType = "practice_typed",
-                    title = "Practice: typed",
+                    title = "Learning: typed",
                     sourceLang = langs.inputLanguage,
                     targetLang = langs.outputLanguage,
                 )
@@ -364,7 +370,7 @@ class PracticeHubViewModel @Inject constructor(
                 intent = aiResult.intent,
                 offline = false,
                 activityType = "practice_typed",
-                title = "Practice: typed",
+                title = "Learning: typed",
                 sourceLang = langs.inputLanguage,
                 targetLang = langs.outputLanguage,
             )
@@ -399,7 +405,7 @@ class PracticeHubViewModel @Inject constructor(
                 intent = ProcessingIntent.TRANSLATION,
                 offline = true,
                 activityType = "practice_offline",
-                title = "Practice: offline process",
+                title = "Learning: offline process",
                 sourceLang = langs.inputLanguage,
                 targetLang = langs.outputLanguage,
             )
@@ -475,7 +481,7 @@ class PracticeHubViewModel @Inject constructor(
     }
 
     fun startVoiceInput() {
-        voiceAutoAiJob?.cancel()
+        cancelVoiceAutoAiTimer()
         val inputLang = practiceLanguages.value.inputLanguage.lowercase()
         val allowed = _uiState.value.calibrationStatuses
             .firstOrNull { it.languageCode == inputLang }
@@ -510,6 +516,7 @@ class PracticeHubViewModel @Inject constructor(
     }
 
     fun stopVoiceInput() {
+        cancelVoiceAutoAiTimer()
         speechEngine.stopListening()
         _uiState.update {
             it.copy(
@@ -525,7 +532,7 @@ class PracticeHubViewModel @Inject constructor(
         if (state.typedInput.isBlank() && state.aiOutput.isNullOrBlank()) return
         viewModelScope.launch {
             val activityId = state.lastActivityId ?: learningActivityRepository.record(
-                title = "Practice: saved",
+                title = "Learning: saved",
                 activityType = if (state.outputOffline) "practice_offline" else "practice_typed",
                 languageCode = langs.inputLanguage,
                 summary = state.aiOutput?.take(120),
@@ -542,7 +549,7 @@ class PracticeHubViewModel @Inject constructor(
                 it.copy(
                     lastActivityId = activityId,
                     resultSaved = true,
-                    saveMessage = "Saved to Learning",
+                    saveMessage = "Saved to History",
                 )
             }
         }
@@ -586,12 +593,16 @@ class PracticeHubViewModel @Inject constructor(
                 _uiState.update { it.copy(isListening = false) }
             }
             ListeningState.Listening -> {
+                if (_uiState.value.speechMode == SpeechCaptureMode.VOICE_INPUT) {
+                    cancelVoiceAutoAiTimer()
+                }
                 _uiState.update {
                     it.copy(isListening = it.speechMode == SpeechCaptureMode.VOICE_INPUT)
                 }
             }
             is ListeningState.Partial -> {
                 if (_uiState.value.speechMode == SpeechCaptureMode.VOICE_INPUT) {
+                    cancelVoiceAutoAiTimer()
                     _uiState.update {
                         it.copy(partialSpeech = state.text, isListening = true)
                     }

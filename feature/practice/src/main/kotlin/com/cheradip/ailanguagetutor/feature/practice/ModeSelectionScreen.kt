@@ -134,7 +134,7 @@ fun ModeSelectionScreen(
         }
         if (state.languageOptions.isNotEmpty()) {
             item {
-                SectionHeader(title = "Step 3 — Practice languages")
+                SectionHeader(title = "Step 3 — Learning languages")
             }
             item {
                 Text(

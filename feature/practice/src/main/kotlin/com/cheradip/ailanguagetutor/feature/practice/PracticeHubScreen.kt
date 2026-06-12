@@ -47,6 +47,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 
 import com.cheradip.ailanguagetutor.ui.components.CheradipDropdown
+import com.cheradip.ailanguagetutor.core.locale.appString
 import com.cheradip.ailanguagetutor.ui.components.CheradipScrollScreen
 import com.cheradip.ailanguagetutor.ui.components.IconTextButton
 import com.cheradip.ailanguagetutor.ui.components.InputChannel
@@ -178,7 +179,7 @@ fun PracticeHubScreen(
 
         modifier = modifier,
 
-        title = "Practice",
+        title = appString("nav_practice"),
 
         subtitle = "Input ${practiceLangs.inputLanguage.uppercase()} → output ${practiceLangs.outputLanguage.uppercase()}",
 
@@ -284,6 +285,8 @@ fun PracticeHubScreen(
                 },
 
                 onSave = viewModel::saveCurrentResult,
+
+                onCancelVoiceAutoAi = viewModel::cancelVoiceAutoAiTimer,
 
             )
 

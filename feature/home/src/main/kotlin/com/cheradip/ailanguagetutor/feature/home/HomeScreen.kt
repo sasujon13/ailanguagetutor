@@ -13,7 +13,7 @@ import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.AutoStories
-import androidx.compose.material.icons.filled.Translate
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -57,11 +57,11 @@ fun HomeScreen(
                     QuickAction(appString("action_scan"), Icons.Default.QrCodeScanner, onScanClick),
                     QuickAction(appString("action_camera"), Icons.Default.CameraAlt, onCameraClick),
                     QuickAction(appString("action_import"), Icons.Default.PhotoLibrary, onImportClick),
-                    QuickAction(appString("action_practice"), Icons.Default.Translate, onPracticeClick),
+                    QuickAction(appString("action_practice"), Icons.AutoMirrored.Filled.MenuBook, onPracticeClick),
                     QuickAction(appString("action_type"), Icons.Default.Keyboard, onTypeClick),
                     QuickAction(appString("action_voice"), Icons.Default.Mic, onVoiceClick),
                     QuickAction(appString("action_listen"), Icons.AutoMirrored.Filled.VolumeUp, onListenClick),
-                    QuickAction(appString("action_learning"), Icons.AutoMirrored.Filled.MenuBook, onLearningClick),
+                    QuickAction(appString("action_learning"), Icons.Default.Refresh, onLearningClick),
                     QuickAction(appString("action_grammar"), Icons.Default.AutoStories, onGrammarClick),
                 ),
             )

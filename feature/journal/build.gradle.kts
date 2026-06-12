@@ -22,6 +22,7 @@ dependencies {
     implementation(project(":ui:components"))
     implementation(project(":core:database"))
     implementation(project(":core:model"))
+    implementation(project(":core:locale"))
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.ui)
     implementation(libs.compose.material3)

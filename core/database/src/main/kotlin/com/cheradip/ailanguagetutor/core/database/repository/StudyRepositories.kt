@@ -5,7 +5,7 @@ import com.cheradip.ailanguagetutor.core.database.dao.SavedWordDao
 import com.cheradip.ailanguagetutor.core.database.entity.LearningActivityEntity
 import com.cheradip.ailanguagetutor.core.database.entity.SavedWordEntity
 import com.cheradip.ailanguagetutor.core.model.LearningActivityFilter
-import com.cheradip.ailanguagetutor.core.model.matches
+import com.cheradip.ailanguagetutor.core.model.matchesActivity
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
@@ -38,13 +38,14 @@ class LearningActivityRepository @Inject constructor(
     fun observeAll(): Flow<List<LearningActivityEntity>> = learningActivityDao.observeAll()
 
     fun observeFiltered(
-        filter: LearningActivityFilter,
+        filters: Set<LearningActivityFilter>,
         query: String,
     ): Flow<List<LearningActivityEntity>> {
         val source = if (query.isBlank()) learningActivityDao.observeAll()
         else learningActivityDao.search(query)
         return source.map { list ->
-            list.filter { filter.matches(it.activityType, it.isSaved) }
+            list.filter { filters.matchesActivity(it.activityType, it.isSaved) }
+                .deduplicateByInput()
         }
     }
 

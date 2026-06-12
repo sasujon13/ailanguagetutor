@@ -5,10 +5,10 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.MenuBook
-import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
@@ -185,7 +185,7 @@ fun AppNavHost(
     Scaffold(
         modifier = modifier,
         // Inner screens (CheradipScrollScreen) own the status-bar inset on their top bar.
-        // Applying top inset here too doubled the gap above "Practice", "Languages", etc.
+        // Applying top inset here too doubled the gap above "Learning", "Languages", etc.
         contentWindowInsets = ScaffoldDefaults.contentWindowInsets.only(
             WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom,
         ),
@@ -196,8 +196,8 @@ fun AppNavHost(
                 NavigationBar {
                     val tabs = listOf(
                         Triple(Routes.HOME, AppStrings.text("nav_home", strings), Icons.Default.Home),
-                        Triple(Routes.PRACTICE_HUB, AppStrings.text("nav_practice", strings), Icons.Default.Mic),
-                        Triple(Routes.LIBRARY, AppStrings.text("nav_learning", strings), Icons.Default.MenuBook),
+                        Triple(Routes.PRACTICE_HUB, AppStrings.text("nav_practice", strings), Icons.AutoMirrored.Filled.MenuBook),
+                        Triple(Routes.LIBRARY, AppStrings.text("nav_learning", strings), Icons.Default.Refresh),
                         Triple(Routes.PROFILE, AppStrings.text("nav_profile", strings), Icons.Default.Person),
                         Triple(Routes.SETTINGS, AppStrings.text("nav_settings", strings), Icons.Default.Settings),
                     )

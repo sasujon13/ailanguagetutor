@@ -8,8 +8,8 @@ import androidx.compose.material.icons.filled.AdminPanelSettings
 import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Menu
-import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Share
@@ -82,11 +82,11 @@ fun CheradipAppMenuButton(
                 expanded = false
                 navigation.onNavigate(AppMenuDestination.HOME)
             }
-            AppMenuItem(appString("nav_practice"), Icons.Default.Mic) {
+            AppMenuItem(appString("nav_practice"), Icons.AutoMirrored.Filled.MenuBook) {
                 expanded = false
                 navigation.onNavigate(AppMenuDestination.PRACTICE)
             }
-            AppMenuItem(appString("nav_learning"), Icons.AutoMirrored.Filled.MenuBook) {
+            AppMenuItem(appString("nav_learning"), Icons.Default.Refresh) {
                 expanded = false
                 navigation.onNavigate(AppMenuDestination.LEARNING)
             }

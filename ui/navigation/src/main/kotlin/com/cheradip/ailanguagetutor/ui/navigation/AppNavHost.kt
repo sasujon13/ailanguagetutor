@@ -69,6 +69,7 @@ import com.cheradip.ailanguagetutor.feature.settings.SettingsScreen
 import com.cheradip.ailanguagetutor.ui.components.AppMenuDestination
 import com.cheradip.ailanguagetutor.ui.components.AppMenuNavigation
 import com.cheradip.ailanguagetutor.ui.components.LocalAppMenuNavigation
+import com.cheradip.ailanguagetutor.ui.components.LocalNavBack
 
 @Composable
 fun AppNavHost(
@@ -110,6 +111,18 @@ fun AppNavHost(
 
     val routeBase = currentRoute?.substringBefore('?')
     val showBottomBar = routeBase != null
+    val nestedNavBack: (() -> Unit)? = remember(routeBase, navController) {
+        if (
+            routeBase != null &&
+            routeBase != Routes.ONBOARDING &&
+            !Routes.isMainTabRoute(routeBase) &&
+            navController.previousBackStackEntry != null
+        ) {
+            { navController.popBackStack() }
+        } else {
+            null
+        }
+    }
 
     var selectedTab by rememberSaveable { mutableIntStateOf(0) }
 
@@ -224,6 +237,7 @@ fun AppNavHost(
         CompositionLocalProvider(
             LocalAppStrings provides strings,
             LocalAppMenuNavigation provides appMenuNavigation,
+            LocalNavBack provides nestedNavBack,
         ) {
             NavHost(
                 navController = navController,
@@ -297,6 +311,9 @@ fun AppNavHost(
                 ModeSelectionScreen(
                     onDone = { navController.popBackStack() },
                     onNavigatePaywall = { navController.navigate(Routes.PAYWALL) },
+                    onOpenLanguages = {
+                        navController.navigate(Routes.LANGUAGES) { launchSingleTop = true }
+                    },
                 )
             }
             composable(Routes.LIBRARY) {

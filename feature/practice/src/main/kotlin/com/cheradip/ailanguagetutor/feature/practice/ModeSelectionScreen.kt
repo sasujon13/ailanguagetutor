@@ -39,6 +39,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.cheradip.ailanguagetutor.core.model.AiModeUiMeta
 import com.cheradip.ailanguagetutor.core.model.ProcessingIntent
 import com.cheradip.ailanguagetutor.ui.components.CheradipDropdown
+import com.cheradip.ailanguagetutor.ui.components.ResponsivePairDropdowns
 import com.cheradip.ailanguagetutor.ui.components.CheradipScrollScreen
 import com.cheradip.ailanguagetutor.ui.components.IconTextButton
 import com.cheradip.ailanguagetutor.ui.components.SectionHeader
@@ -50,6 +51,7 @@ private data class IntentOption(val intent: ProcessingIntent, val label: String)
 fun ModeSelectionScreen(
     onDone: () -> Unit,
     onNavigatePaywall: () -> Unit,
+    onOpenLanguages: () -> Unit = {},
     modifier: Modifier = Modifier,
     viewModel: ModeSelectionViewModel = hiltViewModel(),
     calibrationViewModel: VoiceCalibrationViewModel = hiltViewModel(),
@@ -148,25 +150,21 @@ fun ModeSelectionScreen(
                 val selectedInput = inputOptions.firstOrNull {
                     it.code.equals(state.inputLanguage, ignoreCase = true)
                 } ?: inputOptions.first()
-                CheradipDropdown(
-                    label = "Input language (native / source)",
-                    options = inputOptions,
-                    selected = selectedInput,
-                    onSelected = { viewModel.setInputLanguage(it.code) },
-                    optionLabel = { it.label },
-                )
-            }
-            item {
                 val outputOptions = state.languageOptions
                 val selectedOutput = outputOptions.firstOrNull {
                     it.code.equals(state.outputLanguage, ignoreCase = true)
                 } ?: outputOptions.first()
-                CheradipDropdown(
-                    label = "Output language (TTS voice)",
-                    options = outputOptions,
-                    selected = selectedOutput,
-                    onSelected = { viewModel.setOutputLanguage(it.code) },
-                    optionLabel = { it.label },
+                ResponsivePairDropdowns(
+                    firstLabel = "Input language (native / source)",
+                    firstOptions = inputOptions,
+                    firstSelected = selectedInput,
+                    onFirstSelected = { viewModel.setInputLanguage(it.code) },
+                    firstOptionLabel = { it.label },
+                    secondLabel = "Output language (TTS voice)",
+                    secondOptions = outputOptions,
+                    secondSelected = selectedOutput,
+                    onSecondSelected = { viewModel.setOutputLanguage(it.code) },
+                    secondOptionLabel = { it.label },
                 )
             }
         }
@@ -180,6 +178,7 @@ fun ModeSelectionScreen(
                 onSelectTier = calibrationViewModel::selectCalibrationTier,
                 onStartMic = { withMicPermission { calibrationViewModel.startCalibrationMic() } },
                 onStopMic = calibrationViewModel::stopCalibrationMic,
+                onOpenLanguages = onOpenLanguages,
             )
         }
         item {

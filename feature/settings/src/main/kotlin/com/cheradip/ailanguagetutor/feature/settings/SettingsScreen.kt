@@ -30,6 +30,8 @@ import com.cheradip.ailanguagetutor.core.model.DeviceLocaleHints
 import com.cheradip.ailanguagetutor.core.model.GrammarDepth
 import com.cheradip.ailanguagetutor.core.model.LanguageCatalogOrder
 import com.cheradip.ailanguagetutor.ui.components.CheradipDropdown
+import com.cheradip.ailanguagetutor.ui.components.ResponsivePairDropdowns
+import com.cheradip.ailanguagetutor.ui.components.TitleWithDropdownRow
 import com.cheradip.ailanguagetutor.ui.components.CheradipScrollScreen
 import com.cheradip.ailanguagetutor.ui.components.SearchableLanguageDropdown
 import com.cheradip.ailanguagetutor.ui.components.SectionHeader
@@ -100,11 +102,11 @@ fun SettingsScreen(
         }
         item {
             HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
-            SectionHeader(title = appString("section_teen_voice"))
         }
         item {
-            CheradipDropdown(
-                label = appString("voice_gender"),
+            TitleWithDropdownRow(
+                title = appString("section_teen_voice"),
+                dropdownLabel = appString("onboarding_voice_label"),
                 options = TeenVoiceGender.entries.toList(),
                 selected = savedGender,
                 onSelected = { option ->

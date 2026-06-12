@@ -22,6 +22,14 @@ object Routes {
     const val ADMIN_AI = "admin/ai"
     const val MODE_SELECTION = "mode_selection"
 
+    /** Bottom-nav root destinations — no back arrow in the top bar. */
+    fun isMainTabRoute(routeBase: String?): Boolean = when {
+        routeBase == null -> false
+        routeBase == HOME || routeBase == LIBRARY || routeBase == PROFILE || routeBase == SETTINGS -> true
+        routeBase.startsWith("practice") -> true
+        else -> false
+    }
+
     fun practiceHub(startVoice: Boolean = false, activityId: Long = -1L) =
         "practice/$activityId?startVoice=$startVoice"
     fun scanner(mode: String = "camera") = "scanner?mode=$mode"

@@ -46,12 +46,12 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 
-import com.cheradip.ailanguagetutor.ui.components.CheradipDropdown
 import com.cheradip.ailanguagetutor.core.locale.appString
 import com.cheradip.ailanguagetutor.ui.components.CheradipScrollScreen
 import com.cheradip.ailanguagetutor.ui.components.IconTextButton
 import com.cheradip.ailanguagetutor.ui.components.InputChannel
 import com.cheradip.ailanguagetutor.ui.components.InputChannelBar
+import com.cheradip.ailanguagetutor.ui.components.ResponsivePairDropdowns
 
 @Composable
 
@@ -331,51 +331,19 @@ internal fun PracticeLanguageSelectors(
         it.code.equals(outputLanguage, ignoreCase = true)
     } ?: languageOptions.first()
 
-    BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
-        // Phones are ~328dp wide after screen padding; 480dp threshold wrongly forced two rows.
-        val stackVertically = maxWidth < 300.dp
-        if (stackVertically) {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                CheradipDropdown(
-                    label = "Input language",
-                    options = languageOptions,
-                    selected = selectedInput,
-                    onSelected = onInputSelected,
-                    optionLabel = { it.label },
-                )
-                CheradipDropdown(
-                    label = "Output language",
-                    options = languageOptions,
-                    selected = selectedOutput,
-                    onSelected = onOutputSelected,
-                    optionLabel = { it.label },
-                )
-            }
-        } else {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.Top,
-            ) {
-                CheradipDropdown(
-                    label = "Input language",
-                    options = languageOptions,
-                    selected = selectedInput,
-                    onSelected = onInputSelected,
-                    optionLabel = { it.label },
-                    modifier = Modifier.weight(1f),
-                )
-                CheradipDropdown(
-                    label = "Output language",
-                    options = languageOptions,
-                    selected = selectedOutput,
-                    onSelected = onOutputSelected,
-                    optionLabel = { it.label },
-                    modifier = Modifier.weight(1f),
-                )
-            }
-        }
-    }
+    ResponsivePairDropdowns(
+        modifier = modifier,
+        firstLabel = "Input language",
+        firstOptions = languageOptions,
+        firstSelected = selectedInput,
+        onFirstSelected = onInputSelected,
+        firstOptionLabel = { it.label },
+        secondLabel = "Output language",
+        secondOptions = languageOptions,
+        secondSelected = selectedOutput,
+        onSecondSelected = onOutputSelected,
+        secondOptionLabel = { it.label },
+    )
 }
 
 

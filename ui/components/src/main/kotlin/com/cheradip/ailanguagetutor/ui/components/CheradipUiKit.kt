@@ -4,6 +4,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -52,6 +53,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -61,6 +63,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
 enum class InputChannel(val label: String, val icon: ImageVector) {
@@ -88,6 +91,9 @@ val CheradipScreenEdgePadding = PaddingValues(
     bottom = 24.dp,
 )
 
+/** Pops to the previous screen when the current route is a nested page (provided by [AppNavHost]). */
+val LocalNavBack = compositionLocalOf<(() -> Unit)?> { null }
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CheradipTopBar(
@@ -98,14 +104,16 @@ fun CheradipTopBar(
     showAppMenu: Boolean = true,
     actions: @Composable () -> Unit = {},
 ) {
+    val inheritedBack = LocalNavBack.current
+    val backHandler = onBack ?: inheritedBack
     TopAppBar(
         modifier = modifier,
         colors = TopAppBarDefaults.topAppBarColors(
             containerColor = MaterialTheme.colorScheme.surface,
         ),
         navigationIcon = {
-            if (onBack != null) {
-                IconButton(onClick = onBack) {
+            if (backHandler != null) {
+                IconButton(onClick = backHandler) {
                     Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                 }
             }
@@ -389,6 +397,126 @@ fun <T> CheradipDropdown(
                         onSelected(option)
                         expanded = false
                     },
+                )
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun <T> TitleWithDropdownRow(
+    title: String,
+    dropdownLabel: String,
+    options: List<T>,
+    selected: T,
+    onSelected: (T) -> Unit,
+    optionLabel: (T) -> String,
+    modifier: Modifier = Modifier,
+    leadingIcon: ImageVector? = null,
+    stackBelowWidth: Dp = 300.dp,
+) {
+    BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
+        if (maxWidth < stackBelowWidth) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(title, style = MaterialTheme.typography.titleMedium)
+                CheradipDropdown(
+                    label = dropdownLabel,
+                    options = options,
+                    selected = selected,
+                    onSelected = onSelected,
+                    optionLabel = optionLabel,
+                    leadingIcon = leadingIcon,
+                )
+            }
+        } else {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.Top,
+            ) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier
+                        .weight(0.34f)
+                        .padding(top = 16.dp),
+                )
+                CheradipDropdown(
+                    label = dropdownLabel,
+                    options = options,
+                    selected = selected,
+                    onSelected = onSelected,
+                    optionLabel = optionLabel,
+                    leadingIcon = leadingIcon,
+                    modifier = Modifier.weight(0.66f),
+                )
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun <T> ResponsivePairDropdowns(
+    firstLabel: String,
+    firstOptions: List<T>,
+    firstSelected: T,
+    onFirstSelected: (T) -> Unit,
+    firstOptionLabel: (T) -> String,
+    secondLabel: String,
+    secondOptions: List<T>,
+    secondSelected: T,
+    onSecondSelected: (T) -> Unit,
+    secondOptionLabel: (T) -> String,
+    modifier: Modifier = Modifier,
+    stackBelowWidth: Dp = 300.dp,
+    firstLeadingIcon: ImageVector? = null,
+    secondLeadingIcon: ImageVector? = null,
+) {
+    BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
+        if (maxWidth < stackBelowWidth) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                CheradipDropdown(
+                    label = firstLabel,
+                    options = firstOptions,
+                    selected = firstSelected,
+                    onSelected = onFirstSelected,
+                    optionLabel = firstOptionLabel,
+                    leadingIcon = firstLeadingIcon,
+                )
+                CheradipDropdown(
+                    label = secondLabel,
+                    options = secondOptions,
+                    selected = secondSelected,
+                    onSelected = onSecondSelected,
+                    optionLabel = secondOptionLabel,
+                    leadingIcon = secondLeadingIcon,
+                )
+            }
+        } else {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.Top,
+            ) {
+                CheradipDropdown(
+                    label = firstLabel,
+                    options = firstOptions,
+                    selected = firstSelected,
+                    onSelected = onFirstSelected,
+                    optionLabel = firstOptionLabel,
+                    leadingIcon = firstLeadingIcon,
+                    modifier = Modifier.weight(1f),
+                )
+                CheradipDropdown(
+                    label = secondLabel,
+                    options = secondOptions,
+                    selected = secondSelected,
+                    onSelected = onSecondSelected,
+                    optionLabel = secondOptionLabel,
+                    leadingIcon = secondLeadingIcon,
+                    modifier = Modifier.weight(1f),
                 )
             }
         }

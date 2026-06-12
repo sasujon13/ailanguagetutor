@@ -39,6 +39,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.cheradip.ailanguagetutor.core.locale.appString
 import com.cheradip.ailanguagetutor.core.speech.CalibrationContent
 import com.cheradip.ailanguagetutor.core.speech.CalibrationTier
 import com.cheradip.ailanguagetutor.core.speech.LanguageCalibrationStatus
@@ -52,6 +53,7 @@ fun VoiceCalibrationContent(
     onSelectTier: (CalibrationTier) -> Unit,
     onStartMic: () -> Unit,
     onStopMic: () -> Unit,
+    onOpenLanguages: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val cal = state.calibration
@@ -76,10 +78,14 @@ fun VoiceCalibrationContent(
         Spacer(modifier = Modifier.height(8.dp))
 
         if (state.activeLanguageCodes.isEmpty()) {
+            val teal = MaterialTheme.colorScheme.primary
             Text(
-                "Download languages on the Languages tab first.",
+                text = appString("download_language_first"),
                 style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.error,
+                color = teal,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(onClick = onOpenLanguages),
             )
             return@Column
         }

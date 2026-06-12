@@ -33,6 +33,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.cheradip.ailanguagetutor.core.billing.BillingPeriod
+import com.cheradip.ailanguagetutor.ui.components.CheradipScreenEdgePadding
 import com.cheradip.ailanguagetutor.core.billing.ReferralRepository
 
 @Composable
@@ -55,7 +56,7 @@ fun PaywallScreen(
         modifier = modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
-            .padding(24.dp),
+            .padding(CheradipScreenEdgePadding),
     ) {
         Text("Upgrade to keep learning", style = MaterialTheme.typography.headlineSmall)
         Text(

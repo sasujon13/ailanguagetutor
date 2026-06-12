@@ -16,7 +16,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.widthIn
 
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
@@ -339,95 +338,65 @@ fun PracticeHubScreen(
 @Composable
 
 internal fun PracticeLanguageSelectors(
-
     languageOptions: List<PracticeLanguageOption>,
-
     inputLanguage: String,
-
+    outputLanguage: String,
     onInputSelected: (PracticeLanguageOption) -> Unit,
-
+    onOutputSelected: (PracticeLanguageOption) -> Unit,
     modifier: Modifier = Modifier,
-
 ) {
-
     val selectedInput = languageOptions.firstOrNull {
-
         it.code.equals(inputLanguage, ignoreCase = true)
-
+    } ?: languageOptions.first()
+    val selectedOutput = languageOptions.firstOrNull {
+        it.code.equals(outputLanguage, ignoreCase = true)
     } ?: languageOptions.first()
 
-
-
     BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
-
-        val inline = maxWidth >= 400.dp
-
-        if (inline) {
-
-            Row(
-
-                modifier = Modifier.fillMaxWidth(),
-
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-
-                verticalAlignment = Alignment.CenterVertically,
-
-            ) {
-
-                Text(
-
-                    "Input",
-
-                    style = MaterialTheme.typography.titleMedium,
-
-                    modifier = Modifier.widthIn(min = 108.dp, max = 132.dp),
-
-                    )
-
-                CheradipDropdown(
-
-                    label = "Speak/Type language",
-
-                    options = languageOptions,
-
-                    selected = selectedInput,
-
-                    onSelected = onInputSelected,
-
-                    optionLabel = { it.label },
-
-                    modifier = Modifier.weight(1f),
-
-                    )
-
-            }
-
-        } else {
-
+        // Phones are ~328dp wide after screen padding; 480dp threshold wrongly forced two rows.
+        val stackVertically = maxWidth < 300.dp
+        if (stackVertically) {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-
-                SectionHeader(title = "Input")
-
                 CheradipDropdown(
-
-                    label = "Speak/Type language",
-
+                    label = "Input language",
                     options = languageOptions,
-
                     selected = selectedInput,
-
                     onSelected = onInputSelected,
-
                     optionLabel = { it.label },
-
                 )
-
+                CheradipDropdown(
+                    label = "Output language",
+                    options = languageOptions,
+                    selected = selectedOutput,
+                    onSelected = onOutputSelected,
+                    optionLabel = { it.label },
+                )
             }
-
+        } else {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.Top,
+            ) {
+                CheradipDropdown(
+                    label = "Input language",
+                    options = languageOptions,
+                    selected = selectedInput,
+                    onSelected = onInputSelected,
+                    optionLabel = { it.label },
+                    modifier = Modifier.weight(1f),
+                )
+                CheradipDropdown(
+                    label = "Output language",
+                    options = languageOptions,
+                    selected = selectedOutput,
+                    onSelected = onOutputSelected,
+                    optionLabel = { it.label },
+                    modifier = Modifier.weight(1f),
+                )
+            }
         }
-
     }
-
 }
 
 

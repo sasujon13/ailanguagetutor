@@ -215,7 +215,6 @@ fun PracticeInputCard(
 
     Card(modifier = modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            SectionHeader(title = "Say / Type → AI")
             OutlinedTextField(
                 value = displayInput,
                 onValueChange = onInputChange,
@@ -225,8 +224,8 @@ fun PracticeInputCard(
                     )
                 },
                 modifier = Modifier.fillMaxWidth(),
-                minLines = 2,
-                maxLines = 6,
+                minLines = 3,
+                maxLines = 7,
                 trailingIcon = {
                     IconButton(
                         onClick = {

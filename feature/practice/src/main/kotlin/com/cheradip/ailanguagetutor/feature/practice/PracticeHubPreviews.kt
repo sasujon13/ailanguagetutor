@@ -23,7 +23,9 @@ private fun PracticeLanguageSelectorsPhonePreview() {
         PracticeLanguageSelectors(
             languageOptions = previewLanguages,
             inputLanguage = "en",
+            outputLanguage = "fr",
             onInputSelected = {},
+            onOutputSelected = {},
             modifier = Modifier.padding(16.dp),
         )
     }
@@ -36,7 +38,9 @@ private fun PracticeLanguageSelectorsWidePreview() {
         PracticeLanguageSelectors(
             languageOptions = previewLanguages,
             inputLanguage = "fr",
+            outputLanguage = "de",
             onInputSelected = {},
+            onOutputSelected = {},
             modifier = Modifier.padding(16.dp),
         )
     }

@@ -7,6 +7,8 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -45,6 +47,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.ScaffoldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
@@ -69,6 +72,22 @@ enum class InputChannel(val label: String, val icon: ImageVector) {
     CAMERA("Camera", Icons.Default.CameraAlt),
 }
 
+/** LazyColumn padding below [CheradipTopBar] on main tab screens. */
+val CheradipScreenContentPadding = PaddingValues(
+    start = 16.dp,
+    top = 0.dp,
+    end = 16.dp,
+    bottom = 16.dp,
+)
+
+/** Full-screen scroll areas without the shared top bar (onboarding, paywall, admin tabs). */
+val CheradipScreenEdgePadding = PaddingValues(
+    start = 24.dp,
+    top = 12.dp,
+    end = 24.dp,
+    bottom = 24.dp,
+)
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CheradipTopBar(
@@ -91,8 +110,13 @@ fun CheradipTopBar(
             }
         },
         title = {
-            Column {
-                Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Column(verticalArrangement = Arrangement.spacedBy(0.dp)) {
+                Text(
+                    title,
+                    style = MaterialTheme.typography.titleMedium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
                 subtitle?.let {
                     Text(
                         it,
@@ -115,11 +139,14 @@ fun CheradipScrollScreen(
     subtitle: String? = null,
     onBack: (() -> Unit)? = null,
     topBarActions: @Composable () -> Unit = {},
-    contentPadding: PaddingValues = PaddingValues(16.dp),
+    contentPadding: PaddingValues = CheradipScreenContentPadding,
     content: LazyListScope.() -> Unit,
 ) {
     Scaffold(
         modifier = modifier,
+        contentWindowInsets = ScaffoldDefaults.contentWindowInsets.only(
+            WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom,
+        ),
         topBar = {
             CheradipTopBar(
                 title = title,
@@ -329,15 +356,16 @@ fun <T> CheradipDropdown(
     ExposedDropdownMenuBox(
         expanded = expanded,
         onExpandedChange = { expanded = it },
-        modifier = modifier.fillMaxWidth(),
+        modifier = modifier.then(Modifier.fillMaxWidth()),
     ) {
         OutlinedTextField(
             value = optionLabel(selected),
             onValueChange = {},
             readOnly = true,
-            label = { Text(label) },
+            label = { Text(label, maxLines = 1) },
             leadingIcon = leadingIcon?.let { { Icon(it, contentDescription = null) } },
             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded) },
+            singleLine = true,
             modifier = Modifier
                 .menuAnchor()
                 .fillMaxWidth(),

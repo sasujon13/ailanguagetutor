@@ -48,6 +48,7 @@ import com.cheradip.ailanguagetutor.core.model.LanguageCatalogOrder
 import com.cheradip.ailanguagetutor.core.pack.LanguageCatalogRepository
 import com.cheradip.ailanguagetutor.core.pack.LanguagePackRepository
 import com.cheradip.ailanguagetutor.ui.components.CheradipDropdown
+import com.cheradip.ailanguagetutor.ui.components.CheradipScreenEdgePadding
 import com.cheradip.ailanguagetutor.ui.components.CheradipProgressOverlay
 import com.cheradip.ailanguagetutor.ui.components.IconTextButton
 import com.cheradip.ailanguagetutor.ui.components.SearchableLanguageDropdown
@@ -289,7 +290,7 @@ fun OnboardingScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
-                .padding(24.dp),
+                .padding(CheradipScreenEdgePadding),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
         when (step) {

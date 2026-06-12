@@ -26,6 +26,7 @@ import com.cheradip.ailanguagetutor.core.billing.ReferralRepository
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Login
 import com.cheradip.ailanguagetutor.ui.components.CheradipDropdown
+import com.cheradip.ailanguagetutor.ui.components.CheradipScreenEdgePadding
 import com.cheradip.ailanguagetutor.ui.components.IconTextButton
 import kotlinx.coroutines.launch
 
@@ -55,7 +56,7 @@ fun ReferralScreen(
     val scope = rememberCoroutineScope()
     val isLoggedIn = currentUser != null
 
-    Column(modifier = modifier.fillMaxSize().padding(24.dp)) {
+    Column(modifier = modifier.fillMaxSize().padding(CheradipScreenEdgePadding)) {
         Text("Referrals & credits", style = MaterialTheme.typography.headlineSmall)
         Text(
             "Earn ${policy.commissionPercent}% when friends subscribe using your reference.",

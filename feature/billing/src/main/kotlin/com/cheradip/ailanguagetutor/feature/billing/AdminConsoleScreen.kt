@@ -33,6 +33,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import com.cheradip.ailanguagetutor.ui.components.CheradipScreenContentPadding
+import com.cheradip.ailanguagetutor.ui.components.CheradipScreenEdgePadding
 import com.cheradip.ailanguagetutor.ui.theme.CheradipColors
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -302,7 +304,7 @@ private fun AdminPromoTab(
     Column(
         modifier = modifier
             .verticalScroll(rememberScrollState())
-            .padding(24.dp),
+            .padding(CheradipScreenEdgePadding),
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -468,7 +470,7 @@ fun AdminAiProvidersTab(
     val lastUsed by viewModel.lastProviderUsed.collectAsStateWithLifecycle()
 
     LazyColumn(
-        modifier = modifier.padding(16.dp),
+        modifier = modifier.padding(CheradipScreenContentPadding),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         item {
@@ -665,7 +667,7 @@ fun AdminHomeAiTab(
     Column(
         modifier = modifier
             .verticalScroll(rememberScrollState())
-            .padding(24.dp),
+            .padding(CheradipScreenEdgePadding),
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),

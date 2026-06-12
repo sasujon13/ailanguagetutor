@@ -30,7 +30,16 @@ function Stop-GradleDaemons {
 }
 
 function Remove-ModuleBuildDirs {
-    Write-Host "Removing module build folders..."
+    Write-Host "Removing build folders (includes androidTest/packageDebugAndroidTest tmp)..."
+    foreach ($topBuild in @(
+        (Join-Path $root "app\build"),
+        (Join-Path $root "build")
+    )) {
+        if (Test-Path $topBuild) {
+            Write-Host "  $topBuild"
+            Remove-Item -LiteralPath $topBuild -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
     $moduleRoots = @(
         (Join-Path $root "core"),
         (Join-Path $root "feature"),

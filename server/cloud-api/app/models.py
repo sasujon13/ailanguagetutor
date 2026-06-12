@@ -153,3 +153,22 @@ class AiRoutingPolicy(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     mode: Mapped[str] = mapped_column(String(32), default="random_free")
     prefer_paid_when_free_exhausted: Mapped[bool] = mapped_column(Boolean, default=True)
+
+
+class UserLearningActivity(Base):
+    __tablename__ = "user_learning_activities"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    client_id: Mapped[str] = mapped_column(String(64), index=True)
+    title: Mapped[str] = mapped_column(String(255))
+    summary: Mapped[str | None] = mapped_column(Text)
+    activity_type: Mapped[str] = mapped_column(String(32))
+    language_code: Mapped[str] = mapped_column(String(16))
+    output_language_code: Mapped[str | None] = mapped_column(String(16))
+    input_text: Mapped[str | None] = mapped_column(Text)
+    output_text: Mapped[str | None] = mapped_column(Text)
+    tags_json: Mapped[str | None] = mapped_column(Text)
+    is_saved: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at_ms: Mapped[int] = mapped_column(BigInteger)
+    updated_at_ms: Mapped[int] = mapped_column(BigInteger)

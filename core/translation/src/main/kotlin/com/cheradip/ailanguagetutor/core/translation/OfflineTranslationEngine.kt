@@ -62,8 +62,37 @@ class OfflineTranslationEngine @Inject constructor(
             }
         }
 
+        translateByWords(text, sourceLang, targetLang)?.let { wordLine ->
+            return@withContext cacheAndReturn(text, wordLine, sourceLang, targetLang, TranslationStrategy.WORD_PIVOT, hash)
+        }
+
         val sentenceFallback = "[Offline] $text → ($targetLang translation pending in pack)"
         cacheAndReturn(text, sentenceFallback, sourceLang, targetLang, TranslationStrategy.SENTENCE, hash)
+    }
+
+    private suspend fun translateByWords(
+        text: String,
+        sourceLang: String,
+        targetLang: String,
+    ): String? {
+        val parts = text.split(Regex("""(\s+)"""))
+        var anyHit = false
+        val built = buildString {
+            for (part in parts) {
+                if (part.isBlank() || part.none { it.isLetter() }) {
+                    append(part)
+                    continue
+                }
+                val translated = packConnector.lookupWordTranslation(part, sourceLang, targetLang)
+                if (translated != null) {
+                    anyHit = true
+                    append(translated)
+                } else {
+                    append(part)
+                }
+            }
+        }
+        return built.takeIf { anyHit }
     }
 
     private suspend fun cacheAndReturn(

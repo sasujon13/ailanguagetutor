@@ -20,8 +20,8 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.MenuBook
+import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Card
@@ -37,8 +37,6 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.ScaffoldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -53,6 +51,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import com.cheradip.ailanguagetutor.core.ai.GrammarBookRepository
+import com.cheradip.ailanguagetutor.core.database.repository.LearningActivityRepository
+import com.cheradip.ailanguagetutor.core.database.repository.LearningActivitySyncRepository
 import com.cheradip.ailanguagetutor.core.database.entity.LanguagePackStateEntity
 import com.cheradip.ailanguagetutor.core.model.GrammarBook
 import com.cheradip.ailanguagetutor.core.model.GrammarBookChapter
@@ -62,6 +62,7 @@ import com.cheradip.ailanguagetutor.core.model.GrammarSectionEnrichment
 import com.cheradip.ailanguagetutor.core.model.LanguageCatalogEntry
 import com.cheradip.ailanguagetutor.core.pack.LanguageCatalogRepository
 import com.cheradip.ailanguagetutor.core.pack.LanguagePackRepository
+import com.cheradip.ailanguagetutor.ui.components.CheradipTopBar
 import com.cheradip.ailanguagetutor.ui.components.EmptyStateHint
 import com.cheradip.ailanguagetutor.ui.components.LanguageFlagBadge
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -94,6 +95,8 @@ class GrammarBookViewModel @Inject constructor(
     private val grammarBookRepository: GrammarBookRepository,
     private val languagePackRepository: LanguagePackRepository,
     private val catalogRepository: LanguageCatalogRepository,
+    private val learningActivityRepository: LearningActivityRepository,
+    private val learningActivitySyncRepository: LearningActivitySyncRepository,
 ) : ViewModel() {
     private val _uiState = MutableStateFlow(GrammarBookUiState())
     val uiState: StateFlow<GrammarBookUiState> = _uiState.asStateFlow()
@@ -157,6 +160,48 @@ class GrammarBookViewModel @Inject constructor(
 
     fun closeChapter() {
         _uiState.update { it.copy(openChapterNumber = null) }
+    }
+
+    fun saveOpenChapter() {
+        val state = _uiState.value
+        val chapterNumber = state.openChapterNumber ?: return
+        val chapter = state.book?.chapters?.firstOrNull { it.number == chapterNumber } ?: return
+        val langCode = state.selectedLanguageCode ?: return
+        viewModelScope.launch {
+            val body = buildString {
+                if (chapter.summary.isNotBlank()) {
+                    append(chapter.summary)
+                    append("\n\n")
+                }
+                chapter.sections.forEachIndexed { index, section ->
+                    if (section.heading.isNotBlank()) {
+                        append(section.heading)
+                        append("\n")
+                    }
+                    if (section.body.isNotBlank()) {
+                        append(section.body)
+                        append("\n")
+                    }
+                    val key = enrichmentKey(langCode, chapter.number, index)
+                    state.sectionEnrichments[key]?.enrichment?.expandedBody?.takeIf { it.isNotBlank() }?.let {
+                        append(it)
+                        append("\n")
+                    }
+                    append("\n")
+                }
+            }.trim()
+            learningActivityRepository.record(
+                title = "Grammar: ${chapter.title}",
+                activityType = "grammar",
+                languageCode = langCode,
+                summary = chapter.summary.take(120).ifBlank { chapter.title },
+                inputText = chapter.title,
+                outputText = body.ifBlank { chapter.summary },
+                isSaved = true,
+            )
+            learningActivitySyncRepository.syncIfLoggedIn()
+            _uiState.update { it.copy(statusMessage = "Grammar chapter saved to Learning") }
+        }
     }
 
     fun requestSectionEnrichment(chapterNumber: Int, sectionIndex: Int) {
@@ -280,6 +325,7 @@ fun GrammarBookScreen(
             languageCode = uiState.selectedLanguageCode.orEmpty(),
             sectionEnrichments = uiState.sectionEnrichments,
             onBack = viewModel::closeChapter,
+            onSave = viewModel::saveOpenChapter,
             onSectionVisible = viewModel::requestSectionEnrichment,
         )
         return
@@ -291,20 +337,9 @@ fun GrammarBookScreen(
             WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom,
         ),
         topBar = {
-            TopAppBar(
-                title = {
-                    Column(verticalArrangement = Arrangement.spacedBy(0.dp)) {
-                        Text("Grammar", style = MaterialTheme.typography.titleMedium)
-                        uiState.book?.title?.let { subtitle ->
-                            Text(
-                                subtitle,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 1,
-                            )
-                        }
-                    }
-                },
+            CheradipTopBar(
+                title = "Grammar",
+                subtitle = uiState.book?.title,
                 actions = {
                     if (uiState.languages.isNotEmpty()) {
                         IconButton(onClick = viewModel::refresh) {
@@ -312,7 +347,6 @@ fun GrammarBookScreen(
                         }
                     }
                     Row(
-                        modifier = Modifier.padding(end = 8.dp),
                         horizontalArrangement = Arrangement.spacedBy(4.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
@@ -333,9 +367,6 @@ fun GrammarBookScreen(
                         }
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface,
-                ),
             )
         },
     ) { padding ->
@@ -609,6 +640,7 @@ private fun ChapterReaderScreen(
     languageCode: String,
     sectionEnrichments: Map<String, SectionEnrichmentUi>,
     onBack: () -> Unit,
+    onSave: () -> Unit,
     onSectionVisible: (chapterNumber: Int, sectionIndex: Int) -> Unit,
 ) {
     Scaffold(
@@ -617,29 +649,19 @@ private fun ChapterReaderScreen(
             WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom,
         ),
         topBar = {
-            TopAppBar(
-                title = {
-                    Column(verticalArrangement = Arrangement.spacedBy(0.dp)) {
-                        Text(
-                            "Chapter ${chapter.number}",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        Text(
-                            chapter.title,
-                            style = MaterialTheme.typography.titleMedium,
-                            maxLines = 1,
+            CheradipTopBar(
+                title = chapter.title,
+                subtitle = "Chapter ${chapter.number}",
+                onBack = onBack,
+                actions = {
+                    IconButton(onClick = onSave) {
+                        Icon(
+                            Icons.Default.BookmarkBorder,
+                            contentDescription = "Save grammar chapter",
+                            tint = MaterialTheme.colorScheme.primary,
                         )
                     }
                 },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back to contents")
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface,
-                ),
             )
         },
     ) { padding ->

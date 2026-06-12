@@ -12,7 +12,7 @@ from sqlalchemy import text
 from app.config import settings
 from app.database import engine
 from app.middleware.translate_response import TranslateResponseMiddleware
-from app.routers import admin, ai, auth, billing, device, languages, promo, referral
+from app.routers import admin, ai, auth, billing, device, languages, learning, promo, referral
 from app.seed import init_database
 from app.services.pack_store import list_available_codes
 
@@ -53,6 +53,7 @@ api.include_router(referral.router)
 api.include_router(languages.router)
 api.include_router(admin.router)
 api.include_router(ai.router)
+api.include_router(learning.router)
 
 
 @api.get("/health")

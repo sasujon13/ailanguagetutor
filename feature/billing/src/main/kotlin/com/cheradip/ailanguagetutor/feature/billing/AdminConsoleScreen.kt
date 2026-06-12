@@ -21,6 +21,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
@@ -35,6 +36,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import com.cheradip.ailanguagetutor.ui.components.CheradipScreenContentPadding
 import com.cheradip.ailanguagetutor.ui.components.CheradipScreenEdgePadding
+import com.cheradip.ailanguagetutor.ui.components.CheradipTopBar
 import com.cheradip.ailanguagetutor.ui.theme.CheradipColors
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -273,16 +275,26 @@ fun AdminConsoleScreen(
     homeAiViewModel: AdminHomeAiViewModel = hiltViewModel(),
 ) {
     var tab by remember { mutableIntStateOf(initialTab) }
-    Column(modifier = modifier.fillMaxSize()) {
-        TabRow(selectedTabIndex = tab) {
-            Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text("Promo codes") })
-            Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text("Cloud AI") })
-            Tab(selected = tab == 2, onClick = { tab = 2 }, text = { Text("Home AI") })
-        }
-        when (tab) {
-            0 -> AdminPromoTab(Modifier.fillMaxSize(), promoViewModel)
-            1 -> AdminAiProvidersTab(Modifier.fillMaxSize(), aiViewModel)
-            2 -> AdminHomeAiTab(Modifier.fillMaxSize(), homeAiViewModel)
+    Scaffold(
+        modifier = modifier,
+        topBar = {
+            CheradipTopBar(
+                title = "Admin console",
+                subtitle = "Promo codes · Cloud AI · Home AI",
+            )
+        },
+    ) { padding ->
+        Column(modifier = Modifier.fillMaxSize().padding(padding)) {
+            TabRow(selectedTabIndex = tab) {
+                Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text("Promo codes") })
+                Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text("Cloud AI") })
+                Tab(selected = tab == 2, onClick = { tab = 2 }, text = { Text("Home AI") })
+            }
+            when (tab) {
+                0 -> AdminPromoTab(Modifier.fillMaxSize(), promoViewModel)
+                1 -> AdminAiProvidersTab(Modifier.fillMaxSize(), aiViewModel)
+                2 -> AdminHomeAiTab(Modifier.fillMaxSize(), homeAiViewModel)
+            }
         }
     }
 }

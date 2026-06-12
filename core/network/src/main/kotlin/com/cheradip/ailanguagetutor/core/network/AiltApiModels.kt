@@ -231,3 +231,30 @@ data class AiRoutingPolicyUpdateRequest(
 
 @JsonClass(generateAdapter = true)
 data class AiProviderToggleRequest(val enabled: Boolean)
+
+@JsonClass(generateAdapter = true)
+data class LearningActivityDto(
+    @Json(name = "client_id") val clientId: String,
+    val title: String,
+    val summary: String? = null,
+    @Json(name = "activity_type") val activityType: String,
+    @Json(name = "language_code") val languageCode: String,
+    @Json(name = "output_language_code") val outputLanguageCode: String? = null,
+    @Json(name = "input_text") val inputText: String? = null,
+    @Json(name = "output_text") val outputText: String? = null,
+    @Json(name = "tags_json") val tagsJson: String? = null,
+    @Json(name = "is_saved") val isSaved: Boolean = false,
+    @Json(name = "created_at_ms") val createdAtMs: Long,
+    @Json(name = "updated_at_ms") val updatedAtMs: Long,
+)
+
+@JsonClass(generateAdapter = true)
+data class LearningActivitySyncRequest(
+    val activities: List<LearningActivityDto> = emptyList(),
+)
+
+@JsonClass(generateAdapter = true)
+data class LearningActivitySyncResponse(
+    val activities: List<LearningActivityDto> = emptyList(),
+    @Json(name = "server_time_ms") val serverTimeMs: Long = System.currentTimeMillis(),
+)

@@ -76,4 +76,7 @@ object NetworkModule {
 
     @Provides fun provideAiService(retrofit: Retrofit): AiltAiService =
         retrofit.create(AiltAiService::class.java)
+
+    @Provides fun provideLearningService(retrofit: Retrofit): AiltLearningService =
+        retrofit.create(AiltLearningService::class.java)
 }

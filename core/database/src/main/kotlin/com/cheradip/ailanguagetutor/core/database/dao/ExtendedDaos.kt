@@ -59,14 +59,40 @@ interface LearningActivityDao {
     @Query(
         """
         SELECT * FROM learning_activities
-        WHERE title LIKE '%' || :query || '%' OR summary LIKE '%' || :query || '%'
+        WHERE title LIKE '%' || :query || '%'
+           OR summary LIKE '%' || :query || '%'
+           OR inputText LIKE '%' || :query || '%'
+           OR outputText LIKE '%' || :query || '%'
         ORDER BY createdAt DESC
         """,
     )
     fun search(query: String): Flow<List<LearningActivityEntity>>
 
+    @Query("SELECT * FROM learning_activities WHERE id = :id LIMIT 1")
+    suspend fun getById(id: Long): LearningActivityEntity?
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(entity: LearningActivityEntity): Long
+
+    @Query("UPDATE learning_activities SET isSaved = :saved, updatedAt = :updatedAt WHERE id = :id")
+    suspend fun updateSaved(id: Long, saved: Boolean, updatedAt: Long)
+
+    @Query("SELECT * FROM learning_activities WHERE remoteId = :remoteId LIMIT 1")
+    suspend fun getByRemoteId(remoteId: String): LearningActivityEntity?
+
+    @Query(
+        """
+        DELETE FROM learning_activities
+        WHERE isSaved = 0
+          AND id IN (
+            SELECT id FROM learning_activities
+            WHERE isSaved = 0
+            ORDER BY createdAt ASC
+            LIMIT MAX(0, (SELECT COUNT(*) FROM learning_activities WHERE isSaved = 0) - :maxUnsaved)
+          )
+        """,
+    )
+    suspend fun trimUnsaved(maxUnsaved: Int)
 }
 
 @Dao

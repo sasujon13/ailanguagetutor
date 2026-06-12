@@ -43,8 +43,14 @@ data class LearningActivityEntity(
     val summary: String? = null,
     val activityType: String,
     val languageCode: String,
+    val outputLanguageCode: String? = null,
+    val inputText: String? = null,
+    val outputText: String? = null,
     val tagsJson: String? = null,
+    val isSaved: Boolean = false,
+    val remoteId: String? = null,
     val createdAt: Long,
+    val updatedAt: Long = createdAt,
 )
 
 @Entity(tableName = "ai_cache")

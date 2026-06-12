@@ -21,7 +21,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Camera
 import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material3.Button
@@ -33,7 +32,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -50,6 +48,7 @@ import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
+import com.cheradip.ailanguagetutor.ui.components.CheradipTopBar
 import java.util.concurrent.Executors
 
 enum class ScannerLaunchMode {
@@ -88,7 +87,10 @@ fun ScannerScreen(
     }
     var importGalleryOpened by remember { mutableStateOf(false) }
 
-    LaunchedEffect(documentId) { viewModel.initDocument(documentId) }
+    LaunchedEffect(documentId, launchMode) {
+        val sourceType = if (launchMode == ScannerLaunchMode.IMPORT) "import" else "scan"
+        viewModel.initDocument(documentId, sourceType)
+    }
 
     LaunchedEffect(launchMode) {
         if (launchMode == ScannerLaunchMode.IMPORT && !importGalleryOpened) {
@@ -107,22 +109,10 @@ fun ScannerScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = {
-                    Column {
-                        Text(if (isImportMode) "Import" else "Scanner")
-                        Text(
-                            if (isImportMode) "Gallery import" else "Camera · capture photo",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                    }
-                },
+            CheradipTopBar(
+                title = if (isImportMode) "Import" else "Scanner",
+                subtitle = if (isImportMode) "Gallery import" else "Camera · capture photo",
+                onBack = onBack,
             )
         },
         floatingActionButton = {

@@ -9,22 +9,23 @@ import com.cheradip.ailanguagetutor.core.audio.PracticeLanguageConfig
 import com.cheradip.ailanguagetutor.core.audio.PracticeLanguageRepository
 import com.cheradip.ailanguagetutor.core.audio.PronunciationEngine
 import com.cheradip.ailanguagetutor.core.database.repository.LearningActivityRepository
+import com.cheradip.ailanguagetutor.core.database.repository.LearningActivitySyncRepository
+import com.cheradip.ailanguagetutor.core.device.NetworkConnectivityMonitor
 import com.cheradip.ailanguagetutor.core.model.GrammarDepth
 import com.cheradip.ailanguagetutor.core.model.InputSource
 import com.cheradip.ailanguagetutor.core.model.ProcessingIntent
+import com.cheradip.ailanguagetutor.core.ai.UnifiedTextResult
 import com.cheradip.ailanguagetutor.core.model.LanguageCatalogEntry
 import com.cheradip.ailanguagetutor.core.model.LanguageFlagMarker
 import com.cheradip.ailanguagetutor.core.pack.LanguageCatalogRepository
 import com.cheradip.ailanguagetutor.core.pack.LanguagePackRepository
-import com.cheradip.ailanguagetutor.core.speech.CalibrationContent
-import com.cheradip.ailanguagetutor.core.speech.CalibrationMatcher
 import com.cheradip.ailanguagetutor.core.speech.CalibrationTier
 import com.cheradip.ailanguagetutor.core.speech.LanguageCalibrationStatus
 import com.cheradip.ailanguagetutor.core.speech.ListeningState
 import com.cheradip.ailanguagetutor.core.speech.SpeechToTextEngine
 import com.cheradip.ailanguagetutor.core.speech.VoiceCalibrationRepository
+import com.cheradip.ailanguagetutor.core.translation.OfflinePracticeProcessor
 import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -34,6 +35,8 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -54,16 +57,20 @@ data class PracticeHubUiState(
     val aiOutput: String? = null,
     val aiLoading: Boolean = false,
     val aiIntent: ProcessingIntent? = null,
+    val outputOffline: Boolean = false,
     val isListening: Boolean = false,
     val partialSpeech: String = "",
     val speechError: String? = null,
+    val speechErrorLinksCalibration: Boolean = false,
     val activeLanguageCodes: List<String> = emptyList(),
     val calibrationStatuses: List<LanguageCalibrationStatus> = emptyList(),
-    val calibration: CalibrationUiState = CalibrationUiState(),
     val speechMode: SpeechCaptureMode = SpeechCaptureMode.NONE,
+    val lastActivityId: Long? = null,
+    val resultSaved: Boolean = false,
+    val saveMessage: String? = null,
+    val processError: String? = null,
 )
 
-@OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class PracticeHubViewModel @Inject constructor(
     private val pronunciationEngine: PronunciationEngine,
@@ -72,9 +79,12 @@ class PracticeHubViewModel @Inject constructor(
     private val languagePackRepository: LanguagePackRepository,
     private val catalogRepository: LanguageCatalogRepository,
     private val learningActivityRepository: LearningActivityRepository,
+    private val learningActivitySyncRepository: LearningActivitySyncRepository,
     private val unifiedTextPipeline: UnifiedTextPipeline,
     private val aiPrefetchCoordinator: AiPrefetchCoordinator,
     private val practiceLanguageRepository: PracticeLanguageRepository,
+    private val offlinePracticeProcessor: OfflinePracticeProcessor,
+    private val networkConnectivityMonitor: NetworkConnectivityMonitor,
     grammarPreferenceRepository: GrammarPreferenceRepository,
 ) : ViewModel() {
     private val _uiState = MutableStateFlow(PracticeHubUiState())
@@ -88,6 +98,12 @@ class PracticeHubViewModel @Inject constructor(
 
     private val _languageOptions = MutableStateFlow<List<PracticeLanguageOption>>(emptyList())
     val languageOptions: StateFlow<List<PracticeLanguageOption>> = _languageOptions.asStateFlow()
+
+    private var dismissCalibrationErrorOnReturn = false
+    private var offlineTypingJob: Job? = null
+    private var voiceAutoAiJob: Job? = null
+    private var activeProcessJob: Job? = null
+    private var lastTypedInput: String = ""
 
     init {
         pronunciationEngine.init()
@@ -107,12 +123,7 @@ class PracticeHubViewModel @Inject constructor(
                         practiceLanguageRepository.ensureDefaults(codes)
                     }
                     _uiState.update { state ->
-                        state.copy(
-                            activeLanguageCodes = codes,
-                            calibration = state.calibration.copy(
-                                languageCode = resolveCalibrationLanguage(state.calibration.languageCode, codes),
-                            ),
-                        )
+                        state.copy(activeLanguageCodes = codes)
                     }
                     if (codes.isNotEmpty()) {
                         voiceCalibrationRepository.observe(codes).collect { statuses ->
@@ -123,25 +134,7 @@ class PracticeHubViewModel @Inject constructor(
                     }
                 }
         }
-        viewModelScope.launch {
-            practiceLanguageRepository.config.collect { config ->
-                _uiState.update { state ->
-                    val codes = state.activeLanguageCodes
-                    if (codes.isEmpty()) return@update state
-                    state.copy(
-                        calibration = state.calibration.copy(
-                            languageCode = config.inputLanguage.lowercase().takeIf { it in codes }
-                                ?: codes.firstOrNull()
-                                ?: state.calibration.languageCode,
-                        ),
-                    )
-                }
-            }
-        }
     }
-
-    private fun resolveCalibrationLanguage(current: String, codes: List<String>): String =
-        current.takeIf { it in codes } ?: codes.firstOrNull() ?: current
 
     override fun onCleared() {
         speechEngine.destroy()
@@ -177,59 +170,312 @@ class PracticeHubViewModel @Inject constructor(
     }
 
     fun clearSpeechError() {
-        _uiState.update { it.copy(speechError = null) }
+        _uiState.update { it.copy(speechError = null, speechErrorLinksCalibration = false) }
+    }
+
+    fun openVoiceCalibrationSettings() {
+        if (_uiState.value.speechErrorLinksCalibration) {
+            dismissCalibrationErrorOnReturn = true
+        }
+    }
+
+    fun onPracticeResumed() {
+        if (!dismissCalibrationErrorOnReturn) return
+        dismissCalibrationErrorOnReturn = false
+        dismissCalibrationSpeechError()
+    }
+
+    private fun dismissCalibrationSpeechError() {
+        _uiState.update {
+            if (it.speechErrorLinksCalibration) {
+                it.copy(speechError = null, speechErrorLinksCalibration = false)
+            } else {
+                it
+            }
+        }
     }
 
     fun setSpeechError(message: String) {
-        _uiState.update { it.copy(speechError = message) }
+        _uiState.update { it.copy(speechError = message, speechErrorLinksCalibration = false) }
     }
 
     fun updateTypedInput(text: String) {
         val langs = practiceLanguages.value
-        _uiState.update { it.copy(typedInput = text) }
+        voiceAutoAiJob?.cancel()
+        _uiState.update {
+            it.copy(
+                typedInput = text,
+                resultSaved = false,
+                saveMessage = null,
+                processError = null,
+            )
+        }
         aiPrefetchCoordinator.schedulePracticeWarm(
             text = text,
             languageCode = langs.inputLanguage,
             targetLang = langs.outputLanguage,
             grammarDepth = grammarDepth.value,
         )
+        if (text.isBlank()) {
+            offlineTypingJob?.cancel()
+            lastTypedInput = ""
+            return
+        }
+        if (shouldRunOfflineWhileTyping(previous = lastTypedInput, current = text)) {
+            runIncrementalOffline(text)
+        }
+        lastTypedInput = text
     }
 
-    fun processTypedInput(sourceLang: String, targetLang: String) {
-        val text = _uiState.value.typedInput.trim()
-        if (text.isBlank()) return
-        viewModelScope.launch {
-            _uiState.update { it.copy(aiLoading = true) }
-            val result = runCatching {
-                unifiedTextPipeline.process(
-                    text = text,
-                    sourceLang = sourceLang,
-                    targetLang = targetLang,
-                    inputSource = InputSource.TYPED,
-                )
-            }.getOrNull()
-            _uiState.update {
-                it.copy(
-                    aiLoading = false,
-                    aiOutput = result?.output ?: "Could not process. Check subscription and network.",
-                    aiIntent = result?.intent,
-                )
-            }
-            learningActivityRepository.record(
-                title = "Practice: typed",
-                activityType = "practice_typed",
-                languageCode = sourceLang,
-                summary = result?.output?.take(120),
+    /** For scan/OCR text injected into Practice — processes immediately (AI first, offline fallback). */
+    fun applyExternalInput(text: String, inputSource: InputSource = InputSource.OCR_SCAN) {
+        val trimmed = text.trim()
+        if (trimmed.isBlank()) return
+        _uiState.update {
+            it.copy(
+                typedInput = trimmed,
+                resultSaved = false,
+                saveMessage = null,
+                processError = null,
             )
         }
+        voiceAutoAiJob?.cancel()
+        lastTypedInput = trimmed
+        runProcess { processAuto(inputSource) }
+    }
+
+    fun processOfflineInput() {
+        voiceAutoAiJob?.cancel()
+        runProcess { processOffline(recordActivity = true) }
     }
 
     fun processTypedInputWithSavedLanguages() {
+        voiceAutoAiJob?.cancel()
+        runProcess { processWithAi(inputSource = InputSource.TYPED) }
+    }
+
+    private fun shouldRunOfflineWhileTyping(previous: String, current: String): Boolean {
+        if (current.isBlank()) return false
+        return current.length > previous.length && current.last() == ' '
+    }
+
+    private fun runIncrementalOffline(text: String) {
+        offlineTypingJob?.cancel()
+        offlineTypingJob = viewModelScope.launch {
+            val langs = practiceLanguages.value
+            val trimmed = text.trim()
+            if (trimmed.isBlank()) return@launch
+            val output = runCatching {
+                offlinePracticeProcessor.process(
+                    text = trimmed,
+                    sourceLang = langs.inputLanguage,
+                    targetLang = langs.outputLanguage,
+                )
+            }.getOrElse { "Offline process failed: ${it.message ?: "unknown error"}" }
+            if (_uiState.value.typedInput.trim() != trimmed) return@launch
+            _uiState.update {
+                it.copy(
+                    aiOutput = output,
+                    aiIntent = ProcessingIntent.TRANSLATION,
+                    outputOffline = true,
+                    aiLoading = false,
+                    processError = null,
+                )
+            }
+        }
+    }
+
+    private fun scheduleVoiceAutoAi() {
+        voiceAutoAiJob?.cancel()
+        voiceAutoAiJob = viewModelScope.launch {
+            delay(VOICE_AUTO_AI_DELAY_MS)
+            val text = _uiState.value.typedInput.trim()
+            if (text.isBlank()) return@launch
+            processWithAi(inputSource = InputSource.VOICE)
+        }
+    }
+
+    private fun runProcess(block: suspend () -> Unit) {
+        offlineTypingJob?.cancel()
+        voiceAutoAiJob?.cancel()
+        activeProcessJob?.cancel()
+        activeProcessJob = viewModelScope.launch {
+            block()
+        }
+    }
+
+    private suspend fun processAuto(inputSource: InputSource = InputSource.TYPED) {
+        val text = _uiState.value.typedInput.trim()
+        if (text.isBlank() || _uiState.value.isListening) return
         val langs = practiceLanguages.value
-        processTypedInput(sourceLang = langs.inputLanguage, targetLang = langs.outputLanguage)
+        _uiState.update { it.copy(aiLoading = true, processError = null) }
+
+        if (networkConnectivityMonitor.isOnline()) {
+            val aiResult = tryAiProcess(
+                text = text,
+                sourceLang = langs.inputLanguage,
+                targetLang = langs.outputLanguage,
+                inputSource = inputSource,
+            )
+            if (aiResult != null) {
+                publishProcessResult(
+                    text = text,
+                    output = aiResult.output,
+                    intent = aiResult.intent,
+                    offline = false,
+                    activityType = "practice_typed",
+                    title = "Practice: typed",
+                    sourceLang = langs.inputLanguage,
+                    targetLang = langs.outputLanguage,
+                )
+                return
+            }
+        }
+
+        processOffline(recordActivity = false, skipLoadingStart = true)
+    }
+
+    private suspend fun processWithAi(inputSource: InputSource = InputSource.TYPED) {
+        val text = _uiState.value.typedInput.trim()
+        if (text.isBlank()) return
+        val langs = practiceLanguages.value
+        _uiState.update { it.copy(aiLoading = true, processError = null) }
+
+        if (!networkConnectivityMonitor.isOnline()) {
+            _uiState.update {
+                it.copy(
+                    aiLoading = false,
+                    processError = AI_INTERNET_REQUIRED,
+                )
+            }
+            return
+        }
+
+        val aiResult = tryAiProcess(
+            text = text,
+            sourceLang = langs.inputLanguage,
+            targetLang = langs.outputLanguage,
+            inputSource = inputSource,
+        )
+        if (aiResult != null) {
+            publishProcessResult(
+                text = text,
+                output = aiResult.output,
+                intent = aiResult.intent,
+                offline = false,
+                activityType = "practice_typed",
+                title = "Practice: typed",
+                sourceLang = langs.inputLanguage,
+                targetLang = langs.outputLanguage,
+            )
+        } else {
+            _uiState.update {
+                it.copy(
+                    aiLoading = false,
+                    processError = AI_PROCESS_FAILED,
+                )
+            }
+        }
+    }
+
+    private suspend fun processOffline(recordActivity: Boolean, skipLoadingStart: Boolean = false) {
+        val text = _uiState.value.typedInput.trim()
+        if (text.isBlank()) return
+        val langs = practiceLanguages.value
+        if (!skipLoadingStart) {
+            _uiState.update { it.copy(aiLoading = true, processError = null) }
+        }
+        val output = runCatching {
+            offlinePracticeProcessor.process(
+                text = text,
+                sourceLang = langs.inputLanguage,
+                targetLang = langs.outputLanguage,
+            )
+        }.getOrElse { "Offline process failed: ${it.message ?: "unknown error"}" }
+        if (recordActivity) {
+            publishProcessResult(
+                text = text,
+                output = output,
+                intent = ProcessingIntent.TRANSLATION,
+                offline = true,
+                activityType = "practice_offline",
+                title = "Practice: offline process",
+                sourceLang = langs.inputLanguage,
+                targetLang = langs.outputLanguage,
+            )
+        } else {
+            _uiState.update {
+                it.copy(
+                    aiLoading = false,
+                    aiOutput = output,
+                    aiIntent = ProcessingIntent.TRANSLATION,
+                    outputOffline = true,
+                    processError = null,
+                )
+            }
+        }
+    }
+
+    private suspend fun tryAiProcess(
+        text: String,
+        sourceLang: String,
+        targetLang: String,
+        inputSource: InputSource,
+    ): UnifiedTextResult? {
+        val result = runCatching {
+            unifiedTextPipeline.process(
+                text = text,
+                sourceLang = sourceLang,
+                targetLang = targetLang,
+                inputSource = inputSource,
+            )
+        }.getOrNull() ?: return null
+        return result.takeUnless { isAiFallbackOutput(it.output) }
+    }
+
+    private suspend fun publishProcessResult(
+        text: String,
+        output: String,
+        intent: ProcessingIntent?,
+        offline: Boolean,
+        activityType: String,
+        title: String,
+        sourceLang: String,
+        targetLang: String,
+    ) {
+        val activityId = learningActivityRepository.record(
+            title = title,
+            activityType = activityType,
+            languageCode = sourceLang,
+            summary = output.take(120),
+            inputText = text,
+            outputText = output,
+            outputLanguageCode = targetLang,
+        )
+        _uiState.update {
+            it.copy(
+                aiLoading = false,
+                aiOutput = output,
+                aiIntent = intent,
+                outputOffline = offline,
+                lastActivityId = activityId,
+                resultSaved = false,
+                saveMessage = null,
+                processError = null,
+            )
+        }
+        learningActivitySyncRepository.syncIfLoggedIn()
+    }
+
+    private fun isAiFallbackOutput(output: String): Boolean {
+        val trimmed = output.trim()
+        return trimmed.startsWith("Offline summary:") ||
+            trimmed.startsWith("[NLLB stub") ||
+            trimmed.startsWith("[NLLB openvino stub")
     }
 
     fun startVoiceInput() {
+        voiceAutoAiJob?.cancel()
         val inputLang = practiceLanguages.value.inputLanguage.lowercase()
         val allowed = _uiState.value.calibrationStatuses
             .firstOrNull { it.languageCode == inputLang }
@@ -237,14 +483,19 @@ class PracticeHubViewModel @Inject constructor(
         if (!allowed) {
             _uiState.update {
                 it.copy(
-                    speechError = "Complete paragraph calibration for ${inputLang.uppercase()} " +
-                        "in Voice Setup below before using Say.",
+                    speechError = micCalibrationRequiredMessage(inputLang),
+                    speechErrorLinksCalibration = true,
                 )
             }
             return
         }
         if (!speechEngine.isAvailable()) {
-            _uiState.update { it.copy(speechError = "Speech recognition is not available on this device.") }
+            _uiState.update {
+                it.copy(
+                    speechError = "Speech recognition is not available on this device.",
+                    speechErrorLinksCalibration = false,
+                )
+            }
             return
         }
         _uiState.update {
@@ -264,215 +515,129 @@ class PracticeHubViewModel @Inject constructor(
             it.copy(
                 isListening = false,
                 speechMode = SpeechCaptureMode.NONE,
-                calibration = it.calibration.copy(listening = false),
             )
         }
     }
 
-    fun selectCalibrationLanguage(code: String) {
-        _uiState.update {
-            it.copy(
-                calibration = it.calibration.copy(
-                    languageCode = code.lowercase(),
-                    tier = CalibrationTier.WORD,
-                    itemIndex = 0,
-                    message = null,
-                    lastScore = null,
-                    partialText = "",
-                ),
-            )
-        }
-    }
-
-    fun selectCalibrationTier(tier: CalibrationTier) {
-        _uiState.update {
-            it.copy(
-                calibration = it.calibration.copy(
-                    tier = tier,
-                    itemIndex = 0,
-                    message = null,
-                    lastScore = null,
-                    partialText = "",
-                ),
-            )
-        }
-    }
-
-    fun startCalibrationMic() {
-        if (!speechEngine.isAvailable()) {
-            _uiState.update { it.copy(speechError = "Speech recognition is not available on this device.") }
-            return
-        }
-        val lang = _uiState.value.calibration.languageCode
-        _uiState.update {
-            it.copy(
-                speechMode = SpeechCaptureMode.CALIBRATION,
-                speechError = null,
-                calibration = it.calibration.copy(
-                    listening = true,
-                    message = null,
-                    partialText = "",
-                    lastScore = null,
-                ),
-            )
-        }
-        speechEngine.startListening(lang)
-    }
-
-    fun recordPractice(mode: String) {
+    fun saveCurrentResult() {
+        val state = _uiState.value
+        val langs = practiceLanguages.value
+        if (state.typedInput.isBlank() && state.aiOutput.isNullOrBlank()) return
         viewModelScope.launch {
-            learningActivityRepository.record(
-                title = "Practice: $mode",
-                activityType = mode,
-                languageCode = practiceLanguages.value.inputLanguage,
-                summary = "Interactive practice session",
+            val activityId = state.lastActivityId ?: learningActivityRepository.record(
+                title = "Practice: saved",
+                activityType = if (state.outputOffline) "practice_offline" else "practice_typed",
+                languageCode = langs.inputLanguage,
+                summary = state.aiOutput?.take(120),
+                inputText = state.typedInput.takeIf { it.isNotBlank() },
+                outputText = state.aiOutput,
+                outputLanguageCode = langs.outputLanguage,
+                isSaved = true,
             )
+            if (state.lastActivityId != null) {
+                learningActivityRepository.markSaved(state.lastActivityId)
+            }
+            learningActivitySyncRepository.syncIfLoggedIn()
+            _uiState.update {
+                it.copy(
+                    lastActivityId = activityId,
+                    resultSaved = true,
+                    saveMessage = "Saved to Learning",
+                )
+            }
+        }
+    }
+
+    fun clearSaveMessage() {
+        _uiState.update { it.copy(saveMessage = null) }
+    }
+
+    fun restoreActivity(activityId: Long) {
+        if (activityId <= 0L) return
+        viewModelScope.launch {
+            val activity = learningActivityRepository.getById(activityId) ?: return@launch
+            val outputLang = activity.outputLanguageCode?.lowercase()
+                ?: practiceLanguages.value.outputLanguage
+            practiceLanguageRepository.save(activity.languageCode.lowercase(), outputLang)
+            _uiState.update {
+                it.copy(
+                    typedInput = activity.inputText.orEmpty(),
+                    aiOutput = activity.outputText ?: activity.summary,
+                    aiLoading = false,
+                    outputOffline = activity.activityType == "practice_offline",
+                    aiIntent = null,
+                    speechError = null,
+                    speechErrorLinksCalibration = false,
+                    partialSpeech = "",
+                    isListening = false,
+                    speechMode = SpeechCaptureMode.NONE,
+                    lastActivityId = activityId,
+                    resultSaved = activity.isSaved,
+                    saveMessage = null,
+                    processError = null,
+                )
+            }
         }
     }
 
     private fun handleListeningState(state: ListeningState) {
         when (state) {
             ListeningState.Idle -> {
-                _uiState.update {
-                    it.copy(
-                        isListening = false,
-                        calibration = it.calibration.copy(listening = false),
-                    )
-                }
+                _uiState.update { it.copy(isListening = false) }
             }
             ListeningState.Listening -> {
                 _uiState.update {
-                    it.copy(
-                        isListening = it.speechMode == SpeechCaptureMode.VOICE_INPUT,
-                        calibration = it.calibration.copy(
-                            listening = it.speechMode == SpeechCaptureMode.CALIBRATION,
-                        ),
-                    )
+                    it.copy(isListening = it.speechMode == SpeechCaptureMode.VOICE_INPUT)
                 }
             }
             is ListeningState.Partial -> {
-                _uiState.update {
-                    when (it.speechMode) {
-                        SpeechCaptureMode.VOICE_INPUT -> it.copy(partialSpeech = state.text, isListening = true)
-                        SpeechCaptureMode.CALIBRATION -> it.copy(
-                            calibration = it.calibration.copy(partialText = state.text, listening = true),
-                        )
-                        SpeechCaptureMode.NONE -> it
+                if (_uiState.value.speechMode == SpeechCaptureMode.VOICE_INPUT) {
+                    _uiState.update {
+                        it.copy(partialSpeech = state.text, isListening = true)
                     }
                 }
             }
             is ListeningState.Final -> {
-                when (_uiState.value.speechMode) {
-                    SpeechCaptureMode.VOICE_INPUT -> {
-                        _uiState.update {
-                            it.copy(
-                                typedInput = state.text,
-                                partialSpeech = "",
-                                isListening = false,
-                                speechMode = SpeechCaptureMode.NONE,
-                            )
-                        }
-                        updateTypedInput(state.text)
+                if (_uiState.value.speechMode == SpeechCaptureMode.VOICE_INPUT) {
+                    _uiState.update {
+                        it.copy(
+                            typedInput = state.text,
+                            partialSpeech = "",
+                            isListening = false,
+                            speechMode = SpeechCaptureMode.NONE,
+                            processError = null,
+                        )
                     }
-                    SpeechCaptureMode.CALIBRATION -> evaluateCalibration(state.text)
-                    SpeechCaptureMode.NONE -> Unit
+                    val langs = practiceLanguages.value
+                    aiPrefetchCoordinator.schedulePracticeWarm(
+                        text = state.text,
+                        languageCode = langs.inputLanguage,
+                        targetLang = langs.outputLanguage,
+                        grammarDepth = grammarDepth.value,
+                    )
+                    lastTypedInput = state.text
+                    scheduleVoiceAutoAi()
                 }
             }
             is ListeningState.Error -> {
                 _uiState.update {
                     it.copy(
                         speechError = state.message,
+                        speechErrorLinksCalibration = false,
                         isListening = false,
                         speechMode = SpeechCaptureMode.NONE,
-                        calibration = it.calibration.copy(listening = false),
                     )
                 }
             }
         }
     }
 
-    private fun evaluateCalibration(spoken: String) {
-        val cal = _uiState.value.calibration
-        val pack = CalibrationContent.packFor(cal.languageCode)
-        val reference = CalibrationContent.prompt(pack, cal.tier, cal.itemIndex)
-        if (reference == null) {
-            _uiState.update {
-                it.copy(
-                    speechMode = SpeechCaptureMode.NONE,
-                    calibration = cal.copy(listening = false, message = "Calibration step complete."),
-                )
-            }
-            return
-        }
-        val score = CalibrationMatcher.score(reference, spoken)
-        val ok = CalibrationMatcher.isMatch(reference, spoken, cal.tier)
-        if (!ok) {
-            _uiState.update {
-                it.copy(
-                    speechMode = SpeechCaptureMode.NONE,
-                    calibration = cal.copy(
-                        listening = false,
-                        partialText = spoken,
-                        lastScore = score,
-                        message = "Matched ${(score * 100).toInt()}% — read the prompt again and tap the mic.",
-                    ),
-                )
-            }
-            return
-        }
+    companion object {
+        const val AI_INTERNET_REQUIRED = "You must be connected to Internet to process with AI."
+        const val AI_PROCESS_FAILED = "Could not process with AI. Try again."
+        private const val VOICE_AUTO_AI_DELAY_MS = 7_000L
 
-        val nextIndex = cal.itemIndex + 1
-        val itemCount = CalibrationContent.itemCount(cal.tier)
-        if (nextIndex < itemCount) {
-            _uiState.update {
-                it.copy(
-                    speechMode = SpeechCaptureMode.NONE,
-                    calibration = cal.copy(
-                        itemIndex = nextIndex,
-                        listening = false,
-                        partialText = "",
-                        lastScore = score,
-                        message = "${CalibrationContent.tierLabel(cal.tier)} ${nextIndex}/$itemCount — keep going!",
-                    ),
-                )
-            }
-            return
-        }
-
-        viewModelScope.launch {
-            voiceCalibrationRepository.markTierComplete(cal.languageCode, cal.tier)
-        }
-        val nextTier = when (cal.tier) {
-            CalibrationTier.WORD -> CalibrationTier.SENTENCE
-            CalibrationTier.SENTENCE -> CalibrationTier.PARAGRAPH
-            CalibrationTier.PARAGRAPH -> null
-        }
-        if (nextTier != null) {
-            _uiState.update {
-                it.copy(
-                    speechMode = SpeechCaptureMode.NONE,
-                    calibration = cal.copy(
-                        tier = nextTier,
-                        itemIndex = 0,
-                        listening = false,
-                        partialText = "",
-                        lastScore = score,
-                        message = "${CalibrationContent.tierLabel(cal.tier)} complete ✓ — next: ${CalibrationContent.tierLabel(nextTier)}.",
-                    ),
-                )
-            }
-        } else {
-            _uiState.update {
-                it.copy(
-                    speechMode = SpeechCaptureMode.NONE,
-                    calibration = cal.copy(
-                        listening = false,
-                        partialText = "",
-                        lastScore = score,
-                        message = "All calibration complete for ${cal.languageCode.uppercase()} ✓ Say is now enabled.",
-                    ),
-                )
-            }
-        }
+        fun micCalibrationRequiredMessage(languageCode: String): String =
+            "Mic not calibrated for ${languageCode.uppercase()}. Click for Calibration."
     }
 }

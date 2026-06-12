@@ -145,3 +145,27 @@ class AiRoutingPolicyUpdateRequest(BaseModel):
 
 class AiProviderToggleRequest(BaseModel):
     enabled: bool
+
+
+class LearningActivityDto(BaseModel):
+    client_id: str
+    title: str
+    summary: str | None = None
+    activity_type: str
+    language_code: str
+    output_language_code: str | None = None
+    input_text: str | None = None
+    output_text: str | None = None
+    tags_json: str | None = None
+    is_saved: bool = False
+    created_at_ms: int
+    updated_at_ms: int
+
+
+class LearningActivitySyncRequest(BaseModel):
+    activities: list[LearningActivityDto] = Field(default_factory=list)
+
+
+class LearningActivitySyncResponse(BaseModel):
+    activities: list[LearningActivityDto] = Field(default_factory=list)
+    server_time_ms: int

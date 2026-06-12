@@ -95,6 +95,7 @@ fun CheradipTopBar(
     modifier: Modifier = Modifier,
     subtitle: String? = null,
     onBack: (() -> Unit)? = null,
+    showAppMenu: Boolean = true,
     actions: @Composable () -> Unit = {},
 ) {
     TopAppBar(
@@ -128,7 +129,12 @@ fun CheradipTopBar(
                 }
             }
         },
-        actions = { actions() },
+        actions = {
+            actions()
+            if (showAppMenu) {
+                CheradipAppMenuButton()
+            }
+        },
     )
 }
 
@@ -138,6 +144,7 @@ fun CheradipScrollScreen(
     modifier: Modifier = Modifier,
     subtitle: String? = null,
     onBack: (() -> Unit)? = null,
+    showAppMenu: Boolean = true,
     topBarActions: @Composable () -> Unit = {},
     contentPadding: PaddingValues = CheradipScreenContentPadding,
     content: LazyListScope.() -> Unit,
@@ -152,6 +159,7 @@ fun CheradipScrollScreen(
                 title = title,
                 subtitle = subtitle,
                 onBack = onBack,
+                showAppMenu = showAppMenu,
                 actions = topBarActions,
             )
         },
@@ -410,7 +418,11 @@ fun SettingsNavRow(
         )
         Spacer(modifier = Modifier.width(16.dp))
         Column(modifier = Modifier.weight(1f)) {
-            Text(label, style = MaterialTheme.typography.bodyLarge)
+            Text(
+                label,
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.primary,
+            )
             subtitle?.let {
                 Text(
                     it,

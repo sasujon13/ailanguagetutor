@@ -61,6 +61,29 @@ class PackDatabaseConnector @Inject constructor(
         return file.readText().let { packAdapter.fromJson(it) }
     }
 
+    suspend fun lookupWordTranslation(word: String, sourceLang: String, targetLang: String): String? =
+        withContext(Dispatchers.IO) {
+            val normalized = normalizeToken(word)
+            if (normalized.isBlank()) return@withContext null
+            if (sourceLang.equals(targetLang, ignoreCase = true)) return@withContext normalized
+
+            suspend fun fromTranslationDb(lang: String): String? {
+                val state = languagePackDao.getByCode(lang) ?: return null
+                val db = PackInstaller.translationDb(state.localPath) ?: return null
+                return PackSqliteReader.pivotTranslation(
+                    db,
+                    normalized,
+                    sourceLang.lowercase(),
+                    targetLang.lowercase(),
+                )
+            }
+
+            fromTranslationDb(sourceLang)
+                ?: languagePackDao.listDownloaded()
+                    .firstOrNull { it.isActive }
+                    ?.let { fromTranslationDb(it.languageCode) }
+        }
+
     suspend fun lookupWord(word: String, preferredLanguageCode: String): List<String>? = withContext(Dispatchers.IO) {
         val normalized = normalizeToken(word)
         if (normalized.isBlank()) return@withContext null

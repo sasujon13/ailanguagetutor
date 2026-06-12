@@ -22,6 +22,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -33,8 +34,8 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.cheradip.ailanguagetutor.core.billing.BillingPeriod
-import com.cheradip.ailanguagetutor.ui.components.CheradipScreenEdgePadding
 import com.cheradip.ailanguagetutor.core.billing.ReferralRepository
+import com.cheradip.ailanguagetutor.ui.components.CheradipTopBar
 
 @Composable
 fun PaywallScreen(
@@ -52,18 +53,22 @@ fun PaywallScreen(
     val config = uiState.config
     val activity = LocalContext.current.findActivity()
 
+    Scaffold(
+        modifier = modifier,
+        topBar = {
+            CheradipTopBar(
+                title = "Upgrade to keep learning",
+                subtitle = "30-day trial · No ads · Offline-first · Home AI on Pro/Plus",
+            )
+        },
+    ) { padding ->
     Column(
-        modifier = modifier
+        modifier = Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
-            .padding(CheradipScreenEdgePadding),
+            .padding(padding)
+            .padding(start = 24.dp, end = 24.dp, bottom = 24.dp),
     ) {
-        Text("Upgrade to keep learning", style = MaterialTheme.typography.headlineSmall)
-        Text(
-            "30-day trial · No ads · Offline-first · Home AI on Pro/Plus",
-            style = MaterialTheme.typography.bodyMedium,
-            modifier = Modifier.padding(top = 4.dp),
-        )
         if (!isLoggedIn) {
             Text(
                 "Sign in or create an account before subscribing.",
@@ -228,6 +233,7 @@ fun PaywallScreen(
             modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
             enabled = !uiState.purchaseInProgress,
         ) { Text("Restore purchases") }
+    }
     }
 }
 

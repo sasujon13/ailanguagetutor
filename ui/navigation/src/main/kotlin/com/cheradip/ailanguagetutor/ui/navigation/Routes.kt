@@ -3,10 +3,11 @@ package com.cheradip.ailanguagetutor.ui.navigation
 object Routes {
     const val ONBOARDING = "onboarding"
     const val HOME = "home"
-    const val PRACTICE_HUB = "practice?startVoice={startVoice}"
+    const val PRACTICE_HUB = "practice/{activityId}?startVoice={startVoice}"
     const val GRAMMAR = "grammar"
     const val LIBRARY = "library"
     const val LANGUAGES = "languages"
+    const val PROFILE = "profile"
     const val SETTINGS = "settings"
     const val SCANNER = "scanner?mode={mode}"
     const val SCANNER_DOC = "scanner/{documentId}"
@@ -21,7 +22,8 @@ object Routes {
     const val ADMIN_AI = "admin/ai"
     const val MODE_SELECTION = "mode_selection"
 
-    fun practiceHub(startVoice: Boolean = false) = "practice?startVoice=$startVoice"
+    fun practiceHub(startVoice: Boolean = false, activityId: Long = -1L) =
+        "practice/$activityId?startVoice=$startVoice"
     fun scanner(mode: String = "camera") = "scanner?mode=$mode"
     fun login(returnTo: String = "") = "login?returnTo=$returnTo"
     fun register(returnTo: String = "") = "register?returnTo=$returnTo"

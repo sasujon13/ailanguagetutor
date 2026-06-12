@@ -31,7 +31,10 @@ class ScannerViewModel @Inject constructor(
     private val _uiState = MutableStateFlow(ScannerUiState())
     val uiState: StateFlow<ScannerUiState> = _uiState.asStateFlow()
 
-    fun initDocument(existingId: Long?) {
+    private var documentSourceType: String = "scan"
+
+    fun initDocument(existingId: Long?, sourceType: String = "scan") {
+        documentSourceType = sourceType
         if (existingId != null) {
             viewModelScope.launch {
                 val doc = documentRepository.getDocument(existingId)
@@ -48,9 +51,11 @@ class ScannerViewModel @Inject constructor(
             viewModelScope.launch {
                 val activeLang = languagePackRepository.observeActive().first()
                     .firstOrNull()?.languageCode ?: "en"
+                val titlePrefix = if (documentSourceType == "import") "Upload" else "Scan"
                 val id = documentRepository.createDocument(
-                    title = "Scan ${System.currentTimeMillis()}",
+                    title = "$titlePrefix ${System.currentTimeMillis()}",
                     languageCode = activeLang,
+                    sourceType = documentSourceType,
                 )
                 _uiState.update { it.copy(documentId = id) }
             }

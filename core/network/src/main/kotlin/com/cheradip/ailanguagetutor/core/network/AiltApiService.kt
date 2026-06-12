@@ -107,3 +107,8 @@ interface AiltAiService {
     @POST("ai/explain-paragraph")
     suspend fun explainParagraph(@Body body: AiParagraphRequest): AiParagraphResponse
 }
+
+interface AiltLearningService {
+    @POST("learning/sync")
+    suspend fun sync(@Body body: LearningActivitySyncRequest): LearningActivitySyncResponse
+}

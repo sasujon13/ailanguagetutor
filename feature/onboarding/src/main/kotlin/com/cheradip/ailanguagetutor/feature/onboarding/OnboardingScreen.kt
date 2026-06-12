@@ -4,7 +4,9 @@ import android.content.Context
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -15,6 +17,8 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.ScaffoldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -48,8 +52,9 @@ import com.cheradip.ailanguagetutor.core.model.LanguageCatalogOrder
 import com.cheradip.ailanguagetutor.core.pack.LanguageCatalogRepository
 import com.cheradip.ailanguagetutor.core.pack.LanguagePackRepository
 import com.cheradip.ailanguagetutor.ui.components.CheradipDropdown
-import com.cheradip.ailanguagetutor.ui.components.CheradipScreenEdgePadding
 import com.cheradip.ailanguagetutor.ui.components.CheradipProgressOverlay
+import com.cheradip.ailanguagetutor.ui.components.CheradipScreenContentPadding
+import com.cheradip.ailanguagetutor.ui.components.CheradipTopBar
 import com.cheradip.ailanguagetutor.ui.components.IconTextButton
 import com.cheradip.ailanguagetutor.ui.components.SearchableLanguageDropdown
 import com.cheradip.ailanguagetutor.ui.components.SearchableLanguageMultiSelect
@@ -285,138 +290,154 @@ fun OnboardingScreen(
     val strings = LocalAppStrings.current
     val downloadState by viewModel.downloadState.collectAsStateWithLifecycle()
 
-    Box(modifier = modifier.fillMaxSize()) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-                .padding(CheradipScreenEdgePadding),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-        ) {
-        when (step) {
-            0 -> {
-                Text(appString("onboarding_welcome"), style = MaterialTheme.typography.headlineSmall)
-                Text(
-                    appString("onboarding_tagline"),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Text(
-                    appString("onboarding_intro"),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Button(onClick = { viewModel.nextStep() }) { Text(appString("continue")) }
-            }
-            1 -> {
-                Text(appString("onboarding_choose_langs"), style = MaterialTheme.typography.titleLarge)
-                Text(
-                    appString("onboarding_langs_help"),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+    val topBarTitle = when (step) {
+        0 -> appString("onboarding_welcome")
+        1 -> appString("onboarding_choose_langs")
+        2 -> appString("onboarding_voice_title")
+        else -> appString("onboarding_finish_title")
+    }
+    val topBarSubtitle = when (step) {
+        0 -> appString("onboarding_tagline")
+        1 -> appString("onboarding_study_packs_hint")
+        else -> null
+    }
 
-                Text(appString("onboarding_study_packs"), style = MaterialTheme.typography.titleMedium)
-                Text(
-                    appString("onboarding_study_packs_hint"),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                SearchableLanguageMultiSelect(
-                    languages = allLangs,
-                    selectedCodes = selectedStudy.toSet(),
-                    onToggle = { lang -> viewModel.toggleStudyLang(lang.code) },
-                    maxSelection = LanguagePackRepository.MAX_ACTIVE_PACKS,
-                    localeHints = localeHints,
-                )
-
-                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
-
-                Text(appString("app_language"), style = MaterialTheme.typography.titleMedium)
-                Text(
-                    appString("onboarding_app_language_hint"),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                val appLangOptions = remember(allLangs, selectedStudy) {
-                    val codes = selectedStudy.map { it.lowercase() }.toSet()
-                    allLangs.filter { it.code.lowercase() in codes }
-                }
-                SearchableLanguageDropdown(
-                    languages = appLangOptions,
-                    selected = appLang,
-                    onSelected = viewModel::setAppLanguage,
-                    label = appString("app_language"),
-                    searchPlaceholder = appString("search_languages"),
-                    localeHints = localeHints,
-                )
-                if (isTranslatingApp) {
-                    CircularProgressIndicator()
-                    Text(
-                        appString("updating_language"),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.primary,
-                    )
-                }
-
-                Button(
-                    onClick = { viewModel.nextStep() },
-                    enabled = selectedStudy.isNotEmpty() && appLang != null && !isTranslatingApp,
-                ) { Text(appString("next")) }
-            }
-            2 -> {
-                Text(appString("onboarding_voice_title"), style = MaterialTheme.typography.titleLarge)
-                CheradipDropdown(
-                    label = appString("onboarding_voice_label"),
-                    options = TeenVoiceGender.entries.toList(),
-                    selected = voiceGender,
-                    onSelected = { gender ->
-                        voiceGender = gender
-                        viewModel.setVoice(gender)
-                    },
-                    optionLabel = {
-                        if (it == TeenVoiceGender.MALE) localizedString("voice_teen_male", strings)
-                        else localizedString("voice_teen_female", strings)
-                    },
-                    leadingIcon = Icons.Default.Person,
-                )
-                Button(onClick = { viewModel.nextStep() }) { Text(appString("next")) }
-            }
-            else -> {
-                Text(appString("onboarding_finish_title"), style = MaterialTheme.typography.titleLarge)
-                Text(
-                    "${appString("onboarding_finish_app")} ${appLang?.name ?: appString("english_us")}",
-                    style = MaterialTheme.typography.bodyMedium,
-                )
-                selectedStudy.forEach { code ->
-                    val name = allLangs.firstOrNull { it.code == code }?.name ?: code
-                    Text("· $name", style = MaterialTheme.typography.bodyMedium)
-                }
-                IconTextButton(
-                    label = appString("onboarding_download_start"),
-                    icon = Icons.Default.Download,
-                    onClick = { viewModel.downloadPacks(onComplete) },
-                    enabled = !downloadState.isDownloading,
-                )
-                downloadState.error?.let { err ->
-                    Text(
-                        text = err.ifBlank { appString("onboarding_download_failed") },
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.error,
-                    )
-                }
-            }
-        }
-        }
-
-        if (downloadState.isDownloading) {
-            val message = downloadState.messageArg?.let { arg ->
-                AppStrings.format(downloadState.messageKey, strings, arg)
-            } ?: appString(downloadState.messageKey)
-            CheradipProgressOverlay(
-                progressPercent = downloadState.progressPercent,
-                message = message,
+    Scaffold(
+        modifier = modifier,
+        contentWindowInsets = ScaffoldDefaults.contentWindowInsets.only(
+            WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom,
+        ),
+        topBar = {
+            CheradipTopBar(
+                title = topBarTitle,
+                subtitle = topBarSubtitle,
             )
+        },
+    ) { padding ->
+        Box(modifier = Modifier.fillMaxSize().padding(padding)) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState())
+                    .padding(CheradipScreenContentPadding),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
+                when (step) {
+                    0 -> {
+                        Text(
+                            appString("onboarding_intro"),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Button(onClick = { viewModel.nextStep() }) { Text(appString("continue")) }
+                    }
+                    1 -> {
+                        Text(
+                            appString("onboarding_langs_help"),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+
+                        Text(appString("onboarding_study_packs"), style = MaterialTheme.typography.titleMedium)
+                        Text(
+                            appString("onboarding_study_packs_hint"),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        SearchableLanguageMultiSelect(
+                            languages = allLangs,
+                            selectedCodes = selectedStudy.toSet(),
+                            onToggle = { lang -> viewModel.toggleStudyLang(lang.code) },
+                            maxSelection = LanguagePackRepository.MAX_ACTIVE_PACKS,
+                            localeHints = localeHints,
+                        )
+
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+
+                        Text(appString("app_language"), style = MaterialTheme.typography.titleMedium)
+                        Text(
+                            appString("onboarding_app_language_hint"),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        val appLangOptions = remember(allLangs, selectedStudy) {
+                            val codes = selectedStudy.map { it.lowercase() }.toSet()
+                            allLangs.filter { it.code.lowercase() in codes }
+                        }
+                        SearchableLanguageDropdown(
+                            languages = appLangOptions,
+                            selected = appLang,
+                            onSelected = viewModel::setAppLanguage,
+                            label = appString("app_language"),
+                            searchPlaceholder = appString("search_languages"),
+                            localeHints = localeHints,
+                        )
+                        if (isTranslatingApp) {
+                            CircularProgressIndicator()
+                            Text(
+                                appString("updating_language"),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.primary,
+                            )
+                        }
+
+                        Button(
+                            onClick = { viewModel.nextStep() },
+                            enabled = selectedStudy.isNotEmpty() && appLang != null && !isTranslatingApp,
+                        ) { Text(appString("next")) }
+                    }
+                    2 -> {
+                        CheradipDropdown(
+                            label = appString("onboarding_voice_label"),
+                            options = TeenVoiceGender.entries.toList(),
+                            selected = voiceGender,
+                            onSelected = { gender ->
+                                voiceGender = gender
+                                viewModel.setVoice(gender)
+                            },
+                            optionLabel = {
+                                if (it == TeenVoiceGender.MALE) localizedString("voice_teen_male", strings)
+                                else localizedString("voice_teen_female", strings)
+                            },
+                            leadingIcon = Icons.Default.Person,
+                        )
+                        Button(onClick = { viewModel.nextStep() }) { Text(appString("next")) }
+                    }
+                    else -> {
+                        Text(
+                            "${appString("onboarding_finish_app")} ${appLang?.name ?: appString("english_us")}",
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                        selectedStudy.forEach { code ->
+                            val name = allLangs.firstOrNull { it.code == code }?.name ?: code
+                            Text("· $name", style = MaterialTheme.typography.bodyMedium)
+                        }
+                        IconTextButton(
+                            label = appString("onboarding_download_start"),
+                            icon = Icons.Default.Download,
+                            onClick = { viewModel.downloadPacks(onComplete) },
+                            enabled = !downloadState.isDownloading,
+                        )
+                        downloadState.error?.let { err ->
+                            Text(
+                                text = err.ifBlank { appString("onboarding_download_failed") },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.error,
+                            )
+                        }
+                    }
+                }
+            }
+
+            if (downloadState.isDownloading) {
+                val message = downloadState.messageArg?.let { arg ->
+                    AppStrings.format(downloadState.messageKey, strings, arg)
+                } ?: appString(downloadState.messageKey)
+                CheradipProgressOverlay(
+                    progressPercent = downloadState.progressPercent,
+                    message = message,
+                )
+            }
         }
     }
 }

@@ -8,7 +8,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.MenuBook
 import androidx.compose.material.icons.filled.Mic
-import androidx.compose.material.icons.filled.Public
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
@@ -17,6 +17,8 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.ScaffoldDefaults
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -45,7 +47,9 @@ import com.cheradip.ailanguagetutor.core.billing.BillingRepository
 import com.cheradip.ailanguagetutor.core.billing.CheckAppAccessUseCase
 import com.cheradip.ailanguagetutor.core.billing.PromoRepository
 import com.cheradip.ailanguagetutor.core.billing.ReferralRepository
+import com.cheradip.ailanguagetutor.core.database.repository.LearningActivitySyncRepository
 import com.cheradip.ailanguagetutor.feature.auth.LoginScreen
+import com.cheradip.ailanguagetutor.feature.auth.ProfileScreen
 import com.cheradip.ailanguagetutor.feature.auth.SignUpScreen
 import com.cheradip.ailanguagetutor.feature.billing.AdminConsoleScreen
 import com.cheradip.ailanguagetutor.feature.billing.PaywallScreen
@@ -62,6 +66,9 @@ import com.cheradip.ailanguagetutor.feature.reader.ReaderScreen
 import com.cheradip.ailanguagetutor.feature.scanner.ScannerLaunchMode
 import com.cheradip.ailanguagetutor.feature.scanner.ScannerScreen
 import com.cheradip.ailanguagetutor.feature.settings.SettingsScreen
+import com.cheradip.ailanguagetutor.ui.components.AppMenuDestination
+import com.cheradip.ailanguagetutor.ui.components.AppMenuNavigation
+import com.cheradip.ailanguagetutor.ui.components.LocalAppMenuNavigation
 
 @Composable
 fun AppNavHost(
@@ -72,6 +79,7 @@ fun AppNavHost(
     checkAppAccessUseCase: CheckAppAccessUseCase,
     promoRepository: PromoRepository,
     referralRepository: ReferralRepository,
+    learningActivitySyncRepository: LearningActivitySyncRepository,
     pronunciationEngine: PronunciationEngine,
     appLocaleManager: AppLocaleManager,
     currentUser: AuthUser?,
@@ -96,18 +104,12 @@ fun AppNavHost(
     LaunchedEffect(currentUser) {
         if (currentUser != null) {
             referralRepository.refresh()
+            learningActivitySyncRepository.syncIfLoggedIn()
         }
     }
 
-    val mainRoutes = setOf(
-        Routes.HOME,
-        "practice",
-        Routes.LIBRARY,
-        Routes.LANGUAGES,
-        Routes.SETTINGS,
-    )
     val routeBase = currentRoute?.substringBefore('?')
-    val showBottomBar = routeBase in mainRoutes
+    val showBottomBar = routeBase != null
 
     var selectedTab by rememberSaveable { mutableIntStateOf(0) }
 
@@ -120,15 +122,61 @@ fun AppNavHost(
     }
 
     LaunchedEffect(currentRoute) {
-        selectedTab = when (routeBase) {
-            Routes.HOME -> 0
-            "practice" -> 1
-            Routes.LIBRARY -> 2
-            Routes.LANGUAGES -> 3
-            Routes.SETTINGS -> 4
+        selectedTab = when {
+            routeBase == Routes.HOME -> 0
+            routeBase?.startsWith("practice") == true -> 1
+            routeBase == Routes.LIBRARY -> 2
+            routeBase == Routes.PROFILE -> 3
+            routeBase == Routes.SETTINGS -> 4
             else -> selectedTab
         }
     }
+
+    fun navigateMainTab(index: Int, route: String) {
+        selectedTab = index
+        val destination = when (route) {
+            Routes.HOME -> Routes.HOME
+            Routes.PRACTICE_HUB -> Routes.practiceHub()
+            else -> route
+        }
+        navController.navigate(destination) {
+            if (routeBase == Routes.ONBOARDING) {
+                popUpTo(Routes.ONBOARDING) { inclusive = true }
+            } else {
+                popUpTo(Routes.HOME) { saveState = true }
+            }
+            launchSingleTop = true
+            restoreState = true
+        }
+    }
+
+    fun openPracticeActivity(activityId: Long) {
+        selectedTab = 1
+        navController.navigate(Routes.practiceHub(activityId = activityId)) {
+            popUpTo(Routes.HOME) { saveState = true }
+            launchSingleTop = true
+        }
+    }
+
+    val appMenuNavigation = AppMenuNavigation(
+        isAdmin = currentUser?.role == "admin",
+        onNavigate = { dest ->
+            when (dest) {
+                AppMenuDestination.HOME -> navigateMainTab(0, Routes.HOME)
+                AppMenuDestination.PRACTICE -> navigateMainTab(1, Routes.PRACTICE_HUB)
+                AppMenuDestination.LEARNING -> navigateMainTab(2, Routes.LIBRARY)
+                AppMenuDestination.LANGUAGES -> navController.navigate(Routes.LANGUAGES) { launchSingleTop = true }
+                AppMenuDestination.GRAMMAR -> navController.navigate(Routes.GRAMMAR) { launchSingleTop = true }
+                AppMenuDestination.REFERRAL -> navController.navigate(Routes.REFERRAL) { launchSingleTop = true }
+                AppMenuDestination.PAYWALL -> navController.navigate(Routes.PAYWALL) { launchSingleTop = true }
+                AppMenuDestination.MODE_SELECTION -> navController.navigate(Routes.MODE_SELECTION) { launchSingleTop = true }
+                AppMenuDestination.PROFILE -> navigateMainTab(3, Routes.PROFILE)
+                AppMenuDestination.SETTINGS -> navigateMainTab(4, Routes.SETTINGS)
+                AppMenuDestination.ADMIN -> navController.navigate(Routes.ADMIN) { launchSingleTop = true }
+                AppMenuDestination.ADMIN_AI -> navController.navigate(Routes.ADMIN_AI) { launchSingleTop = true }
+            }
+        },
+    )
 
     if (accessState == AccessState.TRIAL_EXPIRED && currentRoute == Routes.PAYWALL) {
         // Paywall is shown via navigation
@@ -144,39 +192,39 @@ fun AppNavHost(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         bottomBar = {
             if (showBottomBar) {
+                val menuTeal = MaterialTheme.colorScheme.primary
                 NavigationBar {
                     val tabs = listOf(
                         Triple(Routes.HOME, AppStrings.text("nav_home", strings), Icons.Default.Home),
                         Triple(Routes.PRACTICE_HUB, AppStrings.text("nav_practice", strings), Icons.Default.Mic),
                         Triple(Routes.LIBRARY, AppStrings.text("nav_learning", strings), Icons.Default.MenuBook),
-                        Triple(Routes.LANGUAGES, AppStrings.text("nav_languages", strings), Icons.Default.Public),
+                        Triple(Routes.PROFILE, AppStrings.text("nav_profile", strings), Icons.Default.Person),
                         Triple(Routes.SETTINGS, AppStrings.text("nav_settings", strings), Icons.Default.Settings),
+                    )
+                    val navItemColors = NavigationBarItemDefaults.colors(
+                        selectedIconColor = menuTeal,
+                        selectedTextColor = menuTeal,
+                        unselectedIconColor = menuTeal,
+                        unselectedTextColor = menuTeal,
+                        indicatorColor = MaterialTheme.colorScheme.primaryContainer,
                     )
                     tabs.forEachIndexed { index, (route, label, icon) ->
                         NavigationBarItem(
                             selected = selectedTab == index,
-                            onClick = {
-                                selectedTab = index
-                                val destination = when (route) {
-                                    Routes.HOME -> Routes.HOME
-                                    Routes.PRACTICE_HUB -> Routes.practiceHub()
-                                    else -> route
-                                }
-                                navController.navigate(destination) {
-                                    popUpTo(Routes.HOME) { saveState = true }
-                                    launchSingleTop = true
-                                    restoreState = true
-                                }
-                            },
-                            icon = { Icon(icon, contentDescription = label) },
-                            label = { Text(label) },
+                            onClick = { navigateMainTab(index, route) },
+                            icon = { Icon(icon, contentDescription = label, tint = menuTeal) },
+                            label = { Text(label, color = menuTeal) },
+                            colors = navItemColors,
                         )
                     }
                 }
             }
         },
     ) { padding ->
-        CompositionLocalProvider(LocalAppStrings provides strings) {
+        CompositionLocalProvider(
+            LocalAppStrings provides strings,
+            LocalAppMenuNavigation provides appMenuNavigation,
+        ) {
             NavHost(
                 navController = navController,
                 startDestination = if (showOnboarding) Routes.ONBOARDING else Routes.HOME,
@@ -224,6 +272,10 @@ fun AppNavHost(
             composable(
                 route = Routes.PRACTICE_HUB,
                 arguments = listOf(
+                    navArgument("activityId") {
+                        type = NavType.LongType
+                        defaultValue = -1L
+                    },
                     navArgument("startVoice") {
                         type = NavType.BoolType
                         defaultValue = false
@@ -231,8 +283,10 @@ fun AppNavHost(
                 ),
             ) { entry ->
                 val startVoice = entry.arguments?.getBoolean("startVoice") ?: false
+                val activityId = entry.arguments?.getLong("activityId") ?: -1L
                 PracticeHubScreen(
                     startVoiceInput = startVoice,
+                    restoreActivityId = activityId.takeIf { it > 0L },
                     onOpenModeSelection = { navController.navigate(Routes.MODE_SELECTION) },
                     onScanClick = { navController.navigate(Routes.scanner("camera")) },
                     onCameraClick = { navController.navigate(Routes.scanner("camera")) },
@@ -246,18 +300,32 @@ fun AppNavHost(
                 )
             }
             composable(Routes.LIBRARY) {
-                LibraryScreen(onOpenDocument = { id ->
-                    navController.navigate(Routes.reader(id))
-                })
+                LibraryScreen(
+                    onOpenDocument = { id ->
+                        navController.navigate(Routes.reader(id))
+                    },
+                    onOpenPracticeActivity = { activityId ->
+                        openPracticeActivity(activityId)
+                    },
+                )
             }
             composable(Routes.LANGUAGES) { LanguagesScreen() }
+            composable(Routes.PROFILE) {
+                ProfileScreen(
+                    currentUser = currentUser,
+                    authRepository = authRepository,
+                    onNavigateLogin = { navController.navigate(Routes.login()) },
+                    onNavigateSignUp = { navController.navigate(Routes.register()) },
+                    onNavigateReferral = { navController.navigate(Routes.REFERRAL) },
+                    onNavigatePaywall = { navController.navigate(Routes.PAYWALL) },
+                )
+            }
             composable(Routes.SETTINGS) {
                 SettingsScreen(
                     onNavigateReferral = { navController.navigate(Routes.REFERRAL) },
                     onNavigatePaywall = { navController.navigate(Routes.PAYWALL) },
                     onNavigateAdmin = { navController.navigate(Routes.ADMIN) },
                     onNavigateAdminAi = { navController.navigate(Routes.ADMIN_AI) },
-                    onNavigateLogin = { navController.navigate(Routes.login()) },
                     onNavigateModeSelection = { navController.navigate(Routes.MODE_SELECTION) },
                     isAdmin = currentUser?.role == "admin",
                     pronunciationEngine = pronunciationEngine,

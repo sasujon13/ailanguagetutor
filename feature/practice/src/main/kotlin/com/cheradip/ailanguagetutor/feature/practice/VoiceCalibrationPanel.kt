@@ -1,5 +1,6 @@
 package com.cheradip.ailanguagetutor.feature.practice
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -13,10 +14,13 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Bookmark
+import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MicOff
 import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Translate
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
@@ -37,14 +41,12 @@ import androidx.compose.ui.unit.dp
 import com.cheradip.ailanguagetutor.core.speech.CalibrationContent
 import com.cheradip.ailanguagetutor.core.speech.CalibrationTier
 import com.cheradip.ailanguagetutor.core.speech.LanguageCalibrationStatus
-import com.cheradip.ailanguagetutor.ui.components.ExpandableSection
 import com.cheradip.ailanguagetutor.ui.components.IconTextButton
-import com.cheradip.ailanguagetutor.ui.components.SectionHeader
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun VoiceCalibrationPanel(
-    state: PracticeHubUiState,
+fun VoiceCalibrationContent(
+    state: VoiceCalibrationUiState,
     onSelectLanguage: (String) -> Unit,
     onSelectTier: (CalibrationTier) -> Unit,
     onStartMic: () -> Unit,
@@ -62,14 +64,11 @@ fun VoiceCalibrationPanel(
         CalibrationTier.PARAGRAPH -> if (status?.paragraphCompleted == true) 1f else 0f
     }
 
-    ExpandableSection(
-        title = "Voice setup — microphone calibration",
-        initiallyExpanded = state.activeLanguageCodes.isNotEmpty(),
-    ) {
+    Column(modifier = modifier) {
         Text(
             "Read each prompt aloud. The microphone detects your voice — do not use speaker playback. " +
                 "Complete Words, Sentences, and Paragraph for each study language (up to 3). " +
-                "Paragraph unlocks Say input.",
+                "Paragraph unlocks mic input on Practice.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -81,7 +80,7 @@ fun VoiceCalibrationPanel(
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.error,
             )
-            return@ExpandableSection
+            return@Column
         }
 
         Text("Language", style = MaterialTheme.typography.labelMedium)
@@ -180,6 +179,14 @@ fun VoiceCalibrationPanel(
                 modifier = Modifier.padding(top = 4.dp),
             )
         }
+        state.speechError?.let { err ->
+            Text(
+                err,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.padding(top = 4.dp),
+            )
+        }
     }
 }
 
@@ -201,10 +208,13 @@ private fun tierDone(status: LanguageCalibrationStatus?, tier: CalibrationTier):
 fun PracticeInputCard(
     hubState: PracticeHubUiState,
     onInputChange: (String) -> Unit,
-    onProcess: () -> Unit,
+    onProcessOffline: () -> Unit,
+    onProcessWithAi: () -> Unit,
     onStartVoice: () -> Unit,
     onStopVoice: () -> Unit,
     onSpeakOutput: (String) -> Unit,
+    onSave: () -> Unit,
+    onOpenVoiceCalibration: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     var syncedLine by remember { mutableStateOf("") }
@@ -241,29 +251,52 @@ fun PracticeInputCard(
                 },
             )
             hubState.speechError?.let { err ->
-                Text(err, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                val teal = MaterialTheme.colorScheme.primary
+                if (hubState.speechErrorLinksCalibration && onOpenVoiceCalibration != null) {
+                    Text(
+                        text = err,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = teal,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable(onClick = onOpenVoiceCalibration),
+                    )
+                } else {
+                    Text(err, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                }
+            }
+            hubState.processError?.let { err ->
+                Text(
+                    err,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                )
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 IconTextButton(
-                    label = if (hubState.isListening) "Stop mic" else "Voice input",
-                    icon = if (hubState.isListening) Icons.Default.MicOff else Icons.Default.Mic,
-                    onClick = { if (hubState.isListening) onStopVoice() else onStartVoice() },
-                    modifier = Modifier.weight(1f),
-                )
-                IconTextButton(
-                    label = "Process with AI",
-                    icon = Icons.Default.AutoAwesome,
-                    onClick = onProcess,
+                    label = "Process",
+                    icon = Icons.Default.Translate,
+                    onClick = onProcessOffline,
                     enabled = !hubState.aiLoading && hubState.typedInput.isNotBlank(),
                     modifier = Modifier.weight(1f),
+                    filled = false,
+                )
+                IconTextButton(
+                    label = "AI Process",
+                    icon = Icons.Default.AutoAwesome,
+                    onClick = onProcessWithAi,
+                    enabled = !hubState.aiLoading && hubState.typedInput.isNotBlank(),
+                    modifier = Modifier.weight(1f),
+                    filled = false,
                 )
             }
             if (hubState.aiLoading) {
                 CircularProgressIndicator(modifier = Modifier.align(Alignment.CenterHorizontally))
             }
             hubState.aiOutput?.let { output ->
-                val label = when (hubState.aiIntent) {
-                    com.cheradip.ailanguagetutor.core.model.ProcessingIntent.TRANSLATION -> "Translation"
+                val label = when {
+                    hubState.outputOffline -> "Offline"
+                    hubState.aiIntent == com.cheradip.ailanguagetutor.core.model.ProcessingIntent.TRANSLATION -> "Translation"
                     else -> "Answer"
                 }
                 Text(
@@ -279,7 +312,22 @@ fun PracticeInputCard(
                         onSpeakOutput(output)
                     },
                 )
+                val canSave = hubState.typedInput.isNotBlank() || output.isNotBlank()
+                IconTextButton(
+                    label = if (hubState.resultSaved) "Saved" else "Save",
+                    icon = if (hubState.resultSaved) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
+                    onClick = onSave,
+                    enabled = canSave && !hubState.resultSaved,
+                    filled = hubState.resultSaved,
+                )
                 syncedLine = output
+            }
+            hubState.saveMessage?.let { msg ->
+                Text(
+                    msg,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.primary,
+                )
             }
         }
     }
@@ -314,35 +362,11 @@ fun PracticeModeRow(
 @Composable
 fun PracticeQuickActions(
     onOpenModeSelection: () -> Unit,
-    onScanClick: () -> Unit,
-    onStartVoice: () -> Unit,
-    onSpeakSynced: () -> Unit,
-    onRecordPractice: (String) -> Unit,
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        IconTextButton(
-            label = "AI mode & languages",
-            icon = Icons.Default.Settings,
-            onClick = onOpenModeSelection,
-            filled = false,
-        )
-        PracticeModeRow(
-            icon = Icons.Default.Mic,
-            title = "Say → Answer",
-            description = "Tap mic in the input box, speak, then process with AI.",
-            onStart = onStartVoice,
-        )
-        PracticeModeRow(
-            icon = Icons.AutoMirrored.Filled.VolumeUp,
-            title = "Write → Listen",
-            description = "Process typed text, then hear TTS playback.",
-            onStart = onSpeakSynced,
-        )
-        PracticeModeRow(
-            icon = Icons.Default.QrCodeScanner,
-            title = "Scan → Translate",
-            description = "Scan from Home, then translate in Reader.",
-            onStart = onScanClick,
-        )
-    }
+    IconTextButton(
+        label = "AI Mode, Languages & Voice Calibration",
+        icon = Icons.Default.Settings,
+        onClick = onOpenModeSelection,
+        filled = false,
+    )
 }

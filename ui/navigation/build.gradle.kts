@@ -24,6 +24,7 @@ dependencies {
     implementation(project(":core:model"))
     implementation(project(":core:auth"))
     implementation(project(":core:billing"))
+    implementation(project(":core:database"))
     implementation(project(":core:audio"))
     implementation(project(":feature:home"))
     implementation(project(":feature:scanner"))

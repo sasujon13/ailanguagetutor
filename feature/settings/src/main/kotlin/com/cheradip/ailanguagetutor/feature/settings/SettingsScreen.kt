@@ -4,7 +4,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AdminPanelSettings
 import androidx.compose.material.icons.filled.Cloud
-import androidx.compose.material.icons.filled.Login
 import androidx.compose.material.icons.filled.MenuBook
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Share
@@ -43,7 +42,6 @@ fun SettingsScreen(
     onNavigatePaywall: () -> Unit = {},
     onNavigateAdmin: () -> Unit = {},
     onNavigateAdminAi: () -> Unit = {},
-    onNavigateLogin: () -> Unit = {},
     onNavigateModeSelection: () -> Unit = {},
     isAdmin: Boolean = false,
     pronunciationEngine: PronunciationEngine? = null,
@@ -155,9 +153,6 @@ fun SettingsScreen(
         }
         item {
             SettingsNavRow(appString("settings_referrals"), Icons.Default.Share, onNavigateReferral)
-        }
-        item {
-            SettingsNavRow(appString("settings_account"), Icons.Default.Login, onNavigateLogin)
         }
         if (isAdmin) {
             item {

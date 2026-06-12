@@ -21,6 +21,7 @@ dependencies {
     implementation(project(":ui:theme"))
     implementation(project(":ui:components"))
     implementation(project(":core:auth"))
+    implementation(project(":core:locale"))
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.ui)
     implementation(libs.compose.material3)

@@ -29,37 +29,27 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 
 import androidx.compose.runtime.Composable
-
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-
 import androidx.compose.runtime.getValue
-
 import androidx.compose.runtime.mutableStateOf
-
 import androidx.compose.runtime.remember
-
 import androidx.compose.runtime.setValue
-
 import androidx.compose.ui.Alignment
-
 import androidx.compose.ui.Modifier
-
 import androidx.compose.ui.platform.LocalContext
-
 import androidx.compose.ui.unit.dp
-
 import androidx.core.content.ContextCompat
-
 import androidx.hilt.navigation.compose.hiltViewModel
-
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 
 import com.cheradip.ailanguagetutor.ui.components.CheradipDropdown
-
 import com.cheradip.ailanguagetutor.ui.components.CheradipScrollScreen
-
+import com.cheradip.ailanguagetutor.ui.components.IconTextButton
 import com.cheradip.ailanguagetutor.ui.components.InputChannel
-
 import com.cheradip.ailanguagetutor.ui.components.InputChannelBar
 
 @Composable
@@ -75,6 +65,8 @@ fun PracticeHubScreen(
     onImportClick: () -> Unit = {},
 
     startVoiceInput: Boolean = false,
+
+    restoreActivityId: Long? = null,
 
     modifier: Modifier = Modifier,
 
@@ -100,7 +92,16 @@ fun PracticeHubScreen(
 
     val languageOptions by viewModel.languageOptions.collectAsStateWithLifecycle()
 
-
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                viewModel.onPracticeResumed()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
 
     var hasMicPermission by remember {
 
@@ -155,6 +156,10 @@ fun PracticeHubScreen(
     }
 
 
+
+    LaunchedEffect(restoreActivityId) {
+        restoreActivityId?.let { viewModel.restoreActivity(it) }
+    }
 
     LaunchedEffect(startVoiceInput, hasMicPermission) {
         if (startVoiceInput && !voiceLaunchHandled) {
@@ -263,7 +268,9 @@ fun PracticeHubScreen(
 
                 onInputChange = viewModel::updateTypedInput,
 
-                onProcess = viewModel::processTypedInputWithSavedLanguages,
+                onProcessOffline = viewModel::processOfflineInput,
+
+                onProcessWithAi = viewModel::processTypedInputWithSavedLanguages,
 
                 onStartVoice = { withMicPermission { viewModel.startVoiceInput() } },
 
@@ -271,53 +278,22 @@ fun PracticeHubScreen(
 
                 onSpeakOutput = viewModel::speak,
 
-            )
-
-        }
-
-
-
-        item {
-
-            VoiceCalibrationPanel(
-
-                state = hubState,
-
-                onSelectLanguage = viewModel::selectCalibrationLanguage,
-
-                onSelectTier = viewModel::selectCalibrationTier,
-
-                onStartMic = { withMicPermission { viewModel.startCalibrationMic() } },
-
-                onStopMic = viewModel::stopVoiceInput,
-
-            )
-
-        }
-
-
-
-        item {
-
-            PracticeQuickActions(
-
-                onOpenModeSelection = onOpenModeSelection,
-
-                onScanClick = onScanClick,
-
-                onStartVoice = { withMicPermission { viewModel.startVoiceInput() } },
-
-                onSpeakSynced = {
-
-                    syncedLine = hubState.aiOutput ?: hubState.typedInput
-
-                    viewModel.speak(syncedLine)
-
+                onOpenVoiceCalibration = {
+                    viewModel.openVoiceCalibrationSettings()
+                    onOpenModeSelection()
                 },
 
-                onRecordPractice = viewModel::recordPractice,
+                onSave = viewModel::saveCurrentResult,
 
             )
+
+        }
+
+
+
+        item {
+
+            PracticeQuickActions(onOpenModeSelection = onOpenModeSelection)
 
         }
 

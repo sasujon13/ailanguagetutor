@@ -36,7 +36,7 @@ import com.cheradip.ailanguagetutor.core.database.entity.TrialStateEntity
         AiCacheEntity::class,
         TrialStateEntity::class,
     ],
-    version = 2,
+    version = 4,
     exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {

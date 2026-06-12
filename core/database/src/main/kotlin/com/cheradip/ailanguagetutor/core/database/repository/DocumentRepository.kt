@@ -39,7 +39,11 @@ class DocumentRepository @Inject constructor(
         documentPageDao.getById(pageId)?.toModel()
     }
 
-    suspend fun createDocument(title: String, languageCode: String = "en"): Long =
+    suspend fun createDocument(
+        title: String,
+        languageCode: String = "en",
+        sourceType: String = "scan",
+    ): Long =
         withContext(Dispatchers.IO) {
             val now = System.currentTimeMillis()
             documentDao.insert(
@@ -47,6 +51,7 @@ class DocumentRepository @Inject constructor(
                     title = title,
                     languageCode = languageCode,
                     pageCount = 0,
+                    sourceType = sourceType,
                     createdAt = now,
                     updatedAt = now,
                 ),
@@ -101,6 +106,7 @@ class DocumentRepository @Inject constructor(
         title = title,
         languageCode = languageCode,
         pageCount = pageCount,
+        sourceType = sourceType,
         createdAt = createdAt,
         updatedAt = updatedAt,
     )

@@ -9,6 +9,7 @@ data class DocumentEntity(
     val title: String,
     val languageCode: String,
     val pageCount: Int,
+    val sourceType: String = "scan",
     val createdAt: Long,
     val updatedAt: Long,
 )

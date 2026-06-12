@@ -1,5 +1,9 @@
 package com.cheradip.ailanguagetutor.feature.practice
 
+import android.Manifest
+import android.content.pm.PackageManager
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -22,9 +26,14 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.cheradip.ailanguagetutor.core.model.AiModeUiMeta
@@ -43,14 +52,42 @@ fun ModeSelectionScreen(
     onNavigatePaywall: () -> Unit,
     modifier: Modifier = Modifier,
     viewModel: ModeSelectionViewModel = hiltViewModel(),
+    calibrationViewModel: VoiceCalibrationViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val calibrationState by calibrationViewModel.uiState.collectAsStateWithLifecycle()
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val intentOptions = listOf(
         IntentOption(ProcessingIntent.ANSWER, "Answer — AI tutor explains"),
         IntentOption(ProcessingIntent.TRANSLATION, "Translation — direct output"),
     )
     val selectedIntentOption = intentOptions.first { it.intent == state.processingIntent }
+
+    val context = LocalContext.current
+    var pendingMicAction by remember { mutableStateOf<(() -> Unit)?>(null) }
+    var hasMicPermission by remember {
+        mutableStateOf(
+            ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) ==
+                PackageManager.PERMISSION_GRANTED,
+        )
+    }
+    val micPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        hasMicPermission = granted
+        if (granted) {
+            pendingMicAction?.invoke()
+        }
+        pendingMicAction = null
+    }
+    fun withMicPermission(action: () -> Unit) {
+        if (hasMicPermission) {
+            action()
+        } else {
+            pendingMicAction = action
+            micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+        }
+    }
 
     if (state.showPlusUpgrade) {
         ModalBottomSheet(onDismissRequest = viewModel::dismissPlusUpgrade, sheetState = sheetState) {
@@ -66,8 +103,8 @@ fun ModeSelectionScreen(
 
     CheradipScrollScreen(
         modifier = modifier,
-        title = "AI processing",
-        subtitle = "Intent + engine mode",
+        title = "AI Mode, Languages & Voice Calibration",
+        subtitle = "Intent, engine, languages, mic setup",
         onBack = onDone,
     ) {
         item {
@@ -132,6 +169,18 @@ fun ModeSelectionScreen(
                     optionLabel = { it.label },
                 )
             }
+        }
+        item {
+            SectionHeader(title = "Step 4 — Voice calibration")
+        }
+        item {
+            VoiceCalibrationContent(
+                state = calibrationState,
+                onSelectLanguage = calibrationViewModel::selectCalibrationLanguage,
+                onSelectTier = calibrationViewModel::selectCalibrationTier,
+                onStartMic = { withMicPermission { calibrationViewModel.startCalibrationMic() } },
+                onStopMic = calibrationViewModel::stopCalibrationMic,
+            )
         }
         item {
             IconTextButton(

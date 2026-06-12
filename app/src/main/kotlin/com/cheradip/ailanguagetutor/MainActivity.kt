@@ -20,6 +20,7 @@ import com.cheradip.ailanguagetutor.core.billing.PromoRepository
 import com.cheradip.ailanguagetutor.core.billing.ReferralRepository
 import com.cheradip.ailanguagetutor.core.locale.AppLocaleManager
 import com.cheradip.ailanguagetutor.core.ai.PlusTierAiModeSync
+import com.cheradip.ailanguagetutor.core.database.repository.LearningActivitySyncRepository
 import com.cheradip.ailanguagetutor.feature.onboarding.OnboardingPreferences
 import com.cheradip.ailanguagetutor.ui.navigation.AppNavHost
 import com.cheradip.ailanguagetutor.ui.theme.CheradipTheme
@@ -40,6 +41,7 @@ class MainActivity : ComponentActivity() {
     @Inject lateinit var onboardingPreferences: OnboardingPreferences
     @Inject lateinit var appLocaleManager: AppLocaleManager
     @Inject lateinit var plusTierAiModeSync: PlusTierAiModeSync
+    @Inject lateinit var learningActivitySyncRepository: LearningActivitySyncRepository
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -71,6 +73,7 @@ class MainActivity : ComponentActivity() {
                     checkAppAccessUseCase = checkAppAccessUseCase,
                     promoRepository = promoRepository,
                     referralRepository = referralRepository,
+                    learningActivitySyncRepository = learningActivitySyncRepository,
                     pronunciationEngine = pronunciationEngine,
                     appLocaleManager = appLocaleManager,
                     currentUser = currentUser,

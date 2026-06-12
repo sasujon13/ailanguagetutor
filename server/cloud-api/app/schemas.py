@@ -61,6 +61,21 @@ class DeviceRegisterResponse(BaseModel):
     trialDaysRemaining: int = 7
 
 
+class GuestAiSyncRequest(BaseModel):
+    deviceId: str
+    localCount: int = Field(ge=0)
+
+
+class GuestAiRecordRequest(BaseModel):
+    deviceId: str
+
+
+class GuestAiUsageResponse(BaseModel):
+    count: int = 0
+    limit: int = 99
+    requiresLogin: bool = False
+
+
 class BillingVerifyRequest(BaseModel):
     purchaseToken: str
     productId: str

@@ -4,10 +4,12 @@ import com.cheradip.ailanguagetutor.core.billing.CheckAppAccessUseCase
 import com.cheradip.ailanguagetutor.core.common.AppConfig
 import com.cheradip.ailanguagetutor.core.database.dao.AiCacheDao
 import com.cheradip.ailanguagetutor.core.database.entity.AiCacheEntity
+import com.cheradip.ailanguagetutor.core.device.GuestAiUsageRepository
 import com.cheradip.ailanguagetutor.core.model.AiBackend
 import com.cheradip.ailanguagetutor.core.model.AiEngineMode
 import com.cheradip.ailanguagetutor.core.model.GrammarDepth
 import com.cheradip.ailanguagetutor.core.model.GrammarPrefetchTarget
+import com.cheradip.ailanguagetutor.core.model.GuestAiLimitReachedException
 import com.cheradip.ailanguagetutor.core.model.InputSource
 import com.cheradip.ailanguagetutor.core.model.ProcessingIntent
 import com.cheradip.ailanguagetutor.core.model.SubscriptionTier
@@ -43,6 +45,7 @@ class AIManager @Inject constructor(
     private val aiCacheDao: AiCacheDao,
     private val aiProviderRepository: AiProviderRepository,
     private val appConfig: AppConfig,
+    private val guestAiUsageRepository: GuestAiUsageRepository,
 ) {
     private var lastBackend: AiBackend = AiBackend.CLOUD_POOL
 
@@ -59,15 +62,18 @@ class AIManager @Inject constructor(
                 )
             }
             runCatching {
+                guestAiUsageRepository.ensureGuestCanUseAi()
                 aiService.activityMetadata(AiActivityMetadataRequest(text, languageCode))
             }.fold(
                 onSuccess = { resp ->
+                    guestAiUsageRepository.recordGuestAiUsage()
                     aiProviderRepository.recordProviderUsed(resp.providerUsed)
                     lastBackend = AiBackend.CLOUD_POOL
                     aiCacheDao.put(AiCacheEntity(key, resp.summary ?: resp.title, System.currentTimeMillis()))
                     ActivityMetadata(resp.title, resp.summary, resp.tags, resp.providerUsed)
                 },
-                onFailure = {
+                onFailure = { e ->
+                    if (e is GuestAiLimitReachedException) throw e
                     ActivityMetadata(
                         title = text.lines().firstOrNull()?.take(48)?.trim() ?: "Activity",
                         summary = text.take(200),
@@ -124,6 +130,7 @@ class AIManager @Inject constructor(
         val mode = aiModePrefs.resolvedMode(inputSource, tier)
         val backend = homeAiSettings.preferredBackend.first()
         if (backend == AiBackend.LOCAL_HOME) {
+            guestAiUsageRepository.ensureGuestCanUseAi()
             runCatching {
                 withTimeout(appConfig.homeAiTimeoutMs) {
                     homeAiService.ask(
@@ -137,6 +144,7 @@ class AIManager @Inject constructor(
                     )
                 }
             }.onSuccess { result ->
+                guestAiUsageRepository.recordGuestAiUsage()
                 lastBackend = AiBackend.LOCAL_HOME
                 aiCacheDao.put(AiCacheEntity(key, result, System.currentTimeMillis()))
                 return@withContext result
@@ -150,6 +158,7 @@ class AIManager @Inject constructor(
         }
 
         val cloud = runCatching {
+            guestAiUsageRepository.ensureGuestCanUseAi()
             aiService.explainParagraph(
                 AiParagraphRequest(
                     paragraph = prompt,
@@ -159,11 +168,15 @@ class AIManager @Inject constructor(
             )
         }.fold(
             onSuccess = { resp ->
+                guestAiUsageRepository.recordGuestAiUsage()
                 aiProviderRepository.recordProviderUsed(resp.providerUsed)
                 lastBackend = AiBackend.CLOUD_POOL
                 resp.explanation
             },
-            onFailure = { offlineSummary(contextText) },
+            onFailure = { e ->
+                if (e is GuestAiLimitReachedException) throw e
+                offlineSummary(contextText)
+            },
         )
         aiCacheDao.put(AiCacheEntity(key, cloud, System.currentTimeMillis()))
         cloud
@@ -335,6 +348,7 @@ class AIManager @Inject constructor(
 
         val backend = homeAiSettings.preferredBackend.first()
         if (backend == AiBackend.LOCAL_HOME) {
+            guestAiUsageRepository.ensureGuestCanUseAi()
             runCatching {
                 withTimeout(appConfig.homeAiTimeoutMs) {
                     callHomeAi(paragraph, sourceLang, targetLang, inputSource, intent, mode, tier)
@@ -343,6 +357,7 @@ class AIManager @Inject constructor(
                 if (intent == ProcessingIntent.TRANSLATION && isTranslationStub(result)) {
                     aiProviderRepository.recordFallback("home_ai_translation_stub")
                 } else {
+                    guestAiUsageRepository.recordGuestAiUsage()
                     lastBackend = AiBackend.LOCAL_HOME
                     aiCacheDao.put(AiCacheEntity(key, result, System.currentTimeMillis()))
                     return@withContext result
@@ -357,6 +372,7 @@ class AIManager @Inject constructor(
         }
 
         val cloud = runCatching {
+            guestAiUsageRepository.ensureGuestCanUseAi()
             val body = if (intent == ProcessingIntent.TRANSLATION) {
                 AiParagraphRequest(
                     paragraph = "Translate this text from $sourceLang to $targetLang. " +
@@ -370,11 +386,15 @@ class AIManager @Inject constructor(
             aiService.explainParagraph(body)
         }.fold(
             onSuccess = { resp ->
+                guestAiUsageRepository.recordGuestAiUsage()
                 aiProviderRepository.recordProviderUsed(resp.providerUsed)
                 lastBackend = AiBackend.CLOUD_POOL
                 resp.explanation
             },
-            onFailure = { offlineSummary(paragraph) },
+            onFailure = { e ->
+                if (e is GuestAiLimitReachedException) throw e
+                offlineSummary(paragraph)
+            },
         )
         aiCacheDao.put(AiCacheEntity(key, cloud, System.currentTimeMillis()))
         cloud

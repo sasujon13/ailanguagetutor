@@ -15,6 +15,7 @@ import com.cheradip.ailanguagetutor.core.model.GrammarDepth
 import com.cheradip.ailanguagetutor.core.model.InputSource
 import com.cheradip.ailanguagetutor.core.model.ProcessingIntent
 import com.cheradip.ailanguagetutor.core.ai.UnifiedTextResult
+import com.cheradip.ailanguagetutor.core.model.GuestAiLimitReachedException
 import com.cheradip.ailanguagetutor.core.model.LanguageCatalogEntry
 import com.cheradip.ailanguagetutor.core.model.LanguageFlagMarker
 import com.cheradip.ailanguagetutor.core.pack.LanguageCatalogRepository
@@ -428,14 +429,24 @@ class PracticeHubViewModel @Inject constructor(
         targetLang: String,
         inputSource: InputSource,
     ): UnifiedTextResult? {
-        val result = runCatching {
+        val result = try {
             unifiedTextPipeline.process(
                 text = text,
                 sourceLang = sourceLang,
                 targetLang = targetLang,
                 inputSource = inputSource,
             )
-        }.getOrNull() ?: return null
+        } catch (_: GuestAiLimitReachedException) {
+            _uiState.update {
+                it.copy(
+                    aiLoading = false,
+                    processError = GUEST_AI_LOGIN_REQUIRED,
+                )
+            }
+            return null
+        } catch (_: Exception) {
+            return null
+        }
         return result.takeUnless { isAiFallbackOutput(it.output) }
     }
 
@@ -646,6 +657,8 @@ class PracticeHubViewModel @Inject constructor(
     companion object {
         const val AI_INTERNET_REQUIRED = "You must be connected to Internet to process with AI."
         const val AI_PROCESS_FAILED = "Could not process with AI. Try again."
+        const val GUEST_AI_LOGIN_REQUIRED =
+            "You've used your 99 free AI requests. Sign in or create an account to continue."
         private const val VOICE_AUTO_AI_DELAY_MS = 7_000L
 
         fun micCalibrationRequiredMessage(languageCode: String): String =

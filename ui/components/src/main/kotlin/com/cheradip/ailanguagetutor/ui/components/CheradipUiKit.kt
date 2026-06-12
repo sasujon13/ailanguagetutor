@@ -113,8 +113,16 @@ fun CheradipTopBar(
         ),
         navigationIcon = {
             if (backHandler != null) {
-                IconButton(onClick = backHandler) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                val teal = MaterialTheme.colorScheme.primary
+                IconButton(
+                    onClick = backHandler,
+                    colors = IconButtonDefaults.iconButtonColors(contentColor = teal),
+                ) {
+                    Icon(
+                        Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = "Back",
+                        tint = teal,
+                    )
                 }
             }
         },
@@ -205,6 +213,18 @@ fun QuickActionGrid(
     modifier: Modifier = Modifier,
     columns: Int = 3,
 ) {
+    if (actions.size == 1) {
+        Box(
+            modifier = modifier.fillMaxWidth(),
+            contentAlignment = Alignment.Center,
+        ) {
+            QuickActionTile(
+                action = actions.first(),
+                modifier = Modifier.fillMaxWidth(1f / columns),
+            )
+        }
+        return
+    }
     val rows = actions.chunked(columns)
     Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         rows.forEach { row ->

@@ -47,6 +47,7 @@ import com.cheradip.ailanguagetutor.core.billing.BillingRepository
 import com.cheradip.ailanguagetutor.core.billing.CheckAppAccessUseCase
 import com.cheradip.ailanguagetutor.core.billing.PromoRepository
 import com.cheradip.ailanguagetutor.core.billing.ReferralRepository
+import com.cheradip.ailanguagetutor.core.device.GuestAiGateNotifier
 import com.cheradip.ailanguagetutor.core.database.repository.LearningActivitySyncRepository
 import com.cheradip.ailanguagetutor.feature.auth.LoginScreen
 import com.cheradip.ailanguagetutor.feature.auth.ProfileScreen
@@ -81,6 +82,7 @@ fun AppNavHost(
     promoRepository: PromoRepository,
     referralRepository: ReferralRepository,
     learningActivitySyncRepository: LearningActivitySyncRepository,
+    guestAiGateNotifier: GuestAiGateNotifier,
     pronunciationEngine: PronunciationEngine,
     appLocaleManager: AppLocaleManager,
     currentUser: AuthUser?,
@@ -97,6 +99,14 @@ fun AppNavHost(
         localeUi.snackbarMessage?.let { msg ->
             snackbarHostState.showSnackbar(msg)
             appLocaleManager.clearSnackbar()
+        }
+    }
+
+    LaunchedEffect(guestAiGateNotifier) {
+        guestAiGateNotifier.loginRequired.collect {
+            navController.navigate(Routes.login("guest_ai")) {
+                launchSingleTop = true
+            }
         }
     }
 
@@ -420,7 +430,11 @@ fun AppNavHost(
                             popUpTo(Routes.login(returnTo))
                         }
                     },
-                    subtitle = if (returnTo == "paywall") "Sign in to subscribe" else "Email or WhatsApp",
+                    subtitle = when (returnTo) {
+                        "paywall" -> "Sign in to subscribe"
+                        "guest_ai" -> AppStrings.text("login_subtitle_guest_ai", strings)
+                        else -> "Email or WhatsApp"
+                    },
                 )
             }
             composable(

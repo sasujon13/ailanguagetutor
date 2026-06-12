@@ -29,12 +29,14 @@ object AppStrings {
         "profile_guest_browse" to "Browse",
         "profile_sign_in_for_referrals" to "Sign in to view your referral link",
         "profile_sign_in_for_subscription" to "Sign in to manage your plan",
+        "guest_ai_login_required" to "You've used your 99 free AI requests. Sign in or create an account to continue.",
+        "login_subtitle_guest_ai" to "Sign in to continue using AI",
         "profile_footer" to "Use the menu (☰) on any screen to jump between sections.",
 
         // App language
         "app_language" to "App language",
         "app_language_active_only_hint" to "Activate up to 3 languages on the Languages tab to choose app language.",
-        "download_language_first" to "Download Language First",
+        "download_language_first" to "Download Languages First...",
         "onboarding_app_language_hint" to "App language must be one of your selected study languages.",
         "english_us" to "English (US)",
         "updating_language" to "Translating app…",
@@ -44,6 +46,9 @@ object AppStrings {
         // Home
         "home_title" to "AI Language Tutor",
         "home_subtitle" to "243 languages · Offline-first",
+        "home_select_mode" to "Select Mode",
+        "home_mode_scan_only" to "Scan Only",
+        "home_mode_learning" to "Learning",
         "home_prompt" to "What would you like to do?",
         "home_tips_header" to "Quick tips",
         "home_tips_body" to "Scan or import a document → tap words to learn → practice with voice or typing. Pick up to 3 languages in the Languages tab.",

@@ -38,6 +38,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.cheradip.ailanguagetutor.core.locale.appString
 import com.cheradip.ailanguagetutor.core.speech.CalibrationContent
@@ -83,6 +84,7 @@ fun VoiceCalibrationContent(
                 text = appString("download_language_first"),
                 style = MaterialTheme.typography.bodyMedium,
                 color = teal,
+                textAlign = TextAlign.Center,
                 modifier = Modifier
                     .fillMaxWidth()
                     .clickable(onClick = onOpenLanguages),

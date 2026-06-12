@@ -17,6 +17,7 @@ _COLUMN_PATCHES: list[tuple[str, str, str]] = [
     ("users", "login_with", "login_with VARCHAR(16) NULL"),
     ("promo_codes", "auto_apply", "auto_apply TINYINT(1) NOT NULL DEFAULT 0"),
     ("promo_codes", "paywall_slot", "paywall_slot INT NOT NULL DEFAULT 2"),
+    ("device_trials", "guest_ai_count", "guest_ai_count INT NOT NULL DEFAULT 0"),
 ]
 
 

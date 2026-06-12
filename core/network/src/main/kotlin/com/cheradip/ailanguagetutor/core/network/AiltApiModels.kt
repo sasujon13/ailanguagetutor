@@ -54,6 +54,24 @@ data class DeviceRegisterResponse(
 )
 
 @JsonClass(generateAdapter = true)
+data class GuestAiSyncRequest(
+    val deviceId: String,
+    val localCount: Int,
+)
+
+@JsonClass(generateAdapter = true)
+data class GuestAiRecordRequest(
+    val deviceId: String,
+)
+
+@JsonClass(generateAdapter = true)
+data class GuestAiUsageResponse(
+    val count: Int = 0,
+    val limit: Int = 99,
+    val requiresLogin: Boolean = false,
+)
+
+@JsonClass(generateAdapter = true)
 data class BillingVerifyRequest(
     val purchaseToken: String,
     val productId: String,

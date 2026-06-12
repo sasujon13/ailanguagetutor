@@ -13,6 +13,7 @@ import com.cheradip.ailanguagetutor.core.database.repository.DocumentRepository
 import com.cheradip.ailanguagetutor.core.database.repository.LearningActivityRepository
 import com.cheradip.ailanguagetutor.core.database.repository.SavedWordRepository
 import com.cheradip.ailanguagetutor.core.model.GrammarDepth
+import com.cheradip.ailanguagetutor.core.model.GuestAiLimitReachedException
 import com.cheradip.ailanguagetutor.core.model.InputSource
 import com.cheradip.ailanguagetutor.core.model.ProcessingIntent
 import com.cheradip.ailanguagetutor.core.model.WordDefinition
@@ -54,6 +55,7 @@ data class ReaderUiState(
     val isLoading: Boolean = true,
     val aiPrefetching: Boolean = false,
     val saveMessage: String? = null,
+    val guestAiLoginRequired: Boolean = false,
 )
 
 @HiltViewModel
@@ -141,14 +143,22 @@ class ReaderViewModel @Inject constructor(
         viewModelScope.launch {
             _uiState.update { it.copy(aiLoading = true, showTranslation = false) }
             val text = state.fullText.take(800)
-            val result = runCatching {
+            val result = try {
                 unifiedTextPipeline.process(
                     text = text,
                     sourceLang = state.languageCode,
                     targetLang = state.targetLanguageCode,
                     inputSource = InputSource.OCR_SCAN,
                 )
-            }.getOrElse {
+            } catch (_: GuestAiLimitReachedException) {
+                _uiState.update {
+                    it.copy(
+                        aiLoading = false,
+                        guestAiLoginRequired = true,
+                    )
+                }
+                return@launch
+            } catch (_: Exception) {
                 val offline = if (_uiState.value.aiPanelIntent == ProcessingIntent.TRANSLATION) {
                     translationEngine.translateParagraph(
                         text,
@@ -234,7 +244,7 @@ class ReaderViewModel @Inject constructor(
                     ),
                 )
             }
-            val grammar = runCatching {
+            val grammar = try {
                 grammarExplainer.explain(
                     fullText = state.fullText,
                     tapOffset = offset,
@@ -244,7 +254,12 @@ class ReaderViewModel @Inject constructor(
                     depth = depth,
                     inputSource = InputSource.OCR_SCAN,
                 )
-            }.getOrElse { "Grammar unavailable offline." }
+            } catch (_: GuestAiLimitReachedException) {
+                _uiState.update { it.copy(guestAiLoginRequired = true) }
+                return@launch
+            } catch (_: Exception) {
+                "Grammar unavailable offline."
+            }
             _uiState.update { current ->
                 val sheet = current.wordSheet?.copy(
                     grammarText = grammar,

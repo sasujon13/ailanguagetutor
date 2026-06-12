@@ -60,6 +60,7 @@ class DeviceTrial(Base):
     model: Mapped[str] = mapped_column(String(128), default="")
     os_version: Mapped[str] = mapped_column(String(64), default="")
     trial_ends_at_ms: Mapped[int] = mapped_column(BigInteger)
+    guest_ai_count: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
 

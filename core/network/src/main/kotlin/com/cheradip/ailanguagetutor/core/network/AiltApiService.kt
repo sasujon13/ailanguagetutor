@@ -37,6 +37,12 @@ interface AiltAuthService {
 interface AiltDeviceService {
     @POST("device/register")
     suspend fun register(@Body body: DeviceRegisterRequest): DeviceRegisterResponse
+
+    @POST("device/guest-ai-usage/sync")
+    suspend fun syncGuestAiUsage(@Body body: GuestAiSyncRequest): GuestAiUsageResponse
+
+    @POST("device/guest-ai-usage/record")
+    suspend fun recordGuestAiUsage(@Body body: GuestAiRecordRequest): GuestAiUsageResponse
 }
 
 interface AiltBillingService {

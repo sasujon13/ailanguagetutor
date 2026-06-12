@@ -40,6 +40,12 @@
 -keep class com.cheradip.ailanguagetutor.core.speech.** { *; }
 -keep class com.cheradip.ailanguagetutor.core.audio.** { *; }
 
+# PDFBox Android (scanner PDF export) — optional JPEG2000 codec not bundled
+-dontwarn com.gemalto.jp2.JP2Decoder
+-dontwarn com.gemalto.jp2.JP2Encoder
+-dontwarn com.gemalto.jp2.**
+-keep class com.tom_roush.pdfbox.** { *; }
+
 # Keep line numbers for crash reports
 -keepattributes SourceFile,LineNumberTable
 -renamesourcefileattribute SourceFile

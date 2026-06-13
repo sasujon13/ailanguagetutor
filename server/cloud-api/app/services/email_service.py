@@ -24,7 +24,7 @@ def send_email(*, to: str, subject: str, body: str) -> None:
             with smtplib.SMTP(settings.smtp_host, settings.smtp_port, timeout=30) as smtp:
                 if settings.smtp_use_tls:
                     smtp.starttls()
-                if settings.smtp_user:
+                if settings.smtp_user and settings.smtp_password:
                     smtp.login(settings.smtp_user, settings.smtp_password)
                 smtp.send_message(msg)
             logger.info("Sent email to %s: %s", target, subject)

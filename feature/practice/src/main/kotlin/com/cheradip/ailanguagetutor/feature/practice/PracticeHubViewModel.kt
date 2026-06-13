@@ -2,12 +2,14 @@ package com.cheradip.ailanguagetutor.feature.practice
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.cheradip.ailanguagetutor.core.ai.AiModePreferenceRepository
 import com.cheradip.ailanguagetutor.core.ai.AiPrefetchCoordinator
 import com.cheradip.ailanguagetutor.core.ai.GrammarPreferenceRepository
 import com.cheradip.ailanguagetutor.core.ai.GrammarExplainer
 import com.cheradip.ailanguagetutor.core.ai.UnifiedTextPipeline
 import com.cheradip.ailanguagetutor.core.database.repository.SavedWordRepository
-import com.cheradip.ailanguagetutor.core.model.WordDefinition
+import com.cheradip.ailanguagetutor.core.audio.TtsPlaybackState
+import com.cheradip.ailanguagetutor.core.pack.DictionaryLookupHelper.placeholderDefinition
 import com.cheradip.ailanguagetutor.core.model.WordSheetState
 import com.cheradip.ailanguagetutor.core.model.WordSpan
 import com.cheradip.ailanguagetutor.core.ocr.WordMapBuilder
@@ -20,6 +22,7 @@ import com.cheradip.ailanguagetutor.core.database.repository.LearningActivitySyn
 import com.cheradip.ailanguagetutor.core.device.NetworkConnectivityMonitor
 import com.cheradip.ailanguagetutor.core.model.GrammarDepth
 import com.cheradip.ailanguagetutor.core.model.InputSource
+import com.cheradip.ailanguagetutor.core.model.PracticeLanguageRules
 import com.cheradip.ailanguagetutor.core.model.ProcessingIntent
 import com.cheradip.ailanguagetutor.core.ai.UnifiedTextResult
 import com.cheradip.ailanguagetutor.core.model.GuestAiLimitReachedException
@@ -101,6 +104,7 @@ class PracticeHubViewModel @Inject constructor(
     private val unifiedTextPipeline: UnifiedTextPipeline,
     private val aiPrefetchCoordinator: AiPrefetchCoordinator,
     private val practiceLanguageRepository: PracticeLanguageRepository,
+    private val aiModePrefs: AiModePreferenceRepository,
     private val offlinePracticeProcessor: OfflinePracticeProcessor,
     private val networkConnectivityMonitor: NetworkConnectivityMonitor,
     grammarPreferenceRepository: GrammarPreferenceRepository,
@@ -117,6 +121,13 @@ class PracticeHubViewModel @Inject constructor(
 
     val practiceLanguages = practiceLanguageRepository.config
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), PracticeLanguageConfig())
+
+    val processingIntent = aiModePrefs.preferences
+        .map { it.processingIntent }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ProcessingIntent.ANSWER)
+
+    val playbackState = pronunciationEngine.playbackState
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), TtsPlaybackState.IDLE)
 
     private val _languageOptions = MutableStateFlow<List<PracticeLanguageOption>>(emptyList())
     val languageOptions: StateFlow<List<PracticeLanguageOption>> = _languageOptions.asStateFlow()
@@ -156,24 +167,74 @@ class PracticeHubViewModel @Inject constructor(
                     }
                 }
         }
+        viewModelScope.launch {
+            processingIntent.collectLatest { intent ->
+                if (intent != ProcessingIntent.TRANSLATION) return@collectLatest
+                val langs = practiceLanguages.value
+                val active = _languageOptions.value.map { it.code }
+                if (active.isEmpty()) return@collectLatest
+                val output = PracticeLanguageRules.reconcileOutput(
+                    intent = intent,
+                    activeCodes = active,
+                    input = langs.inputLanguage,
+                    output = langs.outputLanguage,
+                )
+                if (!output.equals(langs.outputLanguage, ignoreCase = true)) {
+                    practiceLanguageRepository.save(langs.inputLanguage, output)
+                }
+            }
+        }
     }
 
     override fun onCleared() {
+        pronunciationEngine.stop()
         speechEngine.destroy()
         super.onCleared()
     }
 
     fun setInputLanguage(code: String) {
         viewModelScope.launch {
-            val output = practiceLanguages.value.outputLanguage
-            practiceLanguageRepository.save(code.lowercase(), output)
+            val input = code.lowercase()
+            val intent = aiModePrefs.current().processingIntent
+            val active = _languageOptions.value.map { it.code }
+            val output = PracticeLanguageRules.reconcileOutput(
+                intent = intent,
+                activeCodes = active,
+                input = input,
+                output = practiceLanguages.value.outputLanguage,
+            )
+            practiceLanguageRepository.save(input, output)
         }
     }
 
     fun setOutputLanguage(code: String) {
         viewModelScope.launch {
+            val intent = aiModePrefs.current().processingIntent
             val input = practiceLanguages.value.inputLanguage
-            practiceLanguageRepository.save(input, code.lowercase())
+            val output = if (intent == ProcessingIntent.TRANSLATION &&
+                !PracticeLanguageRules.isValidTranslationPair(input, code)
+            ) {
+                PracticeLanguageRules.resolveOutputForTranslationInput(
+                    _languageOptions.value.map { it.code },
+                    input,
+                    code,
+                )
+            } else {
+                code.lowercase()
+            }
+            practiceLanguageRepository.save(input, output)
+        }
+    }
+
+    fun outputLanguageOptions(): List<PracticeLanguageOption> {
+        val intent = processingIntent.value
+        val input = practiceLanguages.value.inputLanguage
+        val options = _languageOptions.value
+        return if (intent == ProcessingIntent.TRANSLATION) {
+            val allowed = PracticeLanguageRules.translationOutputCodes(options.map { it.code }, input)
+            options.filter { opt -> allowed.any { it.equals(opt.code, ignoreCase = true) } }
+        } else {
+            options
         }
     }
 
@@ -188,7 +249,16 @@ class PracticeHubViewModel @Inject constructor(
 
     fun speak(text: String) {
         val lang = practiceLanguages.value.outputLanguage
-        pronunciationEngine.speak(text, lang)
+        pronunciationEngine.speakFromStart(text, lang)
+    }
+
+    fun togglePlayback(text: String) {
+        val lang = practiceLanguages.value.outputLanguage
+        pronunciationEngine.togglePlayback(text, lang)
+    }
+
+    fun stopPlayback() {
+        pronunciationEngine.stop()
     }
 
     fun clearSpeechError() {
@@ -293,24 +363,29 @@ class PracticeHubViewModel @Inject constructor(
         return current.length > previous.length && current.last() == ' '
     }
 
+    private suspend fun currentProcessingIntent(): ProcessingIntent =
+        aiModePrefs.current().processingIntent
+
     private fun runIncrementalOffline(text: String) {
         offlineTypingJob?.cancel()
         offlineTypingJob = viewModelScope.launch {
             val langs = practiceLanguages.value
             val trimmed = text.trim()
             if (trimmed.isBlank()) return@launch
+            val intent = currentProcessingIntent()
             val output = runCatching {
                 offlinePracticeProcessor.process(
                     text = trimmed,
                     sourceLang = langs.inputLanguage,
                     targetLang = langs.outputLanguage,
+                    intent = intent,
                 )
             }.getOrElse { "Offline process failed: ${it.message ?: "unknown error"}" }
             if (_uiState.value.typedInput.trim() != trimmed) return@launch
             _uiState.update {
                 it.copy(
                     aiOutput = output,
-                    aiIntent = ProcessingIntent.TRANSLATION,
+                    aiIntent = intent,
                     outputOffline = true,
                     aiLoading = false,
                     processError = null,
@@ -344,6 +419,13 @@ class PracticeHubViewModel @Inject constructor(
         val text = _uiState.value.typedInput.trim()
         if (text.isBlank() || _uiState.value.isListening) return
         val langs = practiceLanguages.value
+        val intent = currentProcessingIntent()
+        if (intent == ProcessingIntent.TRANSLATION &&
+            !PracticeLanguageRules.isValidTranslationPair(langs.inputLanguage, langs.outputLanguage)
+        ) {
+            _uiState.update { it.copy(processError = TRANSLATION_LANG_MISMATCH) }
+            return
+        }
         _uiState.update { it.copy(aiLoading = true, processError = null) }
 
         if (networkConnectivityMonitor.isOnline()) {
@@ -376,6 +458,18 @@ class PracticeHubViewModel @Inject constructor(
         val text = _uiState.value.typedInput.trim()
         if (text.isBlank()) return
         val langs = practiceLanguages.value
+        val intent = currentProcessingIntent()
+        if (intent == ProcessingIntent.TRANSLATION &&
+            !PracticeLanguageRules.isValidTranslationPair(langs.inputLanguage, langs.outputLanguage)
+        ) {
+            _uiState.update {
+                it.copy(
+                    aiLoading = false,
+                    processError = TRANSLATION_LANG_MISMATCH,
+                )
+            }
+            return
+        }
         _uiState.update { it.copy(aiLoading = true, processError = null) }
 
         if (!networkConnectivityMonitor.isOnline()) {
@@ -428,13 +522,15 @@ class PracticeHubViewModel @Inject constructor(
                 text = text,
                 sourceLang = langs.inputLanguage,
                 targetLang = langs.outputLanguage,
+                intent = currentProcessingIntent(),
             )
         }.getOrElse { "Offline process failed: ${it.message ?: "unknown error"}" }
+        val intent = currentProcessingIntent()
         if (recordActivity) {
             publishProcessResult(
                 text = text,
                 output = output,
-                intent = ProcessingIntent.TRANSLATION,
+                intent = intent,
                 offline = true,
                 activityType = "practice_offline",
                 title = "Learning: offline process",
@@ -447,7 +543,7 @@ class PracticeHubViewModel @Inject constructor(
                 it.copy(
                     aiLoading = false,
                     aiOutput = output,
-                    aiIntent = ProcessingIntent.TRANSLATION,
+                    aiIntent = intent,
                     outputOffline = true,
                     processError = null,
                     outputWords = wordMapBuilder.buildFromPlainText(output),
@@ -634,18 +730,13 @@ class PracticeHubViewModel @Inject constructor(
         val word = wordMapBuilder.findWordAtOffset(words, offset) ?: return
         val depth = grammarDepth.value
         viewModelScope.launch {
+            val activePacks = languagePackRepository.observeActive().first()
             val lookupLang = resolvePracticeLanguage(languageCode)
             val def = dictionaryRepository.lookup(word.text, lookupLang)
-                ?: WordDefinition(
-                    word = word.text,
-                    languageCode = lookupLang,
-                    meanings = listOf(
-                        if (state.activeLanguageCodes.isEmpty()) {
-                            "Download a language pack in Languages to see offline meanings."
-                        } else {
-                            "This word is not in your downloaded packs yet."
-                        },
-                    ),
+                ?: placeholderDefinition(
+                    word.text,
+                    lookupLang,
+                    activePacks.isNotEmpty(),
                 )
             val contextSnippet = grammarExplainer.contextForDepth(fullText, offset, depth)
             _uiState.update {
@@ -689,8 +780,15 @@ class PracticeHubViewModel @Inject constructor(
     }
 
     fun speakWord(text: String) {
-        val lang = practiceLanguages.value.inputLanguage
-        pronunciationEngine.speak(text, lang)
+        val lang = _uiState.value.wordSheet?.definition?.languageCode
+            ?: practiceLanguages.value.inputLanguage
+        pronunciationEngine.speakFromStart(text, lang)
+    }
+
+    fun toggleWordPlayback(text: String) {
+        val lang = _uiState.value.wordSheet?.definition?.languageCode
+            ?: practiceLanguages.value.inputLanguage
+        pronunciationEngine.togglePlayback(text, lang)
     }
 
     fun saveSelectedWord() {
@@ -810,6 +908,8 @@ class PracticeHubViewModel @Inject constructor(
     companion object {
         const val AI_INTERNET_REQUIRED = "You must be connected to Internet to process with AI."
         const val AI_PROCESS_FAILED = "Could not process with AI. Try again."
+        const val TRANSLATION_LANG_MISMATCH =
+            "Translation mode requires different input and output languages. Change languages in AI Mode settings."
         const val GUEST_AI_LOGIN_REQUIRED =
             "You've used your 99 free AI requests. Sign in or create an account to continue."
         private const val VOICE_AUTO_AI_DELAY_MS = 7_000L

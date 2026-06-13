@@ -12,13 +12,11 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.BookmarkAdd
-import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
@@ -27,8 +25,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.cheradip.ailanguagetutor.core.audio.TtsPlaybackState
 import com.cheradip.ailanguagetutor.core.model.GrammarDepth
 import com.cheradip.ailanguagetutor.core.model.WordSheetState
+import com.cheradip.ailanguagetutor.ui.components.PronunciationControlRow
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -36,6 +36,8 @@ fun WordDefinitionSheet(
     sheet: WordSheetState?,
     onDismiss: () -> Unit,
     onSpeak: (String) -> Unit,
+    onTogglePlayback: ((String) -> Unit)? = null,
+    playbackState: TtsPlaybackState = TtsPlaybackState.IDLE,
     onSave: (() -> Unit)? = null,
 ) {
     if (sheet == null) return
@@ -47,14 +49,27 @@ fun WordDefinitionSheet(
                 .padding(horizontal = 24.dp, vertical = 8.dp)
                 .verticalScroll(rememberScrollState()),
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
                 Text(
                     text = definition.word,
                     style = MaterialTheme.typography.headlineSmall,
                     modifier = Modifier.weight(1f),
                 )
-                IconButton(onClick = { onSpeak(definition.word) }) {
-                    Icon(Icons.Default.VolumeUp, contentDescription = "Speak word")
+                if (onTogglePlayback != null) {
+                    PronunciationControlRow(
+                        playbackState = playbackState,
+                        onTogglePlayback = { onTogglePlayback(definition.word) },
+                        onSpeakFromStart = { onSpeak(definition.word) },
+                    )
+                } else {
+                    PronunciationControlRow(
+                        playbackState = playbackState,
+                        onTogglePlayback = { onSpeak(definition.word) },
+                        onSpeakFromStart = { onSpeak(definition.word) },
+                    )
                 }
             }
             Text(
@@ -95,9 +110,17 @@ fun WordDefinitionSheet(
                 if (sheet.grammarLoading) {
                     CircularProgressIndicator(modifier = Modifier.size(28.dp))
                 } else if (!grammarText.isNullOrBlank()) {
-                    IconButton(onClick = { onSpeak(grammarText) }) {
-                        Icon(Icons.Default.VolumeUp, contentDescription = "Listen to grammar")
-                    }
+                    PronunciationControlRow(
+                        playbackState = playbackState,
+                        onTogglePlayback = {
+                            if (onTogglePlayback != null) {
+                                onTogglePlayback(grammarText)
+                            } else {
+                                onSpeak(grammarText)
+                            }
+                        },
+                        onSpeakFromStart = { onSpeak(grammarText) },
+                    )
                 }
             }
             Spacer(modifier = Modifier.height(6.dp))

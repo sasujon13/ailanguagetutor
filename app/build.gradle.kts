@@ -175,6 +175,7 @@ dependencies {
     implementation(project(":core:ai"))
     implementation(project(":core:ocr"))
     implementation(project(":core:audio"))
+    implementation(project(":core:pack"))
     implementation(project(":core:auth"))
     implementation(project(":core:billing"))
     implementation(project(":core:speech"))

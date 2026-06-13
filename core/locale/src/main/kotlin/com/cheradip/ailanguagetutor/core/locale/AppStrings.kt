@@ -15,6 +15,17 @@ object AppStrings {
         "nav_profile" to "Profile",
         "nav_settings" to "Settings",
 
+        // Processing intent (Practice / Mode selection)
+        "intent_answer_label" to "Answer - AI Tutor Explains",
+        "intent_translation_label" to "Translation - Direct Output",
+        "intent_answer_language_hint" to "Input is what you speak or type. Output is the language for the AI explanation (can match input or another language).",
+        "intent_translation_language_hint" to "Input is the source language. Output must be different — only the other active languages are shown.",
+        "intent_translation_need_two_langs" to "Download at least 2 active languages for translation mode.",
+        "practice_input_language" to "Input language",
+        "practice_output_language" to "Output language",
+        "practice_subtitle_answer" to "AI Tutor Explains · {in} → {out}",
+        "practice_subtitle_translation" to "Direct Translation · {in} → {out}",
+
         // Profile
         "profile_title" to "Profile",
         "profile_dashboard_subtitle" to "Your account dashboard",
@@ -116,6 +127,9 @@ object AppStrings {
         "languages_no_match" to "No languages match your filters",
         "languages_downloaded_active" to "Downloaded · Active",
         "languages_downloaded" to "Downloaded",
+        "languages_bundled" to "Pre-installed with app",
+        "languages_bundled_active" to "Pre-installed · Active",
+        "languages_download_required" to "Download from server to use offline",
         "languages_pack_downloaded" to "Pack downloaded for %s",
         "languages_now_active" to "%s is now active",
         "languages_deactivated" to "%s deactivated",

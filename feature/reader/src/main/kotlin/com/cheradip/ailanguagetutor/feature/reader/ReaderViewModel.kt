@@ -9,6 +9,7 @@ import com.cheradip.ailanguagetutor.core.ai.AIManager
 import com.cheradip.ailanguagetutor.core.ai.UnifiedTextPipeline
 import com.cheradip.ailanguagetutor.core.ai.UnifiedTextResult
 import com.cheradip.ailanguagetutor.core.audio.PronunciationEngine
+import com.cheradip.ailanguagetutor.core.audio.TtsPlaybackState
 import com.cheradip.ailanguagetutor.core.database.repository.DocumentRepository
 import com.cheradip.ailanguagetutor.core.database.repository.LearningActivityRepository
 import com.cheradip.ailanguagetutor.core.database.repository.SavedWordRepository
@@ -21,6 +22,7 @@ import com.cheradip.ailanguagetutor.core.model.WordDefinition
 import com.cheradip.ailanguagetutor.core.model.WordSheetState
 import com.cheradip.ailanguagetutor.core.model.WordSpan
 import com.cheradip.ailanguagetutor.core.ocr.WordMapBuilder
+import com.cheradip.ailanguagetutor.core.pack.DictionaryLookupHelper.placeholderDefinition
 import com.cheradip.ailanguagetutor.core.pack.DictionaryRepository
 import com.cheradip.ailanguagetutor.core.pack.LanguagePackRepository
 import com.cheradip.ailanguagetutor.core.translation.OfflineTranslationEngine
@@ -81,6 +83,9 @@ class ReaderViewModel @Inject constructor(
     val grammarDepth = grammarPreferenceRepository.depth
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), GrammarDepth.WORD)
 
+    val playbackState = pronunciationEngine.playbackState
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), TtsPlaybackState.IDLE)
+
     private val _uiState = MutableStateFlow(ReaderUiState())
     val uiState: StateFlow<ReaderUiState> = _uiState.asStateFlow()
 
@@ -97,6 +102,12 @@ class ReaderViewModel @Inject constructor(
                 _uiState.update { it.copy(aiPrefetching = warming) }
             }
         }
+    }
+
+    override fun onCleared() {
+        pronunciationEngine.stop()
+        aiPrefetchCoordinator.cancel()
+        super.onCleared()
     }
 
     fun load(documentId: Long) {
@@ -229,18 +240,13 @@ class ReaderViewModel @Inject constructor(
         val word = wordMapBuilder.findWordAtOffset(state.words, offset) ?: return
         val depth = grammarDepth.value
         viewModelScope.launch {
-            val lookupLang = resolveReaderLanguage(state.languageCode, activePackCodes())
+            val activePacks = activePackCodes()
+            val lookupLang = resolveReaderLanguage(state.languageCode, activePacks)
             val def = dictionaryRepository.lookup(word.text, lookupLang)
-                ?: WordDefinition(
-                    word = word.text,
-                    languageCode = lookupLang,
-                    meanings = listOf(
-                        if (activePackCodes().isEmpty()) {
-                            "Download a language pack in Languages to see offline meanings."
-                        } else {
-                            "This word is not in your downloaded packs yet."
-                        },
-                    ),
+                ?: placeholderDefinition(
+                    word.text,
+                    lookupLang,
+                    activePacks.isNotEmpty(),
                 )
             val contextSnippet = grammarExplainer.contextForDepth(state.fullText, offset, depth)
             _uiState.update {
@@ -300,17 +306,20 @@ class ReaderViewModel @Inject constructor(
         )
     }
 
-    override fun onCleared() {
-        aiPrefetchCoordinator.cancel()
-        super.onCleared()
-    }
-
     fun dismissDefinition() = _uiState.update {
         it.copy(selectedDefinition = null, wordSheet = null)
     }
 
     fun speakWord(text: String) {
-        pronunciationEngine.speak(text, _uiState.value.languageCode)
+        pronunciationEngine.speakFromStart(text, _uiState.value.languageCode)
+    }
+
+    fun toggleWordPlayback(text: String) {
+        pronunciationEngine.togglePlayback(text, _uiState.value.languageCode)
+    }
+
+    fun stopPlayback() {
+        pronunciationEngine.stop()
     }
 
     fun saveSelectedWord() {

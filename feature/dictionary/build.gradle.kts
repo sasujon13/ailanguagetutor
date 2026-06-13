@@ -19,6 +19,7 @@ android {
 
 dependencies {
     implementation(project(":ui:theme"))
+    implementation(project(":ui:components"))
     implementation(project(":core:model"))
     implementation(project(":core:pack"))
     implementation(project(":core:audio"))

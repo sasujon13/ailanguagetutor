@@ -37,6 +37,7 @@ import com.cheradip.ailanguagetutor.core.model.LanguageSearchFilter
 import com.cheradip.ailanguagetutor.core.pack.LanguageCatalogRepository
 import com.cheradip.ailanguagetutor.core.pack.LanguagePackRepository
 import com.cheradip.ailanguagetutor.core.pack.MaxActivePacksException
+import com.cheradip.ailanguagetutor.core.pack.RichBundledLexicon
 import com.cheradip.ailanguagetutor.ui.components.CheradipDropdown
 import com.cheradip.ailanguagetutor.ui.components.CheradipScrollScreen
 import com.cheradip.ailanguagetutor.ui.components.EmptyStateHint
@@ -209,6 +210,8 @@ private fun LanguageRow(
     onDownload: () -> Unit,
     onActiveChange: (Boolean) -> Unit,
 ) {
+    val code = lang.code.lowercase()
+    val isBundled = RichBundledLexicon.BUNDLED_LANGUAGE_CODES.contains(code)
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -223,9 +226,24 @@ private fun LanguageRow(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            pack?.let {
-                Text(
-                    if (it.isActive) appString("languages_downloaded_active") else appString("languages_downloaded"),
+            when {
+                pack != null -> Text(
+                    when {
+                        isBundled && pack.isActive -> appString("languages_bundled_active")
+                        isBundled -> appString("languages_bundled")
+                        pack.isActive -> appString("languages_downloaded_active")
+                        else -> appString("languages_downloaded")
+                    },
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+                !isBundled -> Text(
+                    appString("languages_download_required"),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                else -> Text(
+                    appString("languages_bundled"),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.primary,
                 )
@@ -236,7 +254,7 @@ private fun LanguageRow(
                 checked = pack.isActive,
                 onCheckedChange = onActiveChange,
             )
-        } else {
+        } else if (!isBundled) {
             IconButton(onClick = onDownload) {
                 Icon(Icons.Default.Download, contentDescription = "Download pack", tint = MaterialTheme.colorScheme.primary)
             }

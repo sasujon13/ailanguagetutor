@@ -47,6 +47,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 
 import com.cheradip.ailanguagetutor.core.locale.appString
+import com.cheradip.ailanguagetutor.core.model.ProcessingIntent
 import com.cheradip.ailanguagetutor.feature.dictionary.WordDefinitionSheet
 import com.cheradip.ailanguagetutor.ui.components.CheradipScrollScreen
 import com.cheradip.ailanguagetutor.ui.components.IconTextButton
@@ -91,6 +92,10 @@ fun PracticeHubScreen(
     val hubState by viewModel.uiState.collectAsStateWithLifecycle()
 
     val practiceLangs by viewModel.practiceLanguages.collectAsStateWithLifecycle()
+
+    val processingIntent by viewModel.processingIntent.collectAsStateWithLifecycle()
+
+    val playbackState by viewModel.playbackState.collectAsStateWithLifecycle()
 
     val languageOptions by viewModel.languageOptions.collectAsStateWithLifecycle()
 
@@ -159,6 +164,10 @@ fun PracticeHubScreen(
 
 
 
+    DisposableEffect(Unit) {
+        onDispose { viewModel.stopPlayback() }
+    }
+
     LaunchedEffect(restoreActivityId) {
         restoreActivityId?.let { viewModel.restoreActivity(it) }
     }
@@ -182,7 +191,14 @@ fun PracticeHubScreen(
 
         title = appString("nav_practice"),
 
-        subtitle = "Input ${practiceLangs.inputLanguage.uppercase()} → output ${practiceLangs.outputLanguage.uppercase()}",
+        subtitle = when (processingIntent) {
+            ProcessingIntent.ANSWER -> appString("practice_subtitle_answer")
+                .replace("{in}", practiceLangs.inputLanguage.uppercase())
+                .replace("{out}", practiceLangs.outputLanguage.uppercase())
+            ProcessingIntent.TRANSLATION -> appString("practice_subtitle_translation")
+                .replace("{in}", practiceLangs.inputLanguage.uppercase())
+                .replace("{out}", practiceLangs.outputLanguage.uppercase())
+        },
 
     ) {
 
@@ -192,8 +208,10 @@ fun PracticeHubScreen(
 
                 PracticeLanguageSelectors(
                     languageOptions = languageOptions,
+                    outputLanguageOptions = viewModel.outputLanguageOptions(),
                     inputLanguage = practiceLangs.inputLanguage,
                     outputLanguage = practiceLangs.outputLanguage,
+                    processingIntent = processingIntent,
                     onInputSelected = { viewModel.setInputLanguage(it.code) },
                     onOutputSelected = { viewModel.setOutputLanguage(it.code) },
                 )
@@ -279,6 +297,8 @@ fun PracticeHubScreen(
                 onStopVoice = viewModel::stopVoiceInput,
 
                 onSpeakOutput = viewModel::speak,
+                onTogglePlayback = viewModel::togglePlayback,
+                playbackState = playbackState,
 
                 onOpenVoiceCalibration = {
                     viewModel.openVoiceCalibrationSettings()
@@ -318,6 +338,8 @@ fun PracticeHubScreen(
         sheet = hubState.wordSheet,
         onDismiss = viewModel::dismissWordSheet,
         onSpeak = viewModel::speakWord,
+        onTogglePlayback = viewModel::toggleWordPlayback,
+        playbackState = playbackState,
         onSave = viewModel::saveSelectedWord,
     )
 
@@ -335,8 +357,10 @@ fun PracticeHubScreen(
 
 internal fun PracticeLanguageSelectors(
     languageOptions: List<PracticeLanguageOption>,
+    outputLanguageOptions: List<PracticeLanguageOption>,
     inputLanguage: String,
     outputLanguage: String,
+    processingIntent: ProcessingIntent,
     onInputSelected: (PracticeLanguageOption) -> Unit,
     onOutputSelected: (PracticeLanguageOption) -> Unit,
     modifier: Modifier = Modifier,
@@ -344,23 +368,32 @@ internal fun PracticeLanguageSelectors(
     val selectedInput = languageOptions.firstOrNull {
         it.code.equals(inputLanguage, ignoreCase = true)
     } ?: languageOptions.first()
-    val selectedOutput = languageOptions.firstOrNull {
+    val outputOptions = outputLanguageOptions.ifEmpty { languageOptions }
+    val selectedOutput = outputOptions.firstOrNull {
         it.code.equals(outputLanguage, ignoreCase = true)
-    } ?: languageOptions.first()
+    } ?: outputOptions.firstOrNull() ?: selectedInput
 
     ResponsivePairDropdowns(
         modifier = modifier,
-        firstLabel = "Input language",
+        firstLabel = appString("practice_input_language"),
         firstOptions = languageOptions,
         firstSelected = selectedInput,
         onFirstSelected = onInputSelected,
         firstOptionLabel = { it.label },
-        secondLabel = "Output language",
-        secondOptions = languageOptions,
+        secondLabel = appString("practice_output_language"),
+        secondOptions = outputOptions,
         secondSelected = selectedOutput,
         onSecondSelected = onOutputSelected,
         secondOptionLabel = { it.label },
     )
+    if (processingIntent == ProcessingIntent.TRANSLATION && languageOptions.size < 2) {
+        Text(
+            appString("intent_translation_need_two_langs"),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.error,
+            modifier = Modifier.padding(top = 8.dp),
+        )
+    }
 }
 
 

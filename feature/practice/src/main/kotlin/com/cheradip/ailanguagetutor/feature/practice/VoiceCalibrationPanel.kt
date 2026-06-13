@@ -44,7 +44,9 @@ import com.cheradip.ailanguagetutor.core.locale.appString
 import com.cheradip.ailanguagetutor.core.speech.CalibrationContent
 import com.cheradip.ailanguagetutor.core.speech.CalibrationTier
 import com.cheradip.ailanguagetutor.core.speech.LanguageCalibrationStatus
+import com.cheradip.ailanguagetutor.core.audio.TtsPlaybackState
 import com.cheradip.ailanguagetutor.ui.components.IconTextButton
+import com.cheradip.ailanguagetutor.ui.components.PronunciationControlRow
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -222,6 +224,8 @@ fun PracticeInputCard(
     onStartVoice: () -> Unit,
     onStopVoice: () -> Unit,
     onSpeakOutput: (String) -> Unit,
+    onTogglePlayback: (String) -> Unit = onSpeakOutput,
+    playbackState: TtsPlaybackState = TtsPlaybackState.IDLE,
     onSave: () -> Unit,
     onCancelVoiceAutoAi: () -> Unit = {},
     onOpenVoiceCalibration: (() -> Unit)? = null,
@@ -352,14 +356,24 @@ fun PracticeInputCard(
                         onWordTap = onWordTapInput,
                     )
                 }
-                IconTextButton(
-                    label = "Listen",
-                    icon = Icons.AutoMirrored.Filled.VolumeUp,
-                    onClick = {
-                        syncedLine = output
-                        onSpeakOutput(output)
-                    },
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    PronunciationControlRow(
+                        playbackState = playbackState,
+                        onTogglePlayback = { onTogglePlayback(output) },
+                        onSpeakFromStart = {
+                            syncedLine = output
+                            onSpeakOutput(output)
+                        },
+                    )
+                    Text(
+                        "Listen",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
                 val canSave = hubState.typedInput.isNotBlank() || output.isNotBlank()
                 IconTextButton(
                     label = if (hubState.resultSaved) "Saved" else "Save",

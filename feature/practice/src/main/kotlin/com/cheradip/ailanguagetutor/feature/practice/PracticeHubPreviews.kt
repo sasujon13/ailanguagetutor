@@ -6,6 +6,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.cheradip.ailanguagetutor.core.model.ProcessingIntent
 import com.cheradip.ailanguagetutor.ui.components.InputChannel
 import com.cheradip.ailanguagetutor.ui.components.InputChannelBar
 import com.cheradip.ailanguagetutor.ui.theme.CheradipPreviewTheme
@@ -22,8 +23,10 @@ private fun PracticeLanguageSelectorsPhonePreview() {
     CheradipPreviewTheme {
         PracticeLanguageSelectors(
             languageOptions = previewLanguages,
+            outputLanguageOptions = previewLanguages.filter { it.code != "en" },
             inputLanguage = "en",
             outputLanguage = "fr",
+            processingIntent = ProcessingIntent.TRANSLATION,
             onInputSelected = {},
             onOutputSelected = {},
             modifier = Modifier.padding(16.dp),
@@ -37,8 +40,10 @@ private fun PracticeLanguageSelectorsWidePreview() {
     CheradipPreviewTheme {
         PracticeLanguageSelectors(
             languageOptions = previewLanguages,
+            outputLanguageOptions = previewLanguages.filter { it.code != "fr" },
             inputLanguage = "fr",
             outputLanguage = "de",
+            processingIntent = ProcessingIntent.TRANSLATION,
             onInputSelected = {},
             onOutputSelected = {},
             modifier = Modifier.padding(16.dp),

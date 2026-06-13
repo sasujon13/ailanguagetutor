@@ -23,6 +23,7 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -50,8 +51,12 @@ fun ReaderScreen(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val grammarDepth by viewModel.grammarDepth.collectAsStateWithLifecycle()
+    val playbackState by viewModel.playbackState.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
     LaunchedEffect(documentId) { viewModel.load(documentId) }
+    DisposableEffect(Unit) {
+        onDispose { viewModel.stopPlayback() }
+    }
     LaunchedEffect(uiState.saveMessage) {
         uiState.saveMessage?.let {
             snackbarHostState.showSnackbar(it)
@@ -179,6 +184,8 @@ fun ReaderScreen(
         sheet = uiState.wordSheet,
         onDismiss = viewModel::dismissDefinition,
         onSpeak = viewModel::speakWord,
+        onTogglePlayback = viewModel::toggleWordPlayback,
+        playbackState = playbackState,
         onSave = viewModel::saveSelectedWord,
     )
 }

@@ -57,12 +57,14 @@ async def explain_paragraph(body: AiParagraphRequest, db: Session = Depends(get_
     provider_id = "local-stub"
 
     if _has_any_llm_key():
-        prompt = (
-            f"You are a language tutor. Explain this paragraph for a learner "
-            f"(source {body.source_lang}, target {body.target_lang}). "
-            f"Be concise (3–5 sentences).\n\n{body.paragraph[:3000]}"
-        )
-        llm_text, provider_id = await generate_with_fallback(db, prompt, max_tokens=512)
+        prompt = body.paragraph.strip()
+        if not prompt.lower().startswith("you are"):
+            prompt = (
+                f"You are a language tutor. Explain this for a learner "
+                f"(source {body.source_lang}, respond in {body.target_lang}). "
+                f"Be clear and detailed.\n\n{body.paragraph[:3000]}"
+            )
+        llm_text, provider_id = await generate_with_fallback(db, prompt, max_tokens=1024)
         if llm_text:
             explanation = llm_text
 

@@ -373,16 +373,17 @@ class AIManager @Inject constructor(
 
         val cloud = runCatching {
             guestAiUsageRepository.ensureGuestCanUseAi()
-            val body = if (intent == ProcessingIntent.TRANSLATION) {
-                AiParagraphRequest(
-                    paragraph = "Translate this text from $sourceLang to $targetLang. " +
-                        "Reply with ONLY the translation, nothing else:\n\n$paragraph",
-                    sourceLang = sourceLang,
-                    targetLang = targetLang,
-                )
-            } else {
-                AiParagraphRequest(paragraph, sourceLang, targetLang)
-            }
+            val prompt = PracticePromptBuilder.build(
+                paragraph,
+                sourceLang,
+                targetLang,
+                intent,
+            )
+            val body = AiParagraphRequest(
+                paragraph = prompt,
+                sourceLang = sourceLang,
+                targetLang = targetLang,
+            )
             aiService.explainParagraph(body)
         }.fold(
             onSuccess = { resp ->

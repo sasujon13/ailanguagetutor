@@ -78,6 +78,7 @@ internal object TeenVoiceResolver {
         "ja" -> Locale.JAPANESE
         "ko" -> Locale.KOREAN
         "zh" -> Locale.CHINESE
+        "bn" -> Locale("bn", "BD")
         else -> Locale.forLanguageTag(code)
     }
 

@@ -40,19 +40,22 @@ class PackDatabaseConnector @Inject constructor(
     private val packAdapter = moshi.adapter(SamplePackFile::class.java)
     private val jsonPackCache = mutableMapOf<String, SamplePackFile>()
 
+    fun invalidateCache(languageCode: String) {
+        jsonPackCache.remove(languageCode.lowercase())
+    }
+
     suspend fun loadPack(languageCode: String): SamplePackFile? = withContext(Dispatchers.IO) {
-        jsonPackCache[languageCode]?.let { return@withContext it }
-        val state = languagePackDao.getByCode(languageCode)
+        val code = languageCode.lowercase()
+        jsonPackCache[code]?.let { return@withContext it }
+        val state = languagePackDao.getByCode(code)
         val pack = when {
             state?.localPath != null -> state.localPath?.let { loadJsonPackIfPresent(it) }
-            languageCode.equals("en", ignoreCase = true) -> {
-                context.assets.open("packs/en/sample_dictionary.json").bufferedReader().use {
-                    packAdapter.fromJson(it.readText())
-                }
-            }
+            RichBundledLexicon.BUNDLED_LANGUAGE_CODES.contains(code) ->
+                RichBundledLexicon.samplePack(code)
+            code == "en" -> RichBundledLexicon.samplePack("en")
             else -> null
-        }
-        pack?.also { jsonPackCache[languageCode] = it }
+        } ?: RichBundledLexicon.samplePack(code)
+        pack?.also { jsonPackCache[code] = it }
     }
 
     private fun loadJsonPackIfPresent(localPath: String): SamplePackFile? {
@@ -111,7 +114,27 @@ class PackDatabaseConnector @Inject constructor(
         PackInstaller.dictionaryDb(state?.localPath)?.let { db ->
             PackSqliteReader.lookupWord(db, normalized, languageCode)?.let { return it }
         }
-        return loadPack(languageCode)?.entries?.get(normalized)
+        loadPack(languageCode)?.entries?.let { entries ->
+            lookupInEntries(entries, normalized)?.let { return it }
+        }
+        return null
+    }
+
+    private fun lookupInEntries(entries: Map<String, List<String>>, normalized: String): List<String>? {
+        entries[normalized]?.let { return it }
+        if (normalized.endsWith("'s")) {
+            entries[normalized.removeSuffix("'s")]?.let { return it }
+        }
+        if (normalized.endsWith("s") && normalized.length > 3) {
+            entries[normalized.removeSuffix("s")]?.let { return it }
+        }
+        if (normalized.endsWith("ing") && normalized.length > 4) {
+            entries[normalized.removeSuffix("ing")]?.let { return it }
+        }
+        if (normalized.endsWith("ed") && normalized.length > 3) {
+            entries[normalized.removeSuffix("ed")]?.let { return it }
+        }
+        return null
     }
 
     suspend fun lookupPhrase(phrase: String, languageCode: String): String? = withContext(Dispatchers.IO) {
@@ -166,17 +189,27 @@ class DictionaryRepository @Inject constructor(
 ) {
     suspend fun lookup(word: String, languageCode: String): WordDefinition? =
         withContext(Dispatchers.Default) {
-            val normalized = word.lowercase().trim().trim('(', ')', '.', ',', ';', ':', '!', '?', '"')
-            if (normalized.isBlank()) return@withContext null
-            val fromPack = packConnector.lookupWord(word, languageCode)
-            val meanings = fromPack ?: fallback[normalized]
-            meanings?.let {
-                WordDefinition(
+            if (DictionaryLookupHelper.isNumericToken(word)) {
+                return@withContext DictionaryLookupHelper.placeholderDefinition(word, languageCode, true)
+            }
+            for (form in DictionaryLookupHelper.lookupForms(word)) {
+                val fromPack = packConnector.lookupWord(form, languageCode)
+                if (fromPack != null) {
+                    return@withContext WordDefinition(
+                        word = word,
+                        languageCode = languageCode,
+                        meanings = fromPack.take(3),
+                    )
+                }
+            }
+            fallback[DictionaryLookupHelper.normalize(word)]?.let {
+                return@withContext WordDefinition(
                     word = word,
                     languageCode = languageCode,
                     meanings = it.take(3),
                 )
             }
+            null
         }
 
     companion object {
@@ -200,6 +233,9 @@ class LanguagePackRepository @Inject constructor(
     companion object {
         const val MAX_ACTIVE_PACKS = 3
     }
+
+    private val moshi = Moshi.Builder().add(KotlinJsonAdapterFactory()).build()
+    private val packAdapter = moshi.adapter(SamplePackFile::class.java)
 
     fun observeActive(): Flow<List<LanguagePackStateEntity>> = languagePackDao.observeActive()
 
@@ -233,8 +269,15 @@ class LanguagePackRepository @Inject constructor(
                     installedDb.parentFile?.absolutePath ?: installedDb.absolutePath
                 } else if (jsonDest.isFile) {
                     jsonDest.absolutePath
+                } else if (RichBundledLexicon.BUNDLED_LANGUAGE_CODES.contains(languageCode.lowercase())) {
+                    val rich = RichBundledLexicon.samplePack(languageCode.lowercase()) ?: error("Bundled pack missing")
+                    val jsonDest = File(packsDir, "$languageCode-rich.json")
+                    jsonDest.writeText(
+                        packAdapter.toJson(rich) ?: error("serialize failed"),
+                    )
+                    jsonDest.absolutePath
                 } else if (languageCode.equals("en", ignoreCase = true)) {
-                    copyBundledFallback(jsonDest)
+                    copyBundledFallback(jsonDest, languageCode)
                 } else {
                     error("SQLite pack for $languageCode not available — start cloud-api and retry")
                 }
@@ -275,10 +318,10 @@ class LanguagePackRepository @Inject constructor(
         }.getOrDefault(false)
     }
 
-    private fun copyBundledFallback(dest: File): String {
-        context.assets.open("packs/en/sample_dictionary.json").use { input ->
-            dest.outputStream().use { output -> input.copyTo(output) }
-        }
+    private fun copyBundledFallback(dest: File, languageCode: String = "en"): String {
+        val rich = RichBundledLexicon.samplePack(languageCode.lowercase())
+            ?: RichBundledLexicon.samplePack("en")!!
+        dest.writeText(packAdapter.toJson(rich) ?: "{}")
         return dest.absolutePath
     }
 

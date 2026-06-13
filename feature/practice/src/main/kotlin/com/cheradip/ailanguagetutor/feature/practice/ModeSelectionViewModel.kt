@@ -8,6 +8,7 @@ import com.cheradip.ailanguagetutor.core.model.AiEngineMode
 import com.cheradip.ailanguagetutor.core.model.AiModeUiMeta
 import com.cheradip.ailanguagetutor.core.model.LanguageCatalogEntry
 import com.cheradip.ailanguagetutor.core.model.LanguageFlagMarker
+import com.cheradip.ailanguagetutor.core.model.PracticeLanguageRules
 import com.cheradip.ailanguagetutor.core.model.ProcessingIntent
 import com.cheradip.ailanguagetutor.core.model.SubscriptionTier
 import com.cheradip.ailanguagetutor.core.model.aiModeUiMeta
@@ -85,9 +86,14 @@ class ModeSelectionViewModel @Inject constructor(
         val input = langConfig.inputLanguage.takeIf { code ->
             options.any { it.code.equals(code, ignoreCase = true) }
         } ?: options.firstOrNull()?.code ?: langConfig.inputLanguage
-        val output = langConfig.outputLanguage.takeIf { code ->
-            options.any { it.code.equals(code, ignoreCase = true) }
-        } ?: options.drop(1).firstOrNull()?.code ?: input
+        val output = PracticeLanguageRules.reconcileOutput(
+            intent = prefs.processingIntent,
+            activeCodes = options.map { it.code },
+            input = input,
+            output = langConfig.outputLanguage.takeIf { code ->
+                options.any { it.code.equals(code, ignoreCase = true) }
+            } ?: options.drop(1).firstOrNull()?.code ?: input,
+        )
         _uiState.update {
             it.copy(
                 tier = tier,
@@ -114,7 +120,16 @@ class ModeSelectionViewModel @Inject constructor(
         mode == AiEngineMode.HIGH_ACCURACY && _uiState.value.tier != SubscriptionTier.PLUS
 
     fun setIntent(intent: ProcessingIntent) {
-        _uiState.update { it.copy(processingIntent = intent) }
+        _uiState.update { state ->
+            val codes = state.languageOptions.map { it.code }
+            val output = PracticeLanguageRules.reconcileOutput(
+                intent = intent,
+                activeCodes = codes,
+                input = state.inputLanguage,
+                output = state.outputLanguage,
+            )
+            state.copy(processingIntent = intent, outputLanguage = output)
+        }
     }
 
     fun selectMode(mode: AiEngineMode) {
@@ -126,11 +141,50 @@ class ModeSelectionViewModel @Inject constructor(
     }
 
     fun setInputLanguage(code: String) {
-        _uiState.update { it.copy(inputLanguage = code.lowercase()) }
+        _uiState.update { state ->
+            val input = code.lowercase()
+            val output = PracticeLanguageRules.reconcileOutput(
+                intent = state.processingIntent,
+                activeCodes = state.languageOptions.map { it.code },
+                input = input,
+                output = state.outputLanguage,
+            )
+            state.copy(inputLanguage = input, outputLanguage = output)
+        }
     }
 
     fun setOutputLanguage(code: String) {
-        _uiState.update { it.copy(outputLanguage = code.lowercase()) }
+        _uiState.update { state ->
+            val output = code.lowercase()
+            if (state.processingIntent == ProcessingIntent.TRANSLATION &&
+                !PracticeLanguageRules.isValidTranslationPair(state.inputLanguage, output)
+            ) {
+                state.copy(
+                    outputLanguage = PracticeLanguageRules.resolveOutputForTranslationInput(
+                        state.languageOptions.map { it.code },
+                        state.inputLanguage,
+                        output,
+                    ),
+                )
+            } else {
+                state.copy(outputLanguage = output)
+            }
+        }
+    }
+
+    fun outputLanguageOptions(): List<PracticeLanguageOption> {
+        val state = _uiState.value
+        return if (state.processingIntent == ProcessingIntent.TRANSLATION) {
+            val allowed = PracticeLanguageRules.translationOutputCodes(
+                state.languageOptions.map { it.code },
+                state.inputLanguage,
+            )
+            state.languageOptions.filter { opt ->
+                allowed.any { it.equals(opt.code, ignoreCase = true) }
+            }
+        } else {
+            state.languageOptions
+        }
     }
 
     fun dismissPlusUpgrade() {

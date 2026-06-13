@@ -44,6 +44,7 @@ from app.services.translate_strings import (
 from app.services.inference_engine import InferenceEngine
 from app.services.model_loader import ModelLoader, ModelSlot
 from app.services.model_selector import select_model
+from app.services.practice_prompt import build_answer_prompt
 from app.services.rate_limit import RateLimiter
 from app.services.task_classifier import TaskIntent, classify_intent
 
@@ -127,7 +128,15 @@ class ModeRouter:
             return TranslateResponse(translations=cached, mode=req.ai_engine_mode, cached=True)
 
         self._enforce_rate_limit(req, device_id)
-        targets = req.target_languages or ["fr"]
+        targets = [
+            t for t in (req.target_languages or ["fr"])
+            if t.lower() != req.language_code.lower()
+        ]
+        if not targets:
+            raise HTTPException(
+                400,
+                detail="Translation requires a target language different from the source.",
+            )
         polish = req.ai_engine_mode == 3
         translations = await self.inference.run_nllb(
             req.text,
@@ -160,11 +169,8 @@ class ModeRouter:
         cx = complexity_score(req.text, ocr_noise, lang_count)
         slot = select_model(intent, req, cx)
 
-        prompt = (
-            "You are a language tutor. Answer using only the provided text.\n\n"
-            f"Text ({req.language_code}):\n{req.text}\n\n"
-            "Give a clear explanation for the learner."
-        )
+        targets = req.target_languages or [req.language_code]
+        prompt = build_answer_prompt(req.text, req.language_code, targets)
         explanation, used = await self.inference.run_llm(slot, prompt, max_tokens=2048)
         simple = explanation[:200] + ("…" if len(explanation) > 200 else "")
         payload = {"explanation": explanation, "simple": simple, "model": used.value}

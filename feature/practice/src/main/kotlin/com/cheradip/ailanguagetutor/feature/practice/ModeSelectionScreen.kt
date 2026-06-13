@@ -36,6 +36,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.cheradip.ailanguagetutor.core.locale.appString
 import com.cheradip.ailanguagetutor.core.model.AiModeUiMeta
 import com.cheradip.ailanguagetutor.core.model.ProcessingIntent
 import com.cheradip.ailanguagetutor.ui.components.CheradipDropdown
@@ -60,8 +61,8 @@ fun ModeSelectionScreen(
     val calibrationState by calibrationViewModel.uiState.collectAsStateWithLifecycle()
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val intentOptions = listOf(
-        IntentOption(ProcessingIntent.ANSWER, "Answer — AI tutor explains"),
-        IntentOption(ProcessingIntent.TRANSLATION, "Translation — direct output"),
+        IntentOption(ProcessingIntent.ANSWER, appString("intent_answer_label")),
+        IntentOption(ProcessingIntent.TRANSLATION, appString("intent_translation_label")),
     )
     val selectedIntentOption = intentOptions.first { it.intent == state.processingIntent }
 
@@ -140,32 +141,47 @@ fun ModeSelectionScreen(
             }
             item {
                 Text(
-                    "Input is the language you speak or type. Output is the language you hear in TTS.",
+                    if (state.processingIntent == ProcessingIntent.ANSWER) {
+                        appString("intent_answer_language_hint")
+                    } else {
+                        appString("intent_translation_language_hint")
+                    },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
             item {
                 val inputOptions = state.languageOptions
+                val outputOptions = viewModel.outputLanguageOptions()
                 val selectedInput = inputOptions.firstOrNull {
                     it.code.equals(state.inputLanguage, ignoreCase = true)
                 } ?: inputOptions.first()
-                val outputOptions = state.languageOptions
                 val selectedOutput = outputOptions.firstOrNull {
                     it.code.equals(state.outputLanguage, ignoreCase = true)
-                } ?: outputOptions.first()
+                } ?: outputOptions.firstOrNull() ?: selectedInput
                 ResponsivePairDropdowns(
-                    firstLabel = "Input language (native / source)",
+                    firstLabel = appString("practice_input_language"),
                     firstOptions = inputOptions,
                     firstSelected = selectedInput,
                     onFirstSelected = { viewModel.setInputLanguage(it.code) },
                     firstOptionLabel = { it.label },
-                    secondLabel = "Output language (TTS voice)",
+                    secondLabel = appString("practice_output_language"),
                     secondOptions = outputOptions,
                     secondSelected = selectedOutput,
                     onSecondSelected = { viewModel.setOutputLanguage(it.code) },
                     secondOptionLabel = { it.label },
                 )
+            }
+            if (state.processingIntent == ProcessingIntent.TRANSLATION &&
+                state.languageOptions.size < 2
+            ) {
+                item {
+                    Text(
+                        appString("intent_translation_need_two_langs"),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
             }
         }
         item {

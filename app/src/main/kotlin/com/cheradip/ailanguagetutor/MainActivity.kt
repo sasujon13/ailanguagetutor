@@ -44,11 +44,15 @@ class MainActivity : ComponentActivity() {
     @Inject lateinit var plusTierAiModeSync: PlusTierAiModeSync
     @Inject lateinit var learningActivitySyncRepository: LearningActivitySyncRepository
     @Inject lateinit var guestAiGateNotifier: GuestAiGateNotifier
+    @Inject lateinit var bundledPackSeeder: com.cheradip.ailanguagetutor.core.pack.BundledPackSeeder
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         pronunciationEngine.init()
+        lifecycleScope.launch {
+            bundledPackSeeder.ensureBundledPacks()
+        }
         lifecycleScope.launch {
             voicePreferenceRepository.gender.collect { pronunciationEngine.setGender(it) }
         }

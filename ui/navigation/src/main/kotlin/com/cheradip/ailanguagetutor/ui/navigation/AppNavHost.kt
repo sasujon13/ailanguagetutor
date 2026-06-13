@@ -122,6 +122,10 @@ fun AppNavHost(
         }
     }
 
+    LaunchedEffect(currentRoute) {
+        pronunciationEngine.stop()
+    }
+
     val routeBase = currentRoute?.substringBefore('?')
     val showBottomBar = routeBase != null
     val nestedNavBack: (() -> Unit)? = remember(routeBase, navController) {

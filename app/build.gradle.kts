@@ -112,6 +112,10 @@ android {
             isDebuggable = false
             isMinifyEnabled = true
             isShrinkResources = true
+            ndk {
+                // OpenCV natives: ship phone ABIs only (~half the universal APK size).
+                abiFilters += listOf("arm64-v8a", "armeabi-v7a")
+            }
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",

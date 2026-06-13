@@ -27,8 +27,16 @@ import kotlin.math.roundToInt
 class ScanExportService(context: Context) {
     private val appContext = context.applicationContext
 
-    init {
-        PDFBoxResourceLoader.init(appContext)
+    @Volatile
+    private var pdfBoxReady = false
+
+    private fun ensurePdfBoxReady() {
+        if (pdfBoxReady) return
+        synchronized(this) {
+            if (pdfBoxReady) return
+            PDFBoxResourceLoader.init(appContext)
+            pdfBoxReady = true
+        }
     }
 
     private val baseDir: File
@@ -46,6 +54,7 @@ class ScanExportService(context: Context) {
     data class ExportResult(val paths: List<String>, val format: ExportFormat)
 
     fun export(pagePaths: List<String>, options: ExportOptions): ExportResult {
+        ensurePdfBoxReady()
         val bitmaps = pagePaths.map { BitmapUtils.load(it) }
         return when (options.format) {
             ExportFormat.PDF -> ExportResult(listOf(exportPdf(bitmaps, options)), ExportFormat.PDF)

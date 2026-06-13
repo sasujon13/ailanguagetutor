@@ -7,6 +7,7 @@ import com.cheradip.ailanguagetutor.core.image.BitmapUtils
 import com.cheradip.ailanguagetutor.core.image.CleanParams
 import com.cheradip.ailanguagetutor.core.image.CropParams
 import com.cheradip.ailanguagetutor.core.image.CropPreset
+import com.cheradip.ailanguagetutor.core.image.DocumentDetectionHints
 import com.cheradip.ailanguagetutor.core.image.EditHistoryEntry
 import com.cheradip.ailanguagetutor.core.image.EditHistorySnapshot
 import com.cheradip.ailanguagetutor.core.image.EditStage
@@ -388,11 +389,23 @@ class ScannerViewModel @Inject constructor(
         val targetId = pageId ?: _uiState.value.selectedPageId ?: return
         viewModelScope.launch {
             val state = editStates[targetId] ?: return@launch
-            val scanType = _uiState.value.draftTransition.scanType
+            val hints = DocumentDetectionHints(
+                scanType = _uiState.value.draftTransition.scanType,
+                cropPreset = _uiState.value.draftCrop.preset.takeUnless { it == CropPreset.FREEFORM },
+            )
             val bitmap = withContext(Dispatchers.IO) { BitmapUtils.load(state.originalPath) }
-            val corners = scanEditEngine.autoDetectCrop(bitmap, scanType)
-            updateDraftCrop { it.copy(corners = corners, preset = CropPreset.RECTANGLE) }
-            updateDraftTransition { it.copy(corners = corners, autoDetect = true) }
+            val corners = scanEditEngine.autoDetectCrop(bitmap, hints)
+            updateDraftCrop {
+                it.copy(
+                    corners = corners,
+                    preset = if (hints.cropPreset == CropPreset.FREEFORM) CropPreset.RECTANGLE else it.preset,
+                    perspectiveCorrection = true,
+                    autoStraighten = true,
+                )
+            }
+            updateDraftTransition {
+                it.copy(corners = corners, autoDetect = true, perspectiveStrength = 85)
+            }
             updateCropSkew()
         }
     }
@@ -405,9 +418,25 @@ class ScannerViewModel @Inject constructor(
             val corners = when (preset) {
                 CropPreset.FREEFORM -> state.draftCrop.corners
                 CropPreset.RECTANGLE -> state.draftCrop.corners.toAxisAlignedRectangle()
+                CropPreset.ID_CARD,
+                CropPreset.BUSINESS_CARD,
+                CropPreset.PASSPORT,
+                -> {
+                    val hints = DocumentDetectionHints(
+                        scanType = _uiState.value.draftTransition.scanType,
+                        cropPreset = preset,
+                    )
+                    scanEditEngine.autoDetectCrop(bitmap, hints)
+                }
                 else -> scanEditEngine.presetCrop(preset, bitmap.width, bitmap.height)
             }
-            updateDraftCrop { it.copy(preset = preset, corners = corners) }
+            updateDraftCrop {
+                it.copy(
+                    preset = preset,
+                    corners = corners,
+                    perspectiveCorrection = preset != CropPreset.FREEFORM,
+                )
+            }
         }
     }
 

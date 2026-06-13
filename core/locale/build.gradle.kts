@@ -30,5 +30,6 @@ dependencies {
     ksp(libs.hilt.compiler)
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.moshi.kotlin)
+    ksp(libs.moshi.codegen)
     implementation(libs.okhttp)
 }

@@ -33,8 +33,10 @@ class ScanEditEngine {
         return renderPipeline(source, state.appliedCrop, state.appliedTransition, state.appliedClean, state.appliedGray)
     }
 
-    fun autoDetectCrop(bitmap: Bitmap, scanType: DocumentScanType = DocumentScanType.AUTO): QuadPoints =
-        DocumentEdgeDetector.detectCorners(bitmap, scanType)
+    fun autoDetectCrop(
+        bitmap: Bitmap,
+        hints: DocumentDetectionHints = DocumentDetectionHints(),
+    ): QuadPoints = DocumentEdgeDetector.detectCorners(bitmap, hints)
 
     fun presetCrop(preset: CropPreset, imageWidth: Int, imageHeight: Int): QuadPoints {
         val ratio = preset.aspectRatio() ?: return QuadPoints()
@@ -235,7 +237,10 @@ class ScanEditEngine {
 
     private fun applyTransition(bitmap: Bitmap, params: TransitionParams): Bitmap {
         var corners = if (params.autoDetect) {
-            DocumentEdgeDetector.detectCorners(bitmap, params.scanType)
+            DocumentEdgeDetector.detectCorners(
+                bitmap,
+                DocumentDetectionHints(scanType = params.scanType),
+            )
         } else {
             params.corners
         }

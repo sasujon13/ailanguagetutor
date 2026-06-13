@@ -138,13 +138,20 @@ object PerspectiveTransform {
 }
 
 object DocumentEdgeDetector {
-    /** Detect document corners — OpenCV first, Sobel fallback. */
-    fun detectCorners(bitmap: Bitmap, scanType: DocumentScanType = DocumentScanType.AUTO): QuadPoints {
-        OpenCvDocumentDetector.detectCorners(bitmap, scanType)?.let { return it }
-        return detectCornersFallback(bitmap, scanType)
+    /**
+     * Detect document corners — OpenCV (lazy, multi-pipeline) first, Sobel fallback.
+     * OpenCV loads only when this method runs (scanner editor), not at app startup.
+     */
+    fun detectCorners(bitmap: Bitmap, hints: DocumentDetectionHints = DocumentDetectionHints()): QuadPoints {
+        OpenCvDocumentScannerEngine.tryDetect(bitmap, hints)?.let { return it }
+        return detectCornersFallback(bitmap, hints.scanType)
     }
 
-    fun detectSkewDegrees(corners: QuadPoints): Float = OpenCvDocumentDetector.detectSkewDegrees(corners)
+    fun detectCorners(bitmap: Bitmap, scanType: DocumentScanType): QuadPoints =
+        detectCorners(bitmap, DocumentDetectionHints(scanType = scanType))
+
+    fun detectSkewDegrees(corners: QuadPoints): Float =
+        OpenCvDocumentScannerEngine.tryDetectSkew(corners)
 
     private fun detectCornersFallback(bitmap: Bitmap, scanType: DocumentScanType = DocumentScanType.AUTO): QuadPoints {
         val scaled = if (max(bitmap.width, bitmap.height) > 800) {

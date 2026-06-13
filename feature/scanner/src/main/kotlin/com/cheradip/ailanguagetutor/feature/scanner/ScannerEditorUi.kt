@@ -374,6 +374,16 @@ private fun ScannerToolPanel(
                     TextButton(onClick = onAutoDetect) { Text("Auto detect edges") }
                     TextButton(onClick = onRestoreCrop) { Text("Restore boundaries") }
                 }
+                if (uiState.draftCrop.preset == CropPreset.ID_CARD ||
+                    uiState.draftCrop.preset == CropPreset.BUSINESS_CARD ||
+                    uiState.draftCrop.preset == CropPreset.PASSPORT
+                ) {
+                    Text(
+                        "Tip: OpenCV finds the card even on top of other documents — tap Auto detect or select the preset again.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
                 HoldCompareButton(onCompareHold = onCompareHold)
                 BeforeAfterSlider(uiState.beforeAfterSlider, onBeforeAfter)
             }

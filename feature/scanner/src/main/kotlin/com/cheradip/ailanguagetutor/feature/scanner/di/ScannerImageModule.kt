@@ -11,7 +11,7 @@ import dagger.hilt.components.SingletonComponent
 import javax.inject.Singleton
 
 /**
- * Scanner image processing uses OpenCV 4.9 (edge detection) and ML Kit Document Scanner (capture).
+ * Scanner image processing: OpenCV edge detection (lazy) + ML Kit Document Scanner capture.
  */
 @Module
 @InstallIn(SingletonComponent::class)

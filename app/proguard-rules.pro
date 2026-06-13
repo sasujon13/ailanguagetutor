@@ -20,7 +20,8 @@
 -dontwarn androidx.room.paging.**
 
 # Moshi / Retrofit
--keepclasseswithmembers class * {
+-keepattributes RuntimeVisibleAnnotations,AnnotationDefault
+-keepclassmembers class * {
     @com.squareup.moshi.* <methods>;
 }
 -keep @com.squareup.moshi.JsonClass class *
@@ -28,6 +29,10 @@
     @com.squareup.moshi.FromJson <methods>;
     @com.squareup.moshi.ToJson <methods>;
 }
+-keep class **JsonAdapter { *; }
+-keep class com.cheradip.ailanguagetutor.core.locale.** { *; }
+-keep class com.cheradip.ailanguagetutor.core.network.** { *; }
+-keep class com.cheradip.ailanguagetutor.core.pack.** { *; }
 -keep,allowobfuscation,allowshrinking interface retrofit2.Call
 -keep,allowobfuscation,allowshrinking class retrofit2.Response
 -keep,allowobfuscation,allowshrinking class kotlin.coroutines.Continuation
@@ -44,7 +49,20 @@
 -dontwarn com.gemalto.jp2.JP2Decoder
 -dontwarn com.gemalto.jp2.JP2Encoder
 -dontwarn com.gemalto.jp2.**
+-dontwarn org.bouncycastle.**
+-dontwarn com.google.android.gms.vision.**
 -keep class com.tom_roush.pdfbox.** { *; }
+-keep class org.bouncycastle.** { *; }
+
+# Scanner image pipeline + ML Kit document scanner
+-keep class com.cheradip.ailanguagetutor.core.image.** { *; }
+-keep class com.cheradip.ailanguagetutor.feature.scanner.** { *; }
+-keep @dagger.hilt.android.lifecycle.HiltViewModel class com.cheradip.ailanguagetutor.feature.scanner.** { *; }
+-keep class com.google.mlkit.vision.documentscanner.** { *; }
+
+# OpenCV (lazy-loaded for document edge detection)
+-keep class org.opencv.** { *; }
+-dontwarn org.opencv.**
 
 # Keep line numbers for crash reports
 -keepattributes SourceFile,LineNumberTable

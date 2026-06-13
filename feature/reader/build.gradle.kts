@@ -21,6 +21,7 @@ dependencies {
     implementation(project(":ui:theme"))
     implementation(project(":ui:components"))
     implementation(project(":core:database"))
+    implementation(project(":core:device"))
     implementation(project(":core:model"))
     implementation(project(":core:ocr"))
     implementation(project(":core:pack"))

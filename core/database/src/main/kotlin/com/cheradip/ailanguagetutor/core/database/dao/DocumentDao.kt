@@ -49,4 +49,7 @@ interface DocumentPageDao {
 
     @Query("SELECT COUNT(*) FROM document_pages WHERE documentId = :documentId")
     suspend fun countForDocument(documentId: Long): Int
+
+    @Query("DELETE FROM document_pages WHERE id = :pageId")
+    suspend fun deleteById(pageId: Long)
 }

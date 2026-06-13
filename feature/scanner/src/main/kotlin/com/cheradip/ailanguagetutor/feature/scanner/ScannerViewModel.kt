@@ -3,6 +3,9 @@ package com.cheradip.ailanguagetutor.feature.scanner
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.cheradip.ailanguagetutor.core.database.repository.DocumentRepository
+import com.cheradip.ailanguagetutor.core.device.ScanWorkflowRepository
+import com.cheradip.ailanguagetutor.core.device.ScanWorkflowSession
+import com.cheradip.ailanguagetutor.core.device.ScanWorkflowStage
 import com.cheradip.ailanguagetutor.core.image.BitmapUtils
 import com.cheradip.ailanguagetutor.core.image.CleanParams
 import com.cheradip.ailanguagetutor.core.image.CropParams
@@ -39,6 +42,12 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import javax.inject.Inject
 
+enum class PreviewCompareMode {
+    AFTER,
+    ORIGINAL,
+    BEFORE,
+}
+
 data class ScannerPageItem(
     val id: Long,
     /** Last applied / working image shown in thumbnail after Apply. */
@@ -61,8 +70,7 @@ data class ScannerUiState(
     val activeTool: ScanTool? = null,
     val previewPath: String? = null,
     val previewRevision: Long = 0L,
-    val compareOriginal: Boolean = false,
-    val beforeAfterSlider: Float = 0.5f,
+    val previewCompareMode: PreviewCompareMode = PreviewCompareMode.AFTER,
     val showExportDialog: Boolean = false,
     val showExportConflictDialog: Boolean = false,
     val exportConflictExisting: List<String> = emptyList(),
@@ -93,6 +101,7 @@ class ScannerViewModel @Inject constructor(
     private val languagePackRepository: LanguagePackRepository,
     private val scanEditEngine: ScanEditEngine,
     private val scanExportService: ScanExportService,
+    private val scanWorkflowRepository: ScanWorkflowRepository,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(ScannerUiState())
@@ -103,13 +112,26 @@ class ScannerViewModel @Inject constructor(
     private var previewGeneration = 0L
     private val captureMutex = Mutex()
     private var documentSourceType: String = "scan"
+    private var launchMode: String = "camera"
+    private var scanOnly: Boolean = false
 
-    fun initDocument(existingId: Long?, sourceType: String = "scan") {
+    fun initDocument(
+        existingId: Long?,
+        sourceType: String = "scan",
+        mode: String = "camera",
+        scanOnlyMode: Boolean = false,
+    ) {
         documentSourceType = sourceType
-        if (existingId != null) {
-            viewModelScope.launch { loadDocument(existingId) }
-        } else if (_uiState.value.documentId == null) {
-            viewModelScope.launch {
+        launchMode = mode
+        scanOnly = scanOnlyMode
+        viewModelScope.launch {
+            val saved = scanWorkflowRepository.currentSession()
+            val resolvedId = existingId ?: resolveResumeDocumentId(saved)
+            if (resolvedId != null) {
+                applySessionMeta(saved?.takeIf { it.documentId == resolvedId })
+                loadDocument(resolvedId)
+                restoreWorkflowUi(saved?.takeIf { it.documentId == resolvedId })
+            } else if (_uiState.value.documentId == null) {
                 val activeLang = languagePackRepository.observeActive().first()
                     .firstOrNull()?.languageCode ?: "en"
                 val titlePrefix = if (documentSourceType == "import") "Upload" else "Scan"
@@ -119,7 +141,66 @@ class ScannerViewModel @Inject constructor(
                     sourceType = documentSourceType,
                 )
                 _uiState.update { it.copy(documentId = id) }
+                persistWorkflow(stage = ScanWorkflowStage.SCANNER)
             }
+        }
+    }
+
+    fun prepareForOcr() {
+        viewModelScope.launch {
+            persistWorkflow(stage = ScanWorkflowStage.OCR)
+        }
+    }
+
+    fun markScanOnlyComplete() {
+        viewModelScope.launch { scanWorkflowRepository.clear() }
+    }
+
+    private suspend fun resolveResumeDocumentId(saved: ScanWorkflowSession?): Long? {
+        if (saved == null || saved.stage != ScanWorkflowStage.SCANNER) return null
+        if (documentRepository.getDocument(saved.documentId) == null) {
+            scanWorkflowRepository.clear()
+            return null
+        }
+        if (documentRepository.isOcrComplete(saved.documentId)) {
+            scanWorkflowRepository.clear()
+            return null
+        }
+        return saved.documentId
+    }
+
+    private fun applySessionMeta(session: ScanWorkflowSession?) {
+        if (session == null) return
+        launchMode = session.mode
+        scanOnly = session.scanOnly
+        documentSourceType = if (session.mode == "import") "import" else "scan"
+    }
+
+    private suspend fun restoreWorkflowUi(session: ScanWorkflowSession?) {
+        if (session == null || session.documentId != _uiState.value.documentId) return
+        val tool = session.activeTool?.let { runCatching { ScanTool.valueOf(it) }.getOrNull() }
+        _uiState.update {
+            it.copy(
+                selectedPageId = session.selectedPageId ?: it.selectedPageId,
+                activeTool = tool ?: it.activeTool,
+            )
+        }
+        (session.selectedPageId ?: _uiState.value.selectedPageId)?.let { refreshPreview(it) }
+    }
+
+    private fun persistWorkflow(stage: ScanWorkflowStage = ScanWorkflowStage.SCANNER) {
+        val docId = _uiState.value.documentId ?: return
+        viewModelScope.launch {
+            scanWorkflowRepository.save(
+                ScanWorkflowSession(
+                    documentId = docId,
+                    stage = stage,
+                    mode = launchMode,
+                    scanOnly = scanOnly,
+                    selectedPageId = _uiState.value.selectedPageId,
+                    activeTool = _uiState.value.activeTool?.name,
+                ),
+            )
         }
     }
 
@@ -144,6 +225,7 @@ class ScannerViewModel @Inject constructor(
             )
         }
         items.lastOrNull()?.id?.let { refreshPreview(it) }
+        persistWorkflow(stage = ScanWorkflowStage.SCANNER)
     }
 
     fun onPhotoCaptured(bytes: ByteArray) {
@@ -169,9 +251,7 @@ class ScannerViewModel @Inject constructor(
                             batchMode = true,
                         )?.let { addedIds.add(it) }
                     }
-                    addedIds.forEachIndexed { index, pageId ->
-                        autoEnhanceCapturedPage(pageId, openCropTool = index == addedIds.lastIndex)
-                    }
+                    addedIds.lastOrNull()?.let { refreshPreview(it) }
                 }.onFailure { e ->
                     _uiState.update { it.copy(isSaving = false, error = e.message) }
                 }
@@ -240,6 +320,7 @@ class ScannerViewModel @Inject constructor(
             } else if (!batchMode) {
                 refreshPreview(item.id)
             }
+            persistWorkflow()
             item.id
         } catch (e: Exception) {
             if (!batchMode) {
@@ -259,15 +340,18 @@ class ScannerViewModel @Inject constructor(
         _uiState.update { it.copy(selectedPageId = pageId, activeTool = null) }
         syncDraftFromState(pageId)
         refreshPreview(pageId)
+        persistWorkflow()
     }
 
     fun openTool(tool: ScanTool) {
         if (tool == ScanTool.SAVE) {
             _uiState.update { it.copy(showExportDialog = true, activeTool = ScanTool.SAVE) }
+            persistWorkflow()
             return
         }
         val pageId = _uiState.value.selectedPageId
-        _uiState.update { it.copy(activeTool = tool, beforeAfterSlider = 0.5f) }
+        _uiState.update { it.copy(activeTool = tool, previewCompareMode = PreviewCompareMode.AFTER) }
+        persistWorkflow()
         pageId ?: return
         if (tool == ScanTool.ORIGINAL) {
             refreshPreview(pageId, forceOriginal = true)
@@ -277,24 +361,57 @@ class ScannerViewModel @Inject constructor(
     }
 
     fun closeToolPanel() {
-        _uiState.update { it.copy(activeTool = null, compareOriginal = false) }
+        _uiState.update { it.copy(activeTool = null, previewCompareMode = PreviewCompareMode.AFTER) }
+        _uiState.value.selectedPageId?.let { refreshPreview(it) }
+        persistWorkflow()
+    }
+
+    fun setPreviewCompareMode(mode: PreviewCompareMode) {
+        _uiState.update { it.copy(previewCompareMode = mode) }
         _uiState.value.selectedPageId?.let { refreshPreview(it) }
     }
 
-    fun setCompareOriginal(holding: Boolean) {
-        _uiState.update { it.copy(compareOriginal = holding) }
+    fun deleteSelectedPage() {
         val pageId = _uiState.value.selectedPageId ?: return
-        if (holding) {
-            val original = editStates[pageId]?.originalPath
-            _uiState.update { it.copy(previewPath = original) }
-        } else {
-            refreshPreview(pageId)
+        val docId = _uiState.value.documentId ?: return
+        viewModelScope.launch {
+            _uiState.update { it.copy(isSaving = true, error = null) }
+            runCatching {
+                editStates.remove(pageId)
+                documentRepository.deletePage(pageId)
+                val pages = documentRepository.getPages(docId)
+                val items = pages.map { page ->
+                    val original = page.originalImagePath ?: page.imagePath
+                    editStates.getOrPut(page.id) {
+                        parsePageEditStateJson(
+                            pageId = page.id,
+                            json = page.editStateJson,
+                            originalPath = original,
+                            workingPath = page.imagePath,
+                        )
+                    }
+                    ScannerPageItem(page.id, page.imagePath, original, page.pageIndex)
+                }
+                val nextSelected = items.firstOrNull()?.id
+                _uiState.update {
+                    it.copy(
+                        isSaving = false,
+                        pageCount = items.size,
+                        pages = items,
+                        selectedPageId = nextSelected,
+                        activeTool = if (items.isEmpty()) null else it.activeTool,
+                        previewCompareMode = PreviewCompareMode.AFTER,
+                    )
+                }
+                nextSelected?.let {
+                    syncDraftFromState(it)
+                    refreshPreview(it)
+                } ?: _uiState.update { it.copy(previewPath = null) }
+                persistWorkflow()
+            }.onFailure { e ->
+                _uiState.update { it.copy(isSaving = false, error = e.message) }
+            }
         }
-    }
-
-    fun setBeforeAfterSlider(value: Float) {
-        _uiState.update { it.copy(beforeAfterSlider = value.coerceIn(0f, 1f)) }
-        _uiState.value.selectedPageId?.let { refreshPreview(it, debounceMs = 50) }
     }
 
     fun revertCurrentTool() {
@@ -719,6 +836,9 @@ class ScannerViewModel @Inject constructor(
                 exportMessage = "Saved ${result.paths.size} file(s) to Documents/AILanguageTutor/",
             )
         }
+        if (scanOnly) {
+            viewModelScope.launch { scanWorkflowRepository.clear() }
+        }
     }
 
     fun clearExportMessage() {
@@ -773,24 +893,24 @@ class ScannerViewModel @Inject constructor(
             val state = editStates[pageId] ?: return@launch
             _uiState.update { it.copy(isProcessingPreview = true) }
             runCatching {
-                if (forceOriginal || _uiState.value.compareOriginal) {
-                    state.originalPath
-                } else {
-                    val tool = _uiState.value.activeTool?.takeUnless { it == ScanTool.SAVE }
-                    val useBlend = tool != null
-                    val beforeAfter = if (useBlend) _uiState.value.beforeAfterSlider else null
-                    val bitmap = withContext(Dispatchers.Default) {
-                        scanEditEngine.renderPreview(state, tool, beforeAfter)
+                val tool = _uiState.value.activeTool?.takeUnless { it == ScanTool.SAVE || it == ScanTool.ORIGINAL }
+                val compareMode = _uiState.value.previewCompareMode
+                val bitmap = withContext(Dispatchers.Default) {
+                    when {
+                        compareMode == PreviewCompareMode.ORIGINAL -> scanEditEngine.renderOriginal(state)
+                        compareMode == PreviewCompareMode.BEFORE -> scanEditEngine.renderBeforeCurrentTool(state)
+                        tool != null -> scanEditEngine.renderAfterCurrentTool(state, tool)
+                        else -> scanEditEngine.renderApplied(state)
                     }
-                    if (generation != previewGeneration) return@runCatching null
-                    val revision = _uiState.value.previewRevision + 1
-                    val previewFile = File(
-                        imageStorage.createWorkingCopy(_uiState.value.documentId ?: 0, pageId).parentFile,
-                        "preview_${pageId}_$revision.jpg",
-                    )
-                    withContext(Dispatchers.IO) { BitmapUtils.save(bitmap, previewFile.absolutePath) }
-                    previewFile.absolutePath
                 }
+                if (generation != previewGeneration) return@runCatching null
+                val revision = _uiState.value.previewRevision + 1
+                val previewFile = File(
+                    imageStorage.createWorkingCopy(_uiState.value.documentId ?: 0, pageId).parentFile,
+                    "preview_${pageId}_$revision.jpg",
+                )
+                withContext(Dispatchers.IO) { BitmapUtils.save(bitmap, previewFile.absolutePath) }
+                previewFile.absolutePath
             }.onSuccess { path ->
                 if (generation != previewGeneration || path == null) {
                     _uiState.update { it.copy(isProcessingPreview = false) }

@@ -44,6 +44,8 @@ class MainActivity : ComponentActivity() {
     @Inject lateinit var plusTierAiModeSync: PlusTierAiModeSync
     @Inject lateinit var learningActivitySyncRepository: LearningActivitySyncRepository
     @Inject lateinit var guestAiGateNotifier: GuestAiGateNotifier
+    @Inject lateinit var scanWorkflowRepository: com.cheradip.ailanguagetutor.core.device.ScanWorkflowRepository
+    @Inject lateinit var documentRepository: com.cheradip.ailanguagetutor.core.database.repository.DocumentRepository
     @Inject lateinit var bundledPackSeeder: com.cheradip.ailanguagetutor.core.pack.BundledPackSeeder
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -81,6 +83,8 @@ class MainActivity : ComponentActivity() {
                     referralRepository = referralRepository,
                     learningActivitySyncRepository = learningActivitySyncRepository,
                     guestAiGateNotifier = guestAiGateNotifier,
+                    scanWorkflowRepository = scanWorkflowRepository,
+                    documentRepository = documentRepository,
                     pronunciationEngine = pronunciationEngine,
                     appLocaleManager = appLocaleManager,
                     currentUser = currentUser,

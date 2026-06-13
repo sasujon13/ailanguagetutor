@@ -35,6 +35,7 @@ class PronunciationEngine @Inject constructor(
     private var pendingChunks: MutableList<String> = mutableListOf()
     private var chunkIndex = 0
     private var pausedByUser = false
+    private var suppressProgressEvents = false
 
     fun init(onReady: (Boolean) -> Unit = {}) {
         if (tts != null) {
@@ -60,7 +61,7 @@ class PronunciationEngine @Inject constructor(
     /** Sound icon — always restart from the beginning. */
     fun speakFromStart(text: String, languageCode: String = "en") {
         stopInternal(resetPaused = true)
-        currentText = text
+        currentText = normalizePlaybackText(text)
         currentLanguageCode = languageCode.lowercase()
         pendingChunks = splitForLocale(text, currentLanguageCode).toMutableList()
         chunkIndex = 0
@@ -73,16 +74,13 @@ class PronunciationEngine @Inject constructor(
 
     /** Playback button — start, pause, or resume the current passage. */
     fun togglePlayback(text: String, languageCode: String = "en") {
+        val normalized = normalizePlaybackText(text)
+        val lang = languageCode.lowercase()
         when (_playbackState.value) {
-            TtsPlaybackState.PLAYING -> {
-                pausedByUser = true
-                tts?.stop()
-                _playbackState.value = TtsPlaybackState.PAUSED
-            }
+            TtsPlaybackState.PLAYING -> pausePlayback()
             TtsPlaybackState.PAUSED -> {
-                if (currentText == text && currentLanguageCode == languageCode.lowercase()) {
-                    pausedByUser = false
-                    speakNextChunk()
+                if (currentText == normalized && currentLanguageCode == lang && pendingChunks.isNotEmpty()) {
+                    resumePlayback()
                 } else {
                     speakFromStart(text, languageCode)
                 }
@@ -97,12 +95,26 @@ class PronunciationEngine @Inject constructor(
         speakFromStart(TeenVoiceResolver.previewPhrase(languageCode), languageCode)
     }
 
-    private fun stopInternal(resetPaused: Boolean) {
-        pausedByUser = !resetPaused && _playbackState.value == TtsPlaybackState.PAUSED
+    private fun pausePlayback() {
+        pausedByUser = true
+        suppressProgressEvents = true
         tts?.stop()
-        pendingChunks.clear()
-        chunkIndex = 0
+        _playbackState.value = TtsPlaybackState.PAUSED
+    }
+
+    private fun resumePlayback() {
+        pausedByUser = false
+        suppressProgressEvents = false
+        speakNextChunk()
+    }
+
+    private fun stopInternal(resetPaused: Boolean) {
+        suppressProgressEvents = true
+        tts?.stop()
+        suppressProgressEvents = false
         if (resetPaused) {
+            pendingChunks.clear()
+            chunkIndex = 0
             currentText = null
             pausedByUser = false
             _playbackState.value = TtsPlaybackState.IDLE
@@ -136,7 +148,7 @@ class PronunciationEngine @Inject constructor(
             override fun onStart(utteranceId: String?) = Unit
 
             override fun onDone(utteranceId: String?) {
-                if (pausedByUser) return
+                if (shouldIgnoreProgress()) return
                 chunkIndex++
                 if (chunkIndex < pendingChunks.size) {
                     speakNextChunk()
@@ -148,20 +160,38 @@ class PronunciationEngine @Inject constructor(
 
             @Deprecated("Deprecated in Java")
             override fun onError(utteranceId: String?) {
-                _playbackState.value = TtsPlaybackState.IDLE
+                if (shouldIgnoreProgress()) return
+                if (_playbackState.value != TtsPlaybackState.PAUSED) {
+                    _playbackState.value = TtsPlaybackState.IDLE
+                }
             }
 
             override fun onError(utteranceId: String?, errorCode: Int) {
-                _playbackState.value = TtsPlaybackState.IDLE
+                if (shouldIgnoreProgress()) return
+                if (_playbackState.value != TtsPlaybackState.PAUSED) {
+                    _playbackState.value = TtsPlaybackState.IDLE
+                }
             }
         })
     }
 
+    private fun shouldIgnoreProgress(): Boolean =
+        suppressProgressEvents || pausedByUser
+
+    /** Word-level chunks so pause/resume continues at the current word. */
     private fun splitForLocale(text: String, languageCode: String): List<String> {
-        if (!languageCode.startsWith("en")) return listOf(text)
-        val parts = text.split(Regex("(?<=\\D)(?=\\d)|(?<=\\d)(?=\\D)"))
-        return parts.filter { it.isNotBlank() }
+        val words = text.trim().split(Regex("\\s+")).filter { it.isNotBlank() }
+        if (!languageCode.startsWith("en")) return words
+        return buildList {
+            words.forEach { word ->
+                val parts = word.split(Regex("(?<=\\D)(?=\\d)|(?<=\\d)(?=\\D)"))
+                addAll(parts.filter { it.isNotBlank() })
+            }
+        }
     }
+
+    private fun normalizePlaybackText(text: String): String =
+        text.trim().replace(Regex("\\s+"), " ")
 
     private fun localeForChunk(chunk: String, languageCode: String): Locale {
         val isDigitChunk = chunk.all { it.isDigit() || it in ".,/-+ " }

@@ -30,11 +30,10 @@ import androidx.compose.material.icons.filled.Crop
 import androidx.compose.material.icons.filled.FilterBAndW
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Redo
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Restore
 import androidx.compose.material.icons.filled.Save
-import androidx.compose.material.icons.filled.Transform
 import androidx.compose.material.icons.filled.Undo
-import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
@@ -150,7 +149,7 @@ fun ScannerPageThumbnailStrip(
 fun ScannerPreviewArea(
     uiState: ScannerUiState,
     onUpdateCrop: ((com.cheradip.ailanguagetutor.core.image.CropParams) -> com.cheradip.ailanguagetutor.core.image.CropParams) -> Unit,
-    onUpdateTransition: ((TransitionParams) -> TransitionParams) -> Unit,
+    onDeletePage: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var scale by remember { mutableFloatStateOf(1f) }
@@ -190,30 +189,38 @@ fun ScannerPreviewArea(
                     },
                 contentScale = ContentScale.Fit,
             )
-            if (uiState.activeTool == ScanTool.CROP || uiState.activeTool == ScanTool.TRANSITION) {
+            if (uiState.activeTool == ScanTool.CROP) {
                 val cropPreset = uiState.draftCrop.preset
                 CropCornerOverlay(
-                    corners = if (uiState.activeTool == ScanTool.CROP) {
-                        uiState.draftCrop.corners
-                    } else {
-                        uiState.draftTransition.corners
-                    },
+                    corners = uiState.draftCrop.corners,
                     previewPath = preview,
                     previewRevision = uiState.previewRevision,
                     selectedPageId = uiState.selectedPageId,
-                    lockRectangle = uiState.activeTool == ScanTool.CROP && cropPreset != CropPreset.FREEFORM,
+                    lockRectangle = cropPreset != CropPreset.FREEFORM,
                     onCornersChanged = { quad ->
-                        if (uiState.activeTool == ScanTool.CROP) {
-                            onUpdateCrop { it.copy(corners = quad) }
-                        } else {
-                            onUpdateTransition { it.copy(corners = quad, autoDetect = false) }
-                        }
+                        onUpdateCrop { it.copy(corners = quad) }
                     },
                 )
             }
         }
         if (uiState.isProcessingPreview) {
             CircularProgressIndicator(modifier = Modifier.size(36.dp))
+        }
+        IconButton(
+            onClick = onDeletePage,
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .padding(8.dp)
+                .background(
+                    MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.92f),
+                    CircleShape,
+                ),
+        ) {
+            Icon(
+                Icons.Default.Delete,
+                contentDescription = "Delete page",
+                tint = MaterialTheme.colorScheme.onErrorContainer,
+            )
         }
     }
 }
@@ -224,8 +231,7 @@ fun ScannerEditingControls(
     onOpenTool: (ScanTool) -> Unit,
     onCloseTool: () -> Unit,
     onApply: () -> Unit,
-    onCompareHold: (Boolean) -> Unit,
-    onBeforeAfter: (Float) -> Unit,
+    onPreviewCompareMode: (PreviewCompareMode) -> Unit,
     onUndo: () -> Unit,
     onRedo: () -> Unit,
     onRevertAll: () -> Unit,
@@ -268,8 +274,7 @@ fun ScannerEditingControls(
                 uiState = uiState,
                 onClose = onCloseTool,
                 onApply = onApply,
-                onCompareHold = onCompareHold,
-                onBeforeAfter = onBeforeAfter,
+                onPreviewCompareMode = onPreviewCompareMode,
                 onRevertCurrent = onRevertCurrent,
                 onRevertCurrentEffect = onRevertCurrentEffect,
                 onRevertAll = onRevertAll,
@@ -290,7 +295,7 @@ fun ScannerEditingControls(
                 modifier = Modifier.horizontalScroll(rememberScrollState()).padding(bottom = 4.dp),
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
             ) {
-                EditStage.entries.forEach { stage ->
+                EditStage.entries.filter { it != EditStage.TRANSITION }.forEach { stage ->
                     FilterChip(
                         selected = uiState.appliedStages.contains(stage) || (stage == EditStage.ORIGINAL && uiState.appliedStages.isEmpty()),
                         onClick = { onJumpToStage(stage) },
@@ -331,7 +336,6 @@ private fun ScannerToolBar(activeTool: ScanTool?, onOpenTool: (ScanTool) -> Unit
     val tools = listOf(
         ScanTool.ORIGINAL to ("Original" to Icons.Default.Restore),
         ScanTool.CROP to ("Crop" to Icons.Default.Crop),
-        ScanTool.TRANSITION to ("Transition" to Icons.Default.Transform),
         ScanTool.CLEAN to ("Clean" to Icons.Default.AutoFixHigh),
         ScanTool.GRAY to ("Gray" to Icons.Default.FilterBAndW),
         ScanTool.SAVE to ("Save" to Icons.Default.Save),
@@ -361,8 +365,7 @@ private fun ScannerToolPanel(
     uiState: ScannerUiState,
     onClose: () -> Unit,
     onApply: () -> Unit,
-    onCompareHold: (Boolean) -> Unit,
-    onBeforeAfter: (Float) -> Unit,
+    onPreviewCompareMode: (PreviewCompareMode) -> Unit,
     onRevertCurrent: () -> Unit,
     onRevertCurrentEffect: () -> Unit,
     onRevertAll: () -> Unit,
@@ -385,8 +388,6 @@ private fun ScannerToolPanel(
         when (tool) {
             ScanTool.ORIGINAL -> {
                 Text("Tap Original anytime to reload the untouched capture.", style = MaterialTheme.typography.bodySmall)
-                HoldCompareButton(onCompareHold = onCompareHold)
-                BeforeAfterSlider(uiState.beforeAfterSlider, onBeforeAfter)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     TextButton(onClick = onRevertCurrentEffect) { Text("Revert effect") }
                     TextButton(onClick = onRevertAll) { Text("Revert all") }
@@ -396,6 +397,11 @@ private fun ScannerToolPanel(
                     TextButton(onClick = onRestoreCrop) { Text("Restore crop") }
                     TextButton(onClick = onRestoreColors) { Text("Restore colors") }
                 }
+                EditPreviewActions(
+                    selected = uiState.previewCompareMode,
+                    showBeforeAfter = false,
+                    onSelect = onPreviewCompareMode,
+                )
                 Button(onClick = onApply, modifier = Modifier.fillMaxWidth()) { Text("Apply reset all") }
             }
             ScanTool.CROP -> {
@@ -448,10 +454,13 @@ private fun ScannerToolPanel(
                         color = MaterialTheme.colorScheme.primary,
                     )
                 }
-                HoldCompareButton(onCompareHold = onCompareHold)
-                BeforeAfterSlider(uiState.beforeAfterSlider, onBeforeAfter)
+                EditPreviewActions(
+                    selected = uiState.previewCompareMode,
+                    showBeforeAfter = true,
+                    onSelect = onPreviewCompareMode,
+                )
             }
-            ScanTool.TRANSITION -> {
+            ScanTool.CLEAN -> {
                 Text("Smart detection", style = MaterialTheme.typography.labelMedium)
                 Row(modifier = Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     DocumentScanType.entries.forEach { type ->
@@ -465,21 +474,6 @@ private fun ScannerToolPanel(
                         )
                     }
                 }
-                TransitionIntSlider("Perspective strength", uiState.draftTransition.perspectiveStrength, onUpdateTransition) { p, v ->
-                    p.copy(perspectiveStrength = v)
-                }
-                FloatSlider("Rotation °", uiState.draftTransition.rotationDegrees, -180f, 180f) { v ->
-                    onUpdateTransition { it.copy(rotationDegrees = v) }
-                }
-                TransitionIntSlider("Vertical correction", uiState.draftTransition.verticalCorrection, onUpdateTransition) { p, v ->
-                    p.copy(verticalCorrection = v)
-                }
-                TransitionIntSlider("Horizontal correction", uiState.draftTransition.horizontalCorrection, onUpdateTransition) { p, v ->
-                    p.copy(horizontalCorrection = v)
-                }
-                TransitionIntSlider("Page flattening", uiState.draftTransition.pageFlattening, onUpdateTransition) { p, v ->
-                    p.copy(pageFlattening = v)
-                }
                 ToggleChip("Auto straighten text", uiState.draftTransition.autoStraightenText) {
                     onUpdateTransition { p -> p.copy(autoStraightenText = !p.autoStraightenText) }
                 }
@@ -487,10 +481,6 @@ private fun ScannerToolPanel(
                     onUpdateTransition { p -> p.copy(curvedPageCorrection = !p.curvedPageCorrection) }
                 }
                 TextButton(onClick = onAutoDetect) { Text("Auto detect page") }
-                HoldCompareButton(onCompareHold = onCompareHold)
-                BeforeAfterSlider(uiState.beforeAfterSlider, onBeforeAfter)
-            }
-            ScanTool.CLEAN -> {
                 FilterChip(
                     selected = uiState.draftClean.autoEnhance,
                     onClick = { onUpdateClean { it.copy(autoEnhance = !it.autoEnhance) } },
@@ -515,8 +505,11 @@ private fun ScannerToolPanel(
                 CleanIntSlider("Shadow removal", uiState.draftClean.shadowRemoval, onUpdateClean) { p, v -> p.copy(shadowRemoval = v) }
                 CleanIntSlider("Paper whitening", uiState.draftClean.paperWhitening, onUpdateClean) { p, v -> p.copy(paperWhitening = v) }
                 CleanIntSlider("Ink enhancement", uiState.draftClean.inkEnhancement, onUpdateClean) { p, v -> p.copy(inkEnhancement = v) }
-                HoldCompareButton(onCompareHold = onCompareHold)
-                BeforeAfterSlider(uiState.beforeAfterSlider, onBeforeAfter)
+                EditPreviewActions(
+                    selected = uiState.previewCompareMode,
+                    showBeforeAfter = true,
+                    onSelect = onPreviewCompareMode,
+                )
             }
             ScanTool.GRAY -> {
                 Row(modifier = Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -543,13 +536,17 @@ private fun ScannerToolPanel(
                 ToggleChip("Improve OCR", uiState.draftGray.improveOcrAccuracy) {
                     onUpdateGray { p -> p.copy(improveOcrAccuracy = !p.improveOcrAccuracy) }
                 }
-                HoldCompareButton(onCompareHold = onCompareHold)
-                BeforeAfterSlider(uiState.beforeAfterSlider, onBeforeAfter)
+                EditPreviewActions(
+                    selected = uiState.previewCompareMode,
+                    showBeforeAfter = true,
+                    onSelect = onPreviewCompareMode,
+                )
             }
             ScanTool.SAVE -> {
                 Text("Export to PDF, separate images, or one long image.", style = MaterialTheme.typography.bodyMedium)
                 Text("Files save to Documents/AILanguageTutor/", style = MaterialTheme.typography.bodySmall)
             }
+            ScanTool.TRANSITION -> Unit
         }
         if (tool != ScanTool.ORIGINAL && tool != ScanTool.SAVE) {
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
@@ -765,27 +762,33 @@ fun ScanVersionCompareDialog(
 }
 
 @Composable
-private fun BeforeAfterSlider(value: Float, onValueChange: (Float) -> Unit) {
-    Text("Before / after", style = MaterialTheme.typography.labelMedium)
-    Slider(value = value, onValueChange = onValueChange)
-}
-
-@Composable
-private fun HoldCompareButton(onCompareHold: (Boolean) -> Unit) {
-    TextButton(
-        onClick = {},
-        modifier = Modifier.pointerInput(Unit) {
-            detectTapGestures(
-                onPress = {
-                    onCompareHold(true)
-                    tryAwaitRelease()
-                    onCompareHold(false)
-                },
-            )
-        },
+private fun EditPreviewActions(
+    selected: PreviewCompareMode,
+    showBeforeAfter: Boolean,
+    onSelect: (PreviewCompareMode) -> Unit,
+) {
+    Text("Preview", style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(top = 8.dp))
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        Icon(Icons.Default.Visibility, contentDescription = null, modifier = Modifier.size(18.dp))
-        Text(" Hold to compare")
+        FilterChip(
+            selected = selected == PreviewCompareMode.ORIGINAL,
+            onClick = { onSelect(PreviewCompareMode.ORIGINAL) },
+            label = { Text("See Original") },
+        )
+        if (showBeforeAfter) {
+            FilterChip(
+                selected = selected == PreviewCompareMode.BEFORE,
+                onClick = { onSelect(PreviewCompareMode.BEFORE) },
+                label = { Text("Before") },
+            )
+            FilterChip(
+                selected = selected == PreviewCompareMode.AFTER,
+                onClick = { onSelect(PreviewCompareMode.AFTER) },
+                label = { Text("After") },
+            )
+        }
     }
 }
 
@@ -873,17 +876,6 @@ private fun CleanIntSlider(
     value: Int,
     onUpdate: ((CleanParams) -> CleanParams) -> Unit,
     transform: (CleanParams, Int) -> CleanParams,
-) {
-    Text(label, style = MaterialTheme.typography.labelMedium)
-    Slider(value = value.toFloat(), onValueChange = { v -> onUpdate { transform(it, v.toInt()) } }, valueRange = 0f..100f)
-}
-
-@Composable
-private fun TransitionIntSlider(
-    label: String,
-    value: Int,
-    onUpdate: ((TransitionParams) -> TransitionParams) -> Unit,
-    transform: (TransitionParams, Int) -> TransitionParams,
 ) {
     Text(label, style = MaterialTheme.typography.labelMedium)
     Slider(value = value.toFloat(), onValueChange = { v -> onUpdate { transform(it, v.toInt()) } }, valueRange = 0f..100f)

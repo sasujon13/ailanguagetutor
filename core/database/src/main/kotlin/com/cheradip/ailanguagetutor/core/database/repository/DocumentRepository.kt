@@ -127,6 +127,31 @@ class DocumentRepository @Inject constructor(
         documentDao.deleteById(id)
     }
 
+    suspend fun deletePage(pageId: Long) = withContext(Dispatchers.IO) {
+        val page = documentPageDao.getById(pageId) ?: return@withContext
+        documentPageDao.deleteById(pageId)
+        val remaining = documentPageDao.countForDocument(page.documentId)
+        documentDao.getById(page.documentId)?.let { doc ->
+            documentDao.update(
+                doc.copy(
+                    pageCount = remaining,
+                    updatedAt = System.currentTimeMillis(),
+                ),
+            )
+        }
+    }
+
+    suspend fun isOcrComplete(documentId: Long): Boolean = withContext(Dispatchers.IO) {
+        val pages = documentPageDao.getByDocument(documentId)
+        pages.isNotEmpty() && pages.all {
+            !it.ocrText.isNullOrBlank() && !it.wordMapJson.isNullOrBlank()
+        }
+    }
+
+    suspend fun hasPages(documentId: Long): Boolean = withContext(Dispatchers.IO) {
+        documentPageDao.countForDocument(documentId) > 0
+    }
+
     private fun DocumentEntity.toModel() = Document(
         id = id,
         title = title,

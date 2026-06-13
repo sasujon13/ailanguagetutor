@@ -4,6 +4,9 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.cheradip.ailanguagetutor.core.ai.OcrStructureService
 import com.cheradip.ailanguagetutor.core.database.repository.DocumentRepository
+import com.cheradip.ailanguagetutor.core.device.ScanWorkflowRepository
+import com.cheradip.ailanguagetutor.core.device.ScanWorkflowSession
+import com.cheradip.ailanguagetutor.core.device.ScanWorkflowStage
 import com.cheradip.ailanguagetutor.core.database.repository.LearningActivityRepository
 import com.cheradip.ailanguagetutor.core.database.repository.LearningActivitySyncRepository
 import com.cheradip.ailanguagetutor.core.model.DocumentPage
@@ -47,6 +50,7 @@ class OcrProcessingViewModel @Inject constructor(
     private val wordMapBuilder: WordMapBuilder,
     private val learningActivityRepository: LearningActivityRepository,
     private val learningActivitySyncRepository: LearningActivitySyncRepository,
+    private val scanWorkflowRepository: ScanWorkflowRepository,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(OcrProcessingUiState())
@@ -65,6 +69,12 @@ class OcrProcessingViewModel @Inject constructor(
                 )
             }
             runCatching {
+                scanWorkflowRepository.save(
+                    ScanWorkflowSession(
+                        documentId = documentId,
+                        stage = ScanWorkflowStage.OCR,
+                    ),
+                )
                 val doc = documentRepository.getDocument(documentId)
                     ?: error("Document not found")
                 val pages = documentRepository.getPages(documentId)
@@ -75,6 +85,7 @@ class OcrProcessingViewModel @Inject constructor(
                 }
             }.onSuccess {
                 recordScanActivity(documentId)
+                scanWorkflowRepository.clear()
                 _uiState.update {
                     it.copy(isRunning = false, isComplete = true, currentStep = OcrPipelineStep.SAVE)
                 }

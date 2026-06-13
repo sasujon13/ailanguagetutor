@@ -117,9 +117,14 @@ fun ScannerScreen(
         }
     }
 
-    LaunchedEffect(documentId, launchMode) {
+    LaunchedEffect(documentId, launchMode, scanOnly) {
         val sourceType = if (launchMode == ScannerLaunchMode.IMPORT) "import" else "scan"
-        viewModel.initDocument(documentId, sourceType)
+        viewModel.initDocument(
+            existingId = documentId,
+            sourceType = sourceType,
+            mode = if (launchMode == ScannerLaunchMode.IMPORT) "import" else "camera",
+            scanOnlyMode = scanOnly,
+        )
     }
 
     LaunchedEffect(launchMode) {
@@ -233,7 +238,7 @@ fun ScannerScreen(
                 ScannerPreviewArea(
                     uiState = uiState,
                     onUpdateCrop = viewModel::updateDraftCrop,
-                    onUpdateTransition = viewModel::updateDraftTransition,
+                    onDeletePage = viewModel::deleteSelectedPage,
                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                 )
                 ScannerPageThumbnailStrip(
@@ -252,8 +257,7 @@ fun ScannerScreen(
                     onOpenTool = viewModel::openTool,
                     onCloseTool = viewModel::closeToolPanel,
                     onApply = viewModel::applyCurrentTool,
-                    onCompareHold = viewModel::setCompareOriginal,
-                    onBeforeAfter = viewModel::setBeforeAfterSlider,
+                    onPreviewCompareMode = viewModel::setPreviewCompareMode,
                     onUndo = viewModel::undo,
                     onRedo = viewModel::redo,
                     onRevertAll = viewModel::revertAllEdits,
@@ -278,6 +282,7 @@ fun ScannerScreen(
                         if (scanOnly) {
                             viewModel.openSaveExportDialog()
                         } else {
+                            viewModel.prepareForOcr()
                             uiState.documentId?.let(onDone)
                         }
                     },

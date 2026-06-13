@@ -33,6 +33,16 @@ class ScanEditEngine {
         return renderPipeline(source, state.appliedCrop, state.appliedTransition, state.appliedClean, state.appliedGray)
     }
 
+    /** Raw capture — no edits applied. */
+    fun renderOriginal(state: PageEditState): Bitmap = BitmapUtils.load(state.originalPath)
+
+    /** Committed pipeline (before current tool draft changes). */
+    fun renderBeforeCurrentTool(state: PageEditState): Bitmap = renderApplied(state)
+
+    /** Live preview with the active tool's draft settings. */
+    fun renderAfterCurrentTool(state: PageEditState, tool: ScanTool?): Bitmap =
+        renderPreview(state, tool, beforeAfter = null)
+
     fun autoDetectCrop(
         bitmap: Bitmap,
         hints: DocumentDetectionHints = DocumentDetectionHints(),
@@ -74,7 +84,13 @@ class ScanEditEngine {
             }
             ScanTool.CLEAN -> {
                 val params = state.draftClean
-                state.copy(appliedClean = params, draftClean = params)
+                val transition = state.draftTransition
+                state.copy(
+                    appliedClean = params,
+                    draftClean = params,
+                    appliedTransition = transition,
+                    draftTransition = transition,
+                )
             }
             ScanTool.GRAY -> {
                 val params = state.draftGray
@@ -190,7 +206,10 @@ class ScanEditEngine {
         if (tool == ScanTool.CROP) state.draftCrop else state.appliedCrop
 
     private fun previewTransition(state: PageEditState, tool: ScanTool?) =
-        if (tool == ScanTool.TRANSITION) state.draftTransition else state.appliedTransition
+        when (tool) {
+            ScanTool.TRANSITION, ScanTool.CLEAN -> state.draftTransition
+            else -> state.appliedTransition
+        }
 
     private fun previewClean(state: PageEditState, tool: ScanTool?) =
         if (tool == ScanTool.CLEAN) state.draftClean else state.appliedClean

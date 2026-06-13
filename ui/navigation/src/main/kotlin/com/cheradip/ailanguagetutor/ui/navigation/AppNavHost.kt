@@ -25,8 +25,10 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import com.cheradip.ailanguagetutor.core.locale.AppLocaleManager
@@ -48,6 +50,9 @@ import com.cheradip.ailanguagetutor.core.billing.CheckAppAccessUseCase
 import com.cheradip.ailanguagetutor.core.billing.PromoRepository
 import com.cheradip.ailanguagetutor.core.billing.ReferralRepository
 import com.cheradip.ailanguagetutor.core.device.GuestAiGateNotifier
+import com.cheradip.ailanguagetutor.core.device.ScanWorkflowRepository
+import com.cheradip.ailanguagetutor.core.device.ScanWorkflowStage
+import com.cheradip.ailanguagetutor.core.database.repository.DocumentRepository
 import com.cheradip.ailanguagetutor.core.database.repository.LearningActivitySyncRepository
 import com.cheradip.ailanguagetutor.feature.auth.LoginScreen
 import com.cheradip.ailanguagetutor.feature.auth.ProfileScreen
@@ -86,6 +91,8 @@ fun AppNavHost(
     referralRepository: ReferralRepository,
     learningActivitySyncRepository: LearningActivitySyncRepository,
     guestAiGateNotifier: GuestAiGateNotifier,
+    scanWorkflowRepository: ScanWorkflowRepository,
+    documentRepository: DocumentRepository,
     pronunciationEngine: PronunciationEngine,
     appLocaleManager: AppLocaleManager,
     currentUser: AuthUser?,
@@ -119,6 +126,38 @@ fun AppNavHost(
         if (currentUser != null) {
             referralRepository.refresh()
             learningActivitySyncRepository.syncIfLoggedIn()
+        }
+    }
+
+    var scanResumeHandled by rememberSaveable { mutableStateOf(false) }
+
+    LaunchedEffect(showOnboarding, scanResumeHandled) {
+        if (showOnboarding || scanResumeHandled) return@LaunchedEffect
+        scanResumeHandled = true
+        val session = scanWorkflowRepository.currentSession() ?: return@LaunchedEffect
+        if (documentRepository.getDocument(session.documentId) == null) {
+            scanWorkflowRepository.clear()
+            return@LaunchedEffect
+        }
+        when (session.stage) {
+            ScanWorkflowStage.SCANNER -> {
+                if (!documentRepository.isOcrComplete(session.documentId)) {
+                    navController.navigate(Routes.scannerDoc(session.documentId)) {
+                        launchSingleTop = true
+                    }
+                } else {
+                    scanWorkflowRepository.clear()
+                }
+            }
+            ScanWorkflowStage.OCR -> {
+                if (!documentRepository.isOcrComplete(session.documentId)) {
+                    navController.navigate(Routes.ocrProcessing(session.documentId)) {
+                        launchSingleTop = true
+                    }
+                } else {
+                    scanWorkflowRepository.clear()
+                }
+            }
         }
     }
 
@@ -368,6 +407,23 @@ fun AppNavHost(
                     onNavigateModeSelection = { navController.navigate(Routes.MODE_SELECTION) },
                     isAdmin = currentUser?.role == "admin",
                     pronunciationEngine = pronunciationEngine,
+                )
+            }
+            composable(
+                route = Routes.SCANNER_DOC,
+                arguments = listOf(navArgument("documentId") { type = NavType.LongType }),
+            ) { entry ->
+                val docId = entry.arguments?.getLong("documentId") ?: return@composable
+                ScannerScreen(
+                    documentId = docId,
+                    launchMode = ScannerLaunchMode.CAMERA,
+                    scanOnly = false,
+                    onBack = { navController.popBackStack() },
+                    onDone = { id ->
+                        navController.navigate(Routes.ocrProcessing(id)) {
+                            popUpTo(Routes.scannerDoc(docId)) { inclusive = true }
+                        }
+                    },
                 )
             }
             composable(

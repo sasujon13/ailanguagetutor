@@ -45,6 +45,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.cheradip.ailanguagetutor.core.image.ScanTool
 import com.cheradip.ailanguagetutor.ui.components.CheradipTopBar
 import com.google.mlkit.vision.documentscanner.GmsDocumentScanningResult
 import kotlinx.coroutines.launch
@@ -195,6 +196,14 @@ fun ScannerScreen(
             onDismiss = viewModel::dismissVersionCompare,
         )
     }
+    if (uiState.showCustomFilterRenameDialog) {
+        val slot = uiState.customFilters.find { it.slotId == uiState.renamingCustomSlotId }
+        CustomFilterRenameDialog(
+            currentName = slot?.displayName ?: "Custom",
+            onDismiss = viewModel::dismissRenameCustomFilter,
+            onConfirm = viewModel::renameCustomFilter,
+        )
+    }
 
     Scaffold(
         topBar = {
@@ -228,11 +237,15 @@ fun ScannerScreen(
             }
         },
     ) { padding ->
+        val editorScrollState = rememberScrollState()
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .verticalScroll(rememberScrollState()),
+                .verticalScroll(
+                    editorScrollState,
+                    enabled = uiState.activeTool != ScanTool.CROP,
+                ),
         ) {
             if (showEditor) {
                 ScannerPreviewArea(
@@ -275,6 +288,9 @@ fun ScannerScreen(
                     onUpdateTransition = viewModel::updateDraftTransition,
                     onUpdateClean = viewModel::updateDraftClean,
                     onUpdateGray = viewModel::updateDraftGray,
+                    onSelectFilterPreset = viewModel::selectFilterPreset,
+                    onSaveCustomFilter = viewModel::saveCustomFilter,
+                    onRenameCustomFilter = viewModel::requestRenameCustomFilter,
                     modifier = Modifier.padding(horizontal = 8.dp),
                 )
                 Button(

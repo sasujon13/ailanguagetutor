@@ -85,16 +85,19 @@ class ScanEditEngine {
             ScanTool.CLEAN -> {
                 val params = state.draftClean
                 val transition = state.draftTransition
+                val gray = state.draftGray.takeIf { it.active }
                 state.copy(
                     appliedClean = params,
                     draftClean = params,
                     appliedTransition = transition,
                     draftTransition = transition,
+                    appliedGray = gray,
+                    draftGray = state.draftGray,
                 )
             }
             ScanTool.GRAY -> {
-                val params = state.draftGray
-                state.copy(appliedGray = params, draftGray = params)
+                val params = state.draftGray.takeIf { it.active }
+                state.copy(appliedGray = params, draftGray = state.draftGray)
             }
             else -> state
         }
@@ -125,7 +128,11 @@ class ScanEditEngine {
     fun resetCurrentToolDraft(state: PageEditState, tool: ScanTool): PageEditState = when (tool) {
         ScanTool.CROP -> state.copy(draftCrop = state.appliedCrop ?: CropParams(corners = QuadPoints.fullFrame()))
         ScanTool.TRANSITION -> state.copy(draftTransition = state.appliedTransition ?: TransitionParams())
-        ScanTool.CLEAN -> state.copy(draftClean = state.appliedClean ?: CleanParams())
+        ScanTool.CLEAN -> state.copy(
+            draftClean = state.appliedClean ?: CleanParams(),
+            draftGray = state.appliedGray ?: GrayParams(),
+            draftTransition = state.appliedTransition ?: TransitionParams(),
+        )
         ScanTool.GRAY -> state.copy(draftGray = state.appliedGray ?: GrayParams())
         else -> state
     }
@@ -136,7 +143,14 @@ class ScanEditEngine {
             draftCrop = CropParams(corners = QuadPoints.fullFrame()),
         )
         ScanTool.TRANSITION -> state.copy(appliedTransition = null, draftTransition = TransitionParams())
-        ScanTool.CLEAN -> state.copy(appliedClean = null, draftClean = CleanParams())
+        ScanTool.CLEAN -> state.copy(
+            appliedClean = null,
+            appliedGray = null,
+            appliedTransition = null,
+            draftClean = CleanParams(),
+            draftGray = GrayParams(),
+            draftTransition = TransitionParams(),
+        )
         ScanTool.GRAY -> state.copy(appliedGray = null, draftGray = GrayParams())
         else -> state
     }
@@ -212,10 +226,17 @@ class ScanEditEngine {
         }
 
     private fun previewClean(state: PageEditState, tool: ScanTool?) =
-        if (tool == ScanTool.CLEAN) state.draftClean else state.appliedClean
+        when (tool) {
+            ScanTool.CLEAN -> state.draftClean
+            else -> state.appliedClean
+        }
 
     private fun previewGray(state: PageEditState, tool: ScanTool?) =
-        if (tool == ScanTool.GRAY) state.draftGray else state.appliedGray
+        when (tool) {
+            ScanTool.CLEAN, ScanTool.GRAY -> state.draftGray.takeIf { it.active } ?: state.appliedGray
+            ScanTool.CROP -> state.appliedGray
+            else -> state.appliedGray
+        }
 
     private fun renderPipeline(
         source: Bitmap,
@@ -228,7 +249,9 @@ class ScanEditEngine {
         crop?.let { bmp = applyCrop(bmp, it) }
         transition?.let { bmp = applyTransition(bmp, it) }
         clean?.let { bmp = ImageCleanProcessor.apply(bmp, it) }
-        gray?.let { bmp = ImageGrayProcessor.apply(bmp, it) }
+        if (gray?.active == true) {
+            bmp = ImageGrayProcessor.apply(bmp, gray)
+        }
         return bmp
     }
 

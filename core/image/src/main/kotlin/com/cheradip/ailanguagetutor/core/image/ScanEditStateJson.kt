@@ -78,6 +78,7 @@ private fun cleanParamsFromJson(obj: JSONObject) = CleanParams(
     preserveSignatures = obj.optBoolean("preserveSignatures", true),
     preserveStamps = obj.optBoolean("preserveStamps", true),
     preserveLogos = obj.optBoolean("preserveLogos", true),
+    filterPresetId = obj.optString("filterPresetId").takeIf { it.isNotBlank() },
 )
 
 private fun CleanParams.toJson(): JSONObject = JSONObject().apply {
@@ -88,9 +89,11 @@ private fun CleanParams.toJson(): JSONObject = JSONObject().apply {
     put("preserveSignatures", preserveSignatures)
     put("preserveStamps", preserveStamps)
     put("preserveLogos", preserveLogos)
+    filterPresetId?.let { put("filterPresetId", it) }
 }
 
-private fun grayParamsFromJson(obj: JSONObject) = GrayParams(
+private fun grayParamsFromJson(obj: JSONObject, defaultActive: Boolean = false) = GrayParams(
+    active = obj.optBoolean("active", defaultActive),
     mode = runCatching { GrayMode.valueOf(obj.optString("mode")) }.getOrDefault(GrayMode.STANDARD),
     brightness = obj.optInt("brightness", 50),
     contrast = obj.optInt("contrast", 50),
@@ -104,6 +107,7 @@ private fun grayParamsFromJson(obj: JSONObject) = GrayParams(
 )
 
 private fun GrayParams.toJson(): JSONObject = JSONObject().apply {
+    put("active", active)
     put("mode", mode.name)
     put("brightness", brightness); put("contrast", contrast); put("exposure", exposure)
     put("gamma", gamma); put("blackPoint", blackPoint); put("whitePoint", whitePoint)
@@ -116,7 +120,7 @@ private fun snapshotFromJson(obj: JSONObject?) = obj?.let {
         appliedCrop = it.optJSONObject("appliedCrop")?.let { c -> cropParamsFromJson(c) },
         appliedTransition = it.optJSONObject("appliedTransition")?.let { t -> transitionParamsFromJson(t) },
         appliedClean = it.optJSONObject("appliedClean")?.let { c -> cleanParamsFromJson(c) },
-        appliedGray = it.optJSONObject("appliedGray")?.let { g -> grayParamsFromJson(g) },
+        appliedGray = it.optJSONObject("appliedGray")?.let { g -> grayParamsFromJson(g, defaultActive = true) },
     )
 }
 
@@ -163,7 +167,7 @@ fun parsePageEditStateJson(pageId: Long, json: String?, originalPath: String, wo
             appliedCrop = obj.optJSONObject("appliedCrop")?.let { cropParamsFromJson(it) },
             appliedTransition = obj.optJSONObject("appliedTransition")?.let { transitionParamsFromJson(it) },
             appliedClean = obj.optJSONObject("appliedClean")?.let { cleanParamsFromJson(it) },
-            appliedGray = obj.optJSONObject("appliedGray")?.let { grayParamsFromJson(it) },
+            appliedGray = obj.optJSONObject("appliedGray")?.let { grayParamsFromJson(it, defaultActive = true) },
             historyIndex = obj.optInt("historyIndex", -1),
             history = obj.optJSONArray("history")?.let { arr ->
                 (0 until arr.length()).mapNotNull { i ->

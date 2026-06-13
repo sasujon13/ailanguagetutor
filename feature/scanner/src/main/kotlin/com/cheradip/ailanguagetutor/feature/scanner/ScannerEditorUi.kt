@@ -26,8 +26,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoFixHigh
-import androidx.compose.material.icons.filled.Crop
-import androidx.compose.material.icons.filled.FilterBAndW
+import androidx.compose.material.icons.filled.CropRotate
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Redo
 import androidx.compose.material.icons.filled.Delete
@@ -49,19 +48,26 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.PathOperation
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
@@ -71,12 +77,12 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
+import com.cheradip.ailanguagetutor.core.image.DocumentFilterPresets
 import com.cheradip.ailanguagetutor.core.image.EditStage
 import java.io.File
 import com.cheradip.ailanguagetutor.core.image.WatermarkMode
 import com.cheradip.ailanguagetutor.core.image.CleanParams
 import com.cheradip.ailanguagetutor.core.image.CropPreset
-import com.cheradip.ailanguagetutor.core.image.DocumentScanType
 import com.cheradip.ailanguagetutor.core.image.ExportCompression
 import com.cheradip.ailanguagetutor.core.image.ExportFormat
 import com.cheradip.ailanguagetutor.core.image.ExportMargins
@@ -91,6 +97,8 @@ import com.cheradip.ailanguagetutor.core.image.QuadPoints
 import com.cheradip.ailanguagetutor.core.image.ScanTool
 import com.cheradip.ailanguagetutor.core.image.TransitionParams
 import kotlin.math.hypot
+import kotlin.math.max
+import kotlin.math.min
 import kotlin.math.roundToInt
 
 @Composable
@@ -155,10 +163,31 @@ fun ScannerPreviewArea(
     var scale by remember { mutableFloatStateOf(1f) }
     var offsetX by remember { mutableFloatStateOf(0f) }
     var offsetY by remember { mutableFloatStateOf(0f) }
+    val isCropMode = uiState.activeTool == ScanTool.CROP
+    LaunchedEffect(isCropMode) {
+        if (isCropMode) {
+            scale = 1f
+            offsetX = 0f
+            offsetY = 0f
+        }
+    }
+    val cropScrollBlocker = remember(isCropMode) {
+        object : NestedScrollConnection {
+            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                return if (isCropMode && source == NestedScrollSource.UserInput) {
+                    available
+                } else {
+                    Offset.Zero
+                }
+            }
+        }
+    }
     val transformState = rememberTransformableState { zoomChange, panChange, _ ->
-        scale = (scale * zoomChange).coerceIn(1f, 4f)
-        offsetX += panChange.x
-        offsetY += panChange.y
+        if (!isCropMode) {
+            scale = (scale * zoomChange).coerceIn(1f, 4f)
+            offsetX += panChange.x
+            offsetY += panChange.y
+        }
     }
 
     Box(
@@ -167,35 +196,56 @@ fun ScannerPreviewArea(
             .height(280.dp)
             .clip(RoundedCornerShape(8.dp))
             .background(MaterialTheme.colorScheme.surfaceVariant)
-            .transformable(state = transformState),
+            .then(
+                if (isCropMode) {
+                    Modifier.nestedScroll(cropScrollBlocker)
+                } else {
+                    Modifier.transformable(state = transformState)
+                },
+            ),
         contentAlignment = Alignment.Center,
     ) {
-        val preview = uiState.previewPath
+        val preview = when {
+            isCropMode -> uiState.selectedPageOriginalPath ?: uiState.previewPath
+            else -> uiState.previewPath
+        }
         if (preview != null) {
             val previewModel = scanPreviewImageModel(
                 path = preview,
-                cacheKey = "scan-preview-${uiState.selectedPageId}-${uiState.previewRevision}",
+                cacheKey = if (isCropMode) {
+                    "scan-crop-source-${uiState.selectedPageId}"
+                } else {
+                    "scan-preview-${uiState.selectedPageId}-${uiState.previewRevision}"
+                },
             )
             AsyncImage(
                 model = previewModel,
                 contentDescription = "Page preview",
                 modifier = Modifier
                     .fillMaxSize()
-                    .graphicsLayer {
-                        scaleX = scale
-                        scaleY = scale
-                        translationX = offsetX
-                        translationY = offsetY
-                    },
+                    .then(
+                        if (!isCropMode) {
+                            Modifier.graphicsLayer {
+                                scaleX = scale
+                                scaleY = scale
+                                translationX = offsetX
+                                translationY = offsetY
+                            }
+                        } else {
+                            Modifier
+                        },
+                    ),
                 contentScale = ContentScale.Fit,
             )
-            if (uiState.activeTool == ScanTool.CROP) {
+            if (isCropMode) {
                 val cropPreset = uiState.draftCrop.preset
                 CropCornerOverlay(
                     corners = uiState.draftCrop.corners,
                     previewPath = preview,
                     previewRevision = uiState.previewRevision,
                     selectedPageId = uiState.selectedPageId,
+                    imageWidth = uiState.cropSourceWidth,
+                    imageHeight = uiState.cropSourceHeight,
                     lockRectangle = cropPreset != CropPreset.FREEFORM,
                     onCornersChanged = { quad ->
                         onUpdateCrop { it.copy(corners = quad) }
@@ -209,7 +259,7 @@ fun ScannerPreviewArea(
         IconButton(
             onClick = onDeletePage,
             modifier = Modifier
-                .align(Alignment.BottomStart)
+                .align(Alignment.BottomEnd)
                 .padding(8.dp)
                 .background(
                     MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.92f),
@@ -249,6 +299,9 @@ fun ScannerEditingControls(
     onUpdateTransition: ((TransitionParams) -> TransitionParams) -> Unit,
     onUpdateClean: ((CleanParams) -> CleanParams) -> Unit,
     onUpdateGray: ((GrayParams) -> GrayParams) -> Unit,
+    onSelectFilterPreset: (String) -> Unit,
+    onSaveCustomFilter: (String) -> Unit,
+    onRenameCustomFilter: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Column(modifier = modifier.fillMaxWidth()) {
@@ -286,6 +339,9 @@ fun ScannerEditingControls(
                 onUpdateTransition = onUpdateTransition,
                 onUpdateClean = onUpdateClean,
                 onUpdateGray = onUpdateGray,
+                onSelectFilterPreset = onSelectFilterPreset,
+                onSaveCustomFilter = onSaveCustomFilter,
+                onRenameCustomFilter = onRenameCustomFilter,
             )
         }
 
@@ -335,9 +391,8 @@ fun ScannerEditingControls(
 private fun ScannerToolBar(activeTool: ScanTool?, onOpenTool: (ScanTool) -> Unit) {
     val tools = listOf(
         ScanTool.ORIGINAL to ("Original" to Icons.Default.Restore),
-        ScanTool.CROP to ("Crop" to Icons.Default.Crop),
+        ScanTool.CROP to ("Crop & Rotate" to Icons.Default.CropRotate),
         ScanTool.CLEAN to ("Clean" to Icons.Default.AutoFixHigh),
-        ScanTool.GRAY to ("Gray" to Icons.Default.FilterBAndW),
         ScanTool.SAVE to ("Save" to Icons.Default.Save),
     )
     Row(
@@ -377,11 +432,14 @@ private fun ScannerToolPanel(
     onUpdateTransition: ((TransitionParams) -> TransitionParams) -> Unit,
     onUpdateClean: ((CleanParams) -> CleanParams) -> Unit,
     onUpdateGray: ((GrayParams) -> GrayParams) -> Unit,
+    onSelectFilterPreset: (String) -> Unit,
+    onSaveCustomFilter: (String) -> Unit,
+    onRenameCustomFilter: (String) -> Unit,
 ) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .height(220.dp)
+            .height(320.dp)
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 12.dp, vertical = 4.dp),
     ) {
@@ -405,6 +463,11 @@ private fun ScannerToolPanel(
                 Button(onClick = onApply, modifier = Modifier.fillMaxWidth()) { Text("Apply reset all") }
             }
             ScanTool.CROP -> {
+                Text(
+                    "Drag the green handles on the image above to set the crop area.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.primary,
+                )
                 Row(
                     modifier = Modifier.horizontalScroll(rememberScrollState()),
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -415,6 +478,15 @@ private fun ScannerToolPanel(
                 }
                 FloatSlider("Rotation °", uiState.draftCrop.rotationDegrees, -180f, 180f) { v ->
                     onUpdateCrop { it.copy(rotationDegrees = v) }
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TextButton(onClick = {
+                        onUpdateCrop { it.copy(rotationDegrees = ((it.rotationDegrees + 90f) % 360f + 360f) % 360f) }
+                    }) { Text("Rotate +90°") }
+                    TextButton(onClick = {
+                        onUpdateCrop { it.copy(rotationDegrees = ((it.rotationDegrees - 90f) % 360f + 360f) % 360f) }
+                    }) { Text("Rotate -90°") }
+                    TextButton(onClick = { onUpdateCrop { it.copy(rotationDegrees = 0f) } }) { Text("Reset") }
                 }
                 if (kotlin.math.abs(uiState.cropSkewDegrees) > 1f) {
                     Text(
@@ -460,81 +532,47 @@ private fun ScannerToolPanel(
                     onSelect = onPreviewCompareMode,
                 )
             }
-            ScanTool.CLEAN -> {
-                Text("Smart detection", style = MaterialTheme.typography.labelMedium)
-                Row(modifier = Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    DocumentScanType.entries.forEach { type ->
+            ScanTool.CLEAN, ScanTool.GRAY -> {
+                Text("Filters", style = MaterialTheme.typography.labelMedium)
+                FilterPresetChipGrid(
+                    presets = DocumentFilterPresets.builtIn,
+                    selectedId = uiState.selectedFilterPresetId,
+                    onSelect = onSelectFilterPreset,
+                )
+                Text("Custom", style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(top = 8.dp))
+                Row(
+                    modifier = Modifier.horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    uiState.customFilters.forEach { slot ->
                         FilterChip(
-                            selected = uiState.draftTransition.scanType == type,
-                            onClick = {
-                                onUpdateTransition { it.copy(scanType = type) }
-                                onAutoDetect()
-                            },
-                            label = { Text(type.name.replace('_', ' ')) },
+                            selected = uiState.selectedFilterPresetId == slot.slotId,
+                            onClick = { onSelectFilterPreset(slot.slotId) },
+                            label = { Text(slot.displayName, style = MaterialTheme.typography.labelSmall) },
                         )
                     }
                 }
-                ToggleChip("Auto straighten text", uiState.draftTransition.autoStraightenText) {
-                    onUpdateTransition { p -> p.copy(autoStraightenText = !p.autoStraightenText) }
-                }
-                ToggleChip("Curved page", uiState.draftTransition.curvedPageCorrection) {
-                    onUpdateTransition { p -> p.copy(curvedPageCorrection = !p.curvedPageCorrection) }
-                }
-                TextButton(onClick = onAutoDetect) { Text("Auto detect page") }
-                FilterChip(
-                    selected = uiState.draftClean.autoEnhance,
-                    onClick = { onUpdateClean { it.copy(autoEnhance = !it.autoEnhance) } },
-                    label = { Text("One-click auto enhance") },
-                )
-                ToggleChip("Adaptive threshold", uiState.draftClean.adaptiveThreshold) {
-                    onUpdateClean { p -> p.copy(adaptiveThreshold = !p.adaptiveThreshold) }
-                }
-                ToggleChip("Preserve signatures", uiState.draftClean.preserveSignatures) {
-                    onUpdateClean { p -> p.copy(preserveSignatures = !p.preserveSignatures) }
-                }
-                ToggleChip("Preserve stamps", uiState.draftClean.preserveStamps) {
-                    onUpdateClean { p -> p.copy(preserveStamps = !p.preserveStamps) }
-                }
-                ToggleChip("Preserve logos", uiState.draftClean.preserveLogos) {
-                    onUpdateClean { p -> p.copy(preserveLogos = !p.preserveLogos) }
-                }
-                CleanIntSlider("Brightness", uiState.draftClean.brightness, onUpdateClean) { p, v -> p.copy(brightness = v) }
-                CleanIntSlider("Contrast", uiState.draftClean.contrast, onUpdateClean) { p, v -> p.copy(contrast = v) }
-                CleanIntSlider("Sharpness", uiState.draftClean.sharpness, onUpdateClean) { p, v -> p.copy(sharpness = v) }
-                CleanIntSlider("Noise reduction", uiState.draftClean.noiseReduction, onUpdateClean) { p, v -> p.copy(noiseReduction = v) }
-                CleanIntSlider("Shadow removal", uiState.draftClean.shadowRemoval, onUpdateClean) { p, v -> p.copy(shadowRemoval = v) }
-                CleanIntSlider("Paper whitening", uiState.draftClean.paperWhitening, onUpdateClean) { p, v -> p.copy(paperWhitening = v) }
-                CleanIntSlider("Ink enhancement", uiState.draftClean.inkEnhancement, onUpdateClean) { p, v -> p.copy(inkEnhancement = v) }
-                EditPreviewActions(
-                    selected = uiState.previewCompareMode,
-                    showBeforeAfter = true,
-                    onSelect = onPreviewCompareMode,
-                )
-            }
-            ScanTool.GRAY -> {
-                Row(modifier = Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    GrayMode.entries.forEach { mode ->
-                        FilterChip(
-                            selected = uiState.draftGray.mode == mode,
-                            onClick = { onUpdateGray { it.copy(mode = mode) } },
-                            label = { Text(mode.name.replace('_', ' ')) },
-                        )
+                if (uiState.editingCustomFilter) {
+                    val activeSlot = uiState.customFilters.find { it.slotId == uiState.selectedFilterPresetId }
+                    if (activeSlot != null) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            TextButton(onClick = { onSaveCustomFilter(activeSlot.slotId) }) {
+                                Text("Save ${activeSlot.displayName}")
+                            }
+                            TextButton(onClick = { onRenameCustomFilter(activeSlot.slotId) }) {
+                                Text("Rename")
+                            }
+                        }
                     }
-                }
-                GrayIntSlider("Brightness", uiState.draftGray.brightness, onUpdateGray) { p, v -> p.copy(brightness = v) }
-                GrayIntSlider("Contrast", uiState.draftGray.contrast, onUpdateGray) { p, v -> p.copy(contrast = v) }
-                GrayIntSlider("Exposure", uiState.draftGray.exposure, onUpdateGray) { p, v -> p.copy(exposure = v) }
-                GrayIntSlider("Gamma", uiState.draftGray.gamma, onUpdateGray) { p, v -> p.copy(gamma = v) }
-                GrayIntSlider("Black point", uiState.draftGray.blackPoint, onUpdateGray) { p, v -> p.copy(blackPoint = v) }
-                GrayIntSlider("White point", uiState.draftGray.whitePoint, onUpdateGray) { p, v -> p.copy(whitePoint = v) }
-                ToggleChip("Darken text", uiState.draftGray.darkenText) {
-                    onUpdateGray { p -> p.copy(darkenText = !p.darkenText) }
-                }
-                ToggleChip("Lighten paper", uiState.draftGray.lightenPaper) {
-                    onUpdateGray { p -> p.copy(lightenPaper = !p.lightenPaper) }
-                }
-                ToggleChip("Improve OCR", uiState.draftGray.improveOcrAccuracy) {
-                    onUpdateGray { p -> p.copy(improveOcrAccuracy = !p.improveOcrAccuracy) }
+                    CustomManualAdjustments(
+                        uiState = uiState,
+                        onUpdateTransition = onUpdateTransition,
+                        onUpdateClean = onUpdateClean,
+                        onUpdateGray = onUpdateGray,
+                    )
                 }
                 EditPreviewActions(
                     selected = uiState.previewCompareMode,
@@ -548,7 +586,7 @@ private fun ScannerToolPanel(
             }
             ScanTool.TRANSITION -> Unit
         }
-        if (tool != ScanTool.ORIGINAL && tool != ScanTool.SAVE) {
+        if (tool != ScanTool.ORIGINAL && tool != ScanTool.SAVE && tool != ScanTool.GRAY) {
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                 TextButton(onClick = onClose) { Text("Cancel") }
                 TextButton(onClick = onRevertCurrent) { Text("Revert") }
@@ -561,6 +599,111 @@ private fun ScannerToolPanel(
 @Composable
 private fun ToggleChip(label: String, selected: Boolean, onToggle: () -> Unit) {
     FilterChip(selected = selected, onClick = onToggle, label = { Text(label, style = MaterialTheme.typography.labelSmall) })
+}
+
+@Composable
+private fun FilterPresetChipGrid(
+    presets: List<com.cheradip.ailanguagetutor.core.image.DocumentFilterPreset>,
+    selectedId: String?,
+    onSelect: (String) -> Unit,
+) {
+    val chunkSize = 4
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        presets.chunked(chunkSize).forEach { rowPresets ->
+            Row(
+                modifier = Modifier.horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                rowPresets.forEach { preset ->
+                    FilterChip(
+                        selected = selectedId == preset.id,
+                        onClick = { onSelect(preset.id) },
+                        label = { Text(preset.name, style = MaterialTheme.typography.labelSmall) },
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CustomManualAdjustments(
+    uiState: ScannerUiState,
+    onUpdateTransition: ((TransitionParams) -> TransitionParams) -> Unit,
+    onUpdateClean: ((CleanParams) -> CleanParams) -> Unit,
+    onUpdateGray: ((GrayParams) -> GrayParams) -> Unit,
+) {
+    Text("Manual adjustments", style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(top = 4.dp))
+    ToggleChip("Grayscale", uiState.draftGray.active) {
+        onUpdateGray { p -> p.copy(active = !p.active) }
+    }
+    Row(modifier = Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        GrayMode.entries.forEach { mode ->
+            FilterChip(
+                selected = uiState.draftGray.mode == mode,
+                onClick = { onUpdateGray { it.copy(active = true, mode = mode) } },
+                label = { Text(mode.name.replace('_', ' '), style = MaterialTheme.typography.labelSmall) },
+            )
+        }
+    }
+    ToggleChip("Auto straighten text", uiState.draftTransition.autoStraightenText) {
+        onUpdateTransition { p -> p.copy(autoStraightenText = !p.autoStraightenText) }
+    }
+    ToggleChip("Curved page", uiState.draftTransition.curvedPageCorrection) {
+        onUpdateTransition { p -> p.copy(curvedPageCorrection = !p.curvedPageCorrection) }
+    }
+    ToggleChip("Auto enhance", uiState.draftClean.autoEnhance) {
+        onUpdateClean { p -> p.copy(autoEnhance = !p.autoEnhance) }
+    }
+    ToggleChip("Adaptive threshold", uiState.draftClean.adaptiveThreshold) {
+        onUpdateClean { p -> p.copy(adaptiveThreshold = !p.adaptiveThreshold) }
+    }
+    CleanIntSlider("Brightness", uiState.draftClean.brightness, onUpdateClean) { p, v -> p.copy(brightness = v) }
+    CleanIntSlider("Contrast", uiState.draftClean.contrast, onUpdateClean) { p, v -> p.copy(contrast = v) }
+    CleanIntSlider("Sharpness", uiState.draftClean.sharpness, onUpdateClean) { p, v -> p.copy(sharpness = v) }
+    CleanIntSlider("Noise reduction", uiState.draftClean.noiseReduction, onUpdateClean) { p, v -> p.copy(noiseReduction = v) }
+    CleanIntSlider("Shadow removal", uiState.draftClean.shadowRemoval, onUpdateClean) { p, v -> p.copy(shadowRemoval = v) }
+    CleanIntSlider("Paper whitening", uiState.draftClean.paperWhitening, onUpdateClean) { p, v -> p.copy(paperWhitening = v) }
+    CleanIntSlider("Ink enhancement", uiState.draftClean.inkEnhancement, onUpdateClean) { p, v -> p.copy(inkEnhancement = v) }
+    GrayIntSlider("Gray brightness", uiState.draftGray.brightness, onUpdateGray) { p, v -> p.copy(active = true, brightness = v) }
+    GrayIntSlider("Gray contrast", uiState.draftGray.contrast, onUpdateGray) { p, v -> p.copy(active = true, contrast = v) }
+    GrayIntSlider("Exposure", uiState.draftGray.exposure, onUpdateGray) { p, v -> p.copy(active = true, exposure = v) }
+    GrayIntSlider("Gamma", uiState.draftGray.gamma, onUpdateGray) { p, v -> p.copy(active = true, gamma = v) }
+    GrayIntSlider("Black point", uiState.draftGray.blackPoint, onUpdateGray) { p, v -> p.copy(active = true, blackPoint = v) }
+    GrayIntSlider("White point", uiState.draftGray.whitePoint, onUpdateGray) { p, v -> p.copy(active = true, whitePoint = v) }
+    ToggleChip("Darken text", uiState.draftGray.darkenText) {
+        onUpdateGray { p -> p.copy(active = true, darkenText = !p.darkenText) }
+    }
+    ToggleChip("Lighten paper", uiState.draftGray.lightenPaper) {
+        onUpdateGray { p -> p.copy(active = true, lightenPaper = !p.lightenPaper) }
+    }
+    ToggleChip("Improve OCR", uiState.draftGray.improveOcrAccuracy) {
+        onUpdateGray { p -> p.copy(active = true, improveOcrAccuracy = !p.improveOcrAccuracy) }
+    }
+}
+
+@Composable
+fun CustomFilterRenameDialog(
+    currentName: String,
+    onDismiss: () -> Unit,
+    onConfirm: (String) -> Unit,
+) {
+    var name by remember(currentName) { mutableStateOf(currentName) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Rename custom filter") },
+        text = {
+            OutlinedTextField(
+                value = name,
+                onValueChange = { name = it },
+                label = { Text("Filter name") },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+            )
+        },
+        confirmButton = { Button(onClick = { onConfirm(name) }) { Text("Save") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
 }
 
 @Composable
@@ -798,54 +941,76 @@ private fun CropCornerOverlay(
     previewPath: String,
     previewRevision: Long,
     selectedPageId: Long?,
+    imageWidth: Int,
+    imageHeight: Int,
     lockRectangle: Boolean,
     onCornersChanged: (QuadPoints) -> Unit,
 ) {
     var size by remember { mutableStateOf(IntSize.Zero) }
     var dragIndex by remember { mutableStateOf(-1) }
     var magnifierCenter by remember { mutableStateOf<Offset?>(null) }
+    val cornersState = rememberUpdatedState(corners)
+    val handleHitRadiusPx = 56f
+    val fitRect = imageContentFitRect(size, imageWidth, imageHeight)
 
     Box(
         modifier = Modifier
             .fillMaxSize()
             .onSizeChanged { size = it }
-            .pointerInput(corners, size) {
+            .pointerInput(lockRectangle, size.width, size.height, imageWidth, imageHeight) {
+                val fit = imageContentFitRect(size, imageWidth, imageHeight)
                 detectDragGestures(
                     onDragStart = { offset ->
-                        dragIndex = nearestHandleIndex(offset, corners, size)
+                        dragIndex = nearestHandleIndex(offset, cornersState.value, fit, handleHitRadiusPx)
                         magnifierCenter = offset
                     },
                     onDragEnd = { dragIndex = -1; magnifierCenter = null },
                     onDragCancel = { dragIndex = -1; magnifierCenter = null },
                     onDrag = { change, _ ->
-                        if (dragIndex < 0 || size.width == 0 || size.height == 0) return@detectDragGestures
-                        val nx = (change.position.x / size.width).coerceIn(0f, 1f)
-                        val ny = (change.position.y / size.height).coerceIn(0f, 1f)
+                        if (dragIndex < 0 || fit.width <= 0f || fit.height <= 0f) return@detectDragGestures
+                        val nx = ((change.position.x - fit.left) / fit.width).coerceIn(0f, 1f)
+                        val ny = ((change.position.y - fit.top) / fit.height).coerceIn(0f, 1f)
                         magnifierCenter = change.position
-                        onCornersChanged(updateHandle(corners, dragIndex, nx, ny, lockRectangle))
+                        onCornersChanged(
+                            updateHandle(cornersState.value, dragIndex, nx, ny, lockRectangle),
+                        )
                         change.consume()
                     },
                 )
             },
     ) {
         Canvas(modifier = Modifier.fillMaxSize()) {
-            if (size.width == 0) return@Canvas
-            val pts = listOf(corners.topLeft, corners.topRight, corners.bottomRight, corners.bottomLeft)
+            if (size.width == 0 || fitRect.width <= 0f) return@Canvas
+            val pts = listOf(
+                corners.topLeft,
+                corners.topRight,
+                corners.bottomRight,
+                corners.bottomLeft,
+            )
             val path = Path().apply {
                 pts.forEachIndexed { i, p ->
-                    val x = p.x * size.width
-                    val y = p.y * size.height
-                    if (i == 0) moveTo(x, y) else lineTo(x, y)
+                    val point = cornerToOffset(p, fitRect)
+                    if (i == 0) moveTo(point.x, point.y) else lineTo(point.x, point.y)
                 }
                 close()
             }
+            val shadePath = Path.combine(
+                PathOperation.Difference,
+                Path().apply {
+                    addRect(Rect(0f, 0f, size.width.toFloat(), size.height.toFloat()))
+                },
+                path,
+            )
+            drawPath(shadePath, Color.Black.copy(alpha = 0.4f))
             drawPath(path, Color(0xFF00897B), style = Stroke(width = 3f))
             pts.forEach { p ->
-                drawCircle(Color(0xFF00897B), radius = 14f, center = Offset(p.x * size.width, p.y * size.height))
+                val center = cornerToOffset(p, fitRect)
+                drawCircle(Color(0xFF00897B), radius = 18f, center = center)
+                drawCircle(Color.White, radius = 10f, center = center)
             }
-            val edges = edgeMidpoints(corners, size)
-            edges.forEach { e ->
-                drawCircle(Color(0xFF00695C), radius = 10f, center = e)
+            edgeMidpoints(corners, fitRect).forEach { e ->
+                drawCircle(Color(0xFF00695C), radius = 12f, center = e)
+                drawCircle(Color.White, radius = 6f, center = e)
             }
         }
         magnifierCenter?.let { center ->
@@ -898,11 +1063,34 @@ private fun FloatSlider(label: String, value: Float, min: Float, max: Float, onC
     Slider(value = value, onValueChange = onChange, valueRange = min..max)
 }
 
-private fun edgeMidpoints(corners: QuadPoints, size: IntSize): List<Offset> {
-    val tl = Offset(corners.topLeft.x * size.width, corners.topLeft.y * size.height)
-    val tr = Offset(corners.topRight.x * size.width, corners.topRight.y * size.height)
-    val br = Offset(corners.bottomRight.x * size.width, corners.bottomRight.y * size.height)
-    val bl = Offset(corners.bottomLeft.x * size.width, corners.bottomLeft.y * size.height)
+private fun imageContentFitRect(container: IntSize, imageWidth: Int, imageHeight: Int): Rect {
+    if (container.width <= 0 || container.height <= 0 || imageWidth <= 0 || imageHeight <= 0) {
+        return Rect(
+            0f,
+            0f,
+            max(container.width, 1).toFloat(),
+            max(container.height, 1).toFloat(),
+        )
+    }
+    val scale = min(
+        container.width.toFloat() / imageWidth,
+        container.height.toFloat() / imageHeight,
+    )
+    val w = imageWidth * scale
+    val h = imageHeight * scale
+    val left = (container.width - w) / 2f
+    val top = (container.height - h) / 2f
+    return Rect(left, top, left + w, top + h)
+}
+
+private fun cornerToOffset(point: PointF, fitRect: Rect): Offset =
+    Offset(fitRect.left + point.x * fitRect.width, fitRect.top + point.y * fitRect.height)
+
+private fun edgeMidpoints(corners: QuadPoints, fitRect: Rect): List<Offset> {
+    val tl = cornerToOffset(corners.topLeft, fitRect)
+    val tr = cornerToOffset(corners.topRight, fitRect)
+    val br = cornerToOffset(corners.bottomRight, fitRect)
+    val bl = cornerToOffset(corners.bottomLeft, fitRect)
     return listOf(
         Offset((tl.x + tr.x) / 2f, (tl.y + tr.y) / 2f),
         Offset((tr.x + br.x) / 2f, (tr.y + br.y) / 2f),
@@ -911,17 +1099,24 @@ private fun edgeMidpoints(corners: QuadPoints, size: IntSize): List<Offset> {
     )
 }
 
-private fun nearestHandleIndex(offset: Offset, corners: QuadPoints, size: IntSize): Int {
+private fun nearestHandleIndex(offset: Offset, corners: QuadPoints, fitRect: Rect, hitRadius: Float): Int {
     val cornerPts = listOf(corners.topLeft, corners.topRight, corners.bottomRight, corners.bottomLeft)
-    var best = 0
-    var bestDist = Float.MAX_VALUE
+    var best = -1
+    var bestDist = hitRadius
     cornerPts.forEachIndexed { i, p ->
-        val d = hypot(offset.x - p.x * size.width, offset.y - p.y * size.height)
-        if (d < bestDist) { bestDist = d; best = i }
+        val center = cornerToOffset(p, fitRect)
+        val d = hypot(offset.x - center.x, offset.y - center.y)
+        if (d < bestDist) {
+            bestDist = d
+            best = i
+        }
     }
-    edgeMidpoints(corners, size).forEachIndexed { i, e ->
+    edgeMidpoints(corners, fitRect).forEachIndexed { i, e ->
         val d = hypot(offset.x - e.x, offset.y - e.y)
-        if (d < bestDist) { bestDist = d; best = 4 + i }
+        if (d < bestDist) {
+            bestDist = d
+            best = 4 + i
+        }
     }
     return best
 }

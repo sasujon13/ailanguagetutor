@@ -145,9 +145,11 @@ data class CleanParams(
     val preserveSignatures: Boolean = true,
     val preserveStamps: Boolean = true,
     val preserveLogos: Boolean = true,
+    val filterPresetId: String? = null,
 )
 
 data class GrayParams(
+    val active: Boolean = false,
     val mode: GrayMode = GrayMode.STANDARD,
     val brightness: Int = 50,
     val contrast: Int = 50,

@@ -342,16 +342,19 @@ class AIManager @Inject constructor(
             return@withContext offlineSummary(paragraph)
         }
 
+        val profile = MixedLanguageAnalyzer.analyze(paragraph, sourceLang, targetLang)
+        val effectiveSource = profile.effectiveSourceLang()
+
         val mode = aiModePrefs.resolvedMode(inputSource, tier)
-        val key = "batch:$sourceLang:$targetLang:${intent.name}:${mode.id}:${inputSource.name}:${paragraph.hashCode()}"
-        aiCacheDao.get(key)?.responseJson?.let { return@withContext it }
+        val key = "batch:$effectiveSource:$targetLang:${intent.name}:${mode.id}:${inputSource.name}:${paragraph.hashCode()}"
+        aiCacheDao.get(key)?.responseJson?.let { return@withContext formatAiOutput(it) }
 
         val backend = homeAiSettings.preferredBackend.first()
         if (backend == AiBackend.LOCAL_HOME) {
             guestAiUsageRepository.ensureGuestCanUseAi()
             runCatching {
                 withTimeout(appConfig.homeAiTimeoutMs) {
-                    callHomeAi(paragraph, sourceLang, targetLang, inputSource, intent, mode, tier)
+                    callHomeAi(paragraph, effectiveSource, targetLang, inputSource, intent, mode, tier)
                 }
             }.onSuccess { result ->
                 if (intent == ProcessingIntent.TRANSLATION && isTranslationStub(result)) {
@@ -359,8 +362,9 @@ class AIManager @Inject constructor(
                 } else {
                     guestAiUsageRepository.recordGuestAiUsage()
                     lastBackend = AiBackend.LOCAL_HOME
-                    aiCacheDao.put(AiCacheEntity(key, result, System.currentTimeMillis()))
-                    return@withContext result
+                    val formatted = formatAiOutput(result)
+                    aiCacheDao.put(AiCacheEntity(key, formatted, System.currentTimeMillis()))
+                    return@withContext formatted
                 }
             }.onFailure { e ->
                 val reason = when (e) {
@@ -375,13 +379,14 @@ class AIManager @Inject constructor(
             guestAiUsageRepository.ensureGuestCanUseAi()
             val prompt = PracticePromptBuilder.build(
                 paragraph,
-                sourceLang,
+                effectiveSource,
                 targetLang,
                 intent,
+                profile,
             )
             val body = AiParagraphRequest(
                 paragraph = prompt,
-                sourceLang = sourceLang,
+                sourceLang = effectiveSource,
                 targetLang = targetLang,
             )
             aiService.explainParagraph(body)
@@ -397,9 +402,12 @@ class AIManager @Inject constructor(
                 offlineSummary(paragraph)
             },
         )
-        aiCacheDao.put(AiCacheEntity(key, cloud, System.currentTimeMillis()))
-        cloud
+        val formatted = formatAiOutput(cloud)
+        aiCacheDao.put(AiCacheEntity(key, formatted, System.currentTimeMillis()))
+        formatted
     }
+
+    private fun formatAiOutput(raw: String): String = AiResponseFormatter.format(raw)
 
     private fun isTranslationStub(text: String): Boolean =
         text.startsWith("[NLLB stub") || text.startsWith("[NLLB openvino stub")

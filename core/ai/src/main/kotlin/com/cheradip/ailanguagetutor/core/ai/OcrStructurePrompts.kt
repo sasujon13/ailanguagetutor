@@ -17,11 +17,12 @@ internal object OcrStructurePrompts {
                 ---
                 
                 Tasks:
-                1. Reconstruct equations and math notation clearly (use Unicode math symbols or LaTeX where helpful).
-                2. Fix OCR errors (confused 0/O, 1/l, missing operators, broken fractions, split lines).
-                3. Preserve step order for multi-line derivations.
-                4. Group related lines; add short section headings if needed.
-                5. Note any missing or uncertain parts at the end under "## Gaps detected".
+                1. Reconstruct equations clearly using Unicode math symbols (α, β, ×, ÷, √, ≤, ≥) or plain notation like d = y/tan α.
+                2. NEVER output raw LaTeX $$ delimiters or broken \\frac fragments — one equation per line.
+                3. Fix OCR errors (confused 0/O, 1/l, missing operators, broken fractions, split lines).
+                4. Preserve step order for multi-line derivations; add blank lines between steps.
+                5. Group related lines; add short section headings (## …) if needed.
+                6. Note any missing or uncertain parts at the end under "## Gaps detected".
                 
                 Reply with ONLY the cleaned, structured mathematics text. No preamble.
             """.trimIndent()

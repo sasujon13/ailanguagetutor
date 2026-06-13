@@ -58,7 +58,7 @@ class OcrStructureService @Inject constructor(
 
         val cacheKey = "ocr-struct:${contentType.name}:$languageCode:${rawOcrText.hashCode()}"
         aiCacheDao.get(cacheKey)?.responseJson?.let {
-            return@withContext OcrStructureResult(it, contentType, "cache")
+            return@withContext OcrStructureResult(formatStructured(it), contentType, "cache")
         }
 
         val useCloudOnly = contentType.prefersCloudStructure()
@@ -106,8 +106,9 @@ class OcrStructureService @Inject constructor(
             onSuccess = { cleaned ->
                 guestAiUsageRepository.recordGuestAiUsage()
                 aiProviderRepository.recordProviderUsed("home-ai-clean-ocr")
-                aiCacheDao.put(AiCacheEntity(cacheKey, cleaned, System.currentTimeMillis()))
-                OcrStructureResult(cleaned, contentType, "home-ai")
+                val formatted = formatStructured(cleaned)
+                aiCacheDao.put(AiCacheEntity(cacheKey, formatted, System.currentTimeMillis()))
+                OcrStructureResult(formatted, contentType, "home-ai")
             },
             onFailure = { e ->
                 if (e is GuestAiLimitReachedException) throw e
@@ -139,7 +140,7 @@ class OcrStructureService @Inject constructor(
         )
         guestAiUsageRepository.recordGuestAiUsage()
         aiProviderRepository.recordProviderUsed(response.providerUsed ?: "cloud")
-        val text = response.structuredText.ifBlank { rawOcrText }
+        val text = formatStructured(response.structuredText.ifBlank { rawOcrText })
         aiCacheDao.put(AiCacheEntity(cacheKey, text, System.currentTimeMillis()))
         OcrStructureResult(text, contentType, response.providerUsed ?: "cloud")
     }.fold(
@@ -156,8 +157,10 @@ class OcrStructureService @Inject constructor(
         type: ScannedContentType,
         label: String,
     ) = OcrStructureResult(
-        structuredText = OcrTextFormatter.format(raw, type),
+        structuredText = formatStructured(OcrTextFormatter.format(raw, type)),
         contentType = type,
         backendLabel = label,
     )
+
+    private fun formatStructured(text: String): String = AiResponseFormatter.format(text)
 }

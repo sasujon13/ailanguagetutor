@@ -58,5 +58,5 @@ class DocumentImageStorage @Inject constructor(
     )
 
     private fun timestamp(): String =
-        SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
+        "${SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())}_${System.nanoTime()}"
 }

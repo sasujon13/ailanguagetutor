@@ -39,6 +39,7 @@ dependencies {
     implementation(project(":feature:billing"))
     implementation(project(":core:locale"))
     implementation(project(":feature:onboarding"))
+    implementation(project(":feature:help"))
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.ui)
     implementation(libs.compose.material3)

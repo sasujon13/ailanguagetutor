@@ -16,6 +16,7 @@ import com.cheradip.ailanguagetutor.core.model.GrammarDepth
 import com.cheradip.ailanguagetutor.core.model.GuestAiLimitReachedException
 import com.cheradip.ailanguagetutor.core.model.InputSource
 import com.cheradip.ailanguagetutor.core.model.ProcessingIntent
+import com.cheradip.ailanguagetutor.core.model.ScannedContentType
 import com.cheradip.ailanguagetutor.core.model.WordDefinition
 import com.cheradip.ailanguagetutor.core.model.WordSheetState
 import com.cheradip.ailanguagetutor.core.model.WordSpan
@@ -56,6 +57,8 @@ data class ReaderUiState(
     val aiPrefetching: Boolean = false,
     val saveMessage: String? = null,
     val guestAiLoginRequired: Boolean = false,
+    val primaryContentType: ScannedContentType = ScannedContentType.PROSE,
+    val structureBackendLabel: String? = null,
 )
 
 @HiltViewModel
@@ -112,6 +115,13 @@ class ReaderViewModel @Inject constructor(
                 .map { it.languageCode }
                 .firstOrNull { !it.equals(lang, ignoreCase = true) }
                 ?: "en"
+            val primaryType = pages
+                .mapNotNull { it.ocrContentType }
+                .map { ScannedContentType.fromStored(it) }
+                .groupingBy { it }
+                .eachCount()
+                .maxByOrNull { it.value }
+                ?.key ?: ScannedContentType.PROSE
             _uiState.update {
                 it.copy(
                     title = doc?.title ?: "Document",
@@ -120,6 +130,7 @@ class ReaderViewModel @Inject constructor(
                     fullText = text.ifBlank { "No text recognized. Try rescanning." },
                     words = words,
                     isLoading = false,
+                    primaryContentType = primaryType,
                 )
             }
             scheduleAiPrefetch(grammarDepth.value)

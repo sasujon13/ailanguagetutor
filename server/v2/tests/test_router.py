@@ -79,6 +79,29 @@ def test_select_qwen14_plus_mode5_high():
     assert select_model(TaskIntent.ANSWER, req, cx) == ModelSlot.QWEN_14B
 
 
+def test_plus_high_without_mode5_uses_7b():
+    req = _req(
+        ai_engine_mode=1,
+        subscription_tier=SubscriptionTier.PLUS,
+        text="Explain in detail why " + "x " * 300,
+    )
+    cx = complexity_score(req.text, True, lang_count=2)
+    assert cx.bucket == "HIGH"
+    assert select_model(TaskIntent.ANSWER, req, cx) == ModelSlot.QWEN_7B
+
+
+def test_pro_mode5_high_uses_7b_without_plus():
+    """Pro cannot select mode 5 at API tier gate; selector must not route 14B anyway."""
+    req = _req(
+        ai_engine_mode=5,
+        subscription_tier=SubscriptionTier.PRO,
+        text="Explain in detail why " + "x " * 300,
+    )
+    cx = complexity_score(req.text, True, lang_count=2)
+    assert cx.bucket == "HIGH"
+    assert select_model(TaskIntent.ANSWER, req, cx) == ModelSlot.QWEN_7B
+
+
 def test_fallback_chain_14b():
     chain = fallback_chain(ModelSlot.QWEN_14B)
     assert chain[0] == ModelSlot.QWEN_14B

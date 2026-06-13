@@ -6,8 +6,6 @@ import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -15,13 +13,12 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Camera
 import androidx.compose.material.icons.filled.PhotoLibrary
+import androidx.compose.material.icons.filled.Save
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -43,13 +40,11 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import coil.compose.AsyncImage
 import com.cheradip.ailanguagetutor.ui.components.CheradipTopBar
 import com.google.mlkit.vision.documentscanner.GmsDocumentScanningResult
 import kotlinx.coroutines.launch
@@ -66,6 +61,7 @@ fun ScannerScreen(
     onBack: () -> Unit,
     onDone: (Long) -> Unit,
     launchMode: ScannerLaunchMode = ScannerLaunchMode.CAMERA,
+    scanOnly: Boolean = false,
     viewModel: ScannerViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -98,7 +94,7 @@ fun ScannerScreen(
             context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
                 ?: ByteArray(0)
         }.filter { it.isNotEmpty() }
-        pages.forEach { viewModel.onPhotoCaptured(it) }
+        viewModel.onPhotosCaptured(pages)
     }
     val scope = rememberCoroutineScope()
     var importGalleryOpened by remember { mutableStateOf(false) }
@@ -171,6 +167,15 @@ fun ScannerScreen(
             onUpdate = viewModel::updateExportOptions,
         )
     }
+    if (uiState.showExportConflictDialog) {
+        ScanExportConflictDialog(
+            existingNames = uiState.exportConflictExisting,
+            renameHint = uiState.exportConflictRenameHint,
+            onReplace = viewModel::confirmExportReplace,
+            onRename = viewModel::confirmExportRename,
+            onDismiss = viewModel::dismissExportConflictDialog,
+        )
+    }
     if (uiState.showExportPreview) {
         ScanExportPreviewDialog(
             paths = uiState.exportPreviewPaths,
@@ -191,7 +196,7 @@ fun ScannerScreen(
             CheradipTopBar(
                 title = if (isImportMode) "Import" else "Scanner",
                 subtitle = if (showEditor) {
-                    "Edit · then Process & Read"
+                    if (scanOnly) "Edit · then Save" else "Edit · then Process & Read"
                 } else if (isImportMode) {
                     "Gallery import"
                 } else {
@@ -231,6 +236,61 @@ fun ScannerScreen(
                     onUpdateTransition = viewModel::updateDraftTransition,
                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                 )
+                ScannerPageThumbnailStrip(
+                    pages = uiState.pages,
+                    selectedPageId = uiState.selectedPageId,
+                    thumbnailPathFor = viewModel::pageThumbnailPath,
+                    onSelectPage = viewModel::selectPage,
+                )
+                Text(
+                    text = "${uiState.pageCount} page(s) · tap a thumbnail to switch page",
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                ScannerEditingControls(
+                    uiState = uiState,
+                    onOpenTool = viewModel::openTool,
+                    onCloseTool = viewModel::closeToolPanel,
+                    onApply = viewModel::applyCurrentTool,
+                    onCompareHold = viewModel::setCompareOriginal,
+                    onBeforeAfter = viewModel::setBeforeAfterSlider,
+                    onUndo = viewModel::undo,
+                    onRedo = viewModel::redo,
+                    onRevertAll = viewModel::revertAllEdits,
+                    onRevertCurrent = viewModel::revertCurrentTool,
+                    onRevertCurrentEffect = viewModel::revertCurrentEffect,
+                    onRevertToOriginal = viewModel::revertToOriginal,
+                    onCompareHistory = viewModel::compareWithHistory,
+                    onRestoreCrop = viewModel::restoreCropBoundaries,
+                    onRestoreColors = viewModel::restoreOriginalColors,
+                    onJumpToHistory = viewModel::jumpToHistoryStage,
+                    onJumpToStage = viewModel::jumpToStage,
+                    onAutoDetect = viewModel::autoDetectEdges,
+                    onCropPreset = viewModel::applyCropPreset,
+                    onUpdateCrop = viewModel::updateDraftCrop,
+                    onUpdateTransition = viewModel::updateDraftTransition,
+                    onUpdateClean = viewModel::updateDraftClean,
+                    onUpdateGray = viewModel::updateDraftGray,
+                    modifier = Modifier.padding(horizontal = 8.dp),
+                )
+                Button(
+                    onClick = {
+                        if (scanOnly) {
+                            viewModel.openSaveExportDialog()
+                        } else {
+                            uiState.documentId?.let(onDone)
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth().padding(16.dp),
+                    enabled = uiState.pageCount > 0 && !uiState.isSaving,
+                ) {
+                    Icon(
+                        if (scanOnly) Icons.Default.Save else Icons.Default.Camera,
+                        contentDescription = null,
+                        modifier = Modifier.padding(end = 8.dp),
+                    )
+                    Text(if (scanOnly) "Save" else "Process & Read")
+                }
             } else if (isImportMode) {
                 MlKitScanPrompt(
                     title = "Pick images from your gallery",
@@ -264,65 +324,6 @@ fun ScannerScreen(
 
             if (uiState.isSaving) {
                 CircularProgressIndicator(modifier = Modifier.padding(8.dp).align(Alignment.CenterHorizontally))
-            }
-
-            if (uiState.pages.isNotEmpty()) {
-                LazyRow(
-                    modifier = Modifier.fillMaxWidth().padding(8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    items(uiState.pages, key = { it.id }) { page ->
-                        AsyncImage(
-                            model = page.imagePath,
-                            contentDescription = null,
-                            modifier = Modifier
-                                .padding(4.dp)
-                                .clickable { viewModel.selectPage(page.id) },
-                            contentScale = ContentScale.Crop,
-                        )
-                    }
-                }
-                Text(
-                    text = "${uiState.pageCount} page(s) · tap thumbnail to edit",
-                    modifier = Modifier.padding(horizontal = 16.dp),
-                    style = MaterialTheme.typography.bodySmall,
-                )
-                if (showEditor) {
-                    ScannerEditingControls(
-                        uiState = uiState,
-                        onOpenTool = viewModel::openTool,
-                        onCloseTool = viewModel::closeToolPanel,
-                        onApply = viewModel::applyCurrentTool,
-                        onCompareHold = viewModel::setCompareOriginal,
-                        onBeforeAfter = viewModel::setBeforeAfterSlider,
-                        onUndo = viewModel::undo,
-                        onRedo = viewModel::redo,
-                        onRevertAll = viewModel::revertAllEdits,
-                        onRevertCurrent = viewModel::revertCurrentTool,
-                        onRevertCurrentEffect = viewModel::revertCurrentEffect,
-                        onRevertToOriginal = viewModel::revertToOriginal,
-                        onCompareHistory = viewModel::compareWithHistory,
-                        onRestoreCrop = viewModel::restoreCropBoundaries,
-                        onRestoreColors = viewModel::restoreOriginalColors,
-                        onJumpToHistory = viewModel::jumpToHistoryStage,
-                        onJumpToStage = viewModel::jumpToStage,
-                        onAutoDetect = viewModel::autoDetectEdges,
-                        onCropPreset = viewModel::applyCropPreset,
-                        onUpdateCrop = viewModel::updateDraftCrop,
-                        onUpdateTransition = viewModel::updateDraftTransition,
-                        onUpdateClean = viewModel::updateDraftClean,
-                        onUpdateGray = viewModel::updateDraftGray,
-                        modifier = Modifier.padding(horizontal = 8.dp),
-                    )
-                }
-                Button(
-                    onClick = { uiState.documentId?.let(onDone) },
-                    modifier = Modifier.fillMaxWidth().padding(16.dp),
-                    enabled = uiState.pageCount > 0 && !uiState.isSaving,
-                ) {
-                    Icon(Icons.Default.Camera, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
-                    Text("Process & Read")
-                }
             }
         }
     }

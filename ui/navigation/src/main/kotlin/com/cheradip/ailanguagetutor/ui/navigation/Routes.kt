@@ -9,7 +9,7 @@ object Routes {
     const val LANGUAGES = "languages"
     const val PROFILE = "profile"
     const val SETTINGS = "settings"
-    const val SCANNER = "scanner?mode={mode}"
+    const val SCANNER = "scanner?mode={mode}&scanOnly={scanOnly}"
     const val SCANNER_DOC = "scanner/{documentId}"
     const val OCR_PROCESSING = "ocr/{documentId}"
     const val READER = "reader/{documentId}"
@@ -21,6 +21,10 @@ object Routes {
     const val ADMIN = "admin"
     const val ADMIN_AI = "admin/ai"
     const val MODE_SELECTION = "mode_selection"
+    const val USER_MANUAL = "user_manual"
+    const val USER_MANUAL_READ = "user_manual/{manualId}"
+
+    fun userManualRead(manualId: String) = "user_manual/$manualId"
 
     /** Bottom-nav root destinations — no back arrow in the top bar. */
     fun isMainTabRoute(routeBase: String?): Boolean = when {
@@ -32,7 +36,8 @@ object Routes {
 
     fun practiceHub(startVoice: Boolean = false, activityId: Long = -1L) =
         "practice/$activityId?startVoice=$startVoice"
-    fun scanner(mode: String = "camera") = "scanner?mode=$mode"
+    fun scanner(mode: String = "camera", scanOnly: Boolean = false) =
+        "scanner?mode=$mode&scanOnly=$scanOnly"
     fun login(returnTo: String = "") = "login?returnTo=$returnTo"
     fun register(returnTo: String = "") = "register?returnTo=$returnTo"
     fun scannerDoc(documentId: Long) = "scanner/$documentId"

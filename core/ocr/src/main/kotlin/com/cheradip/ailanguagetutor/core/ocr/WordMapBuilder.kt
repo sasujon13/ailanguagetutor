@@ -74,4 +74,23 @@ class WordMapBuilder @Inject constructor() {
 
     fun findWordAtOffset(words: List<WordSpan>, offset: Int): WordSpan? =
         words.firstOrNull { offset in it.startOffset until it.endOffset }
+
+    /** Word spans for plain typed/voice text (no OCR bounding boxes). */
+    fun buildFromPlainText(fullText: String): List<WordSpan> {
+        if (fullText.isBlank()) return emptyList()
+        val words = mutableListOf<WordSpan>()
+        var searchFrom = 0
+        Regex("\\S+").findAll(fullText).forEach { match ->
+            val start = match.range.first
+            if (start >= searchFrom) {
+                words += WordSpan(
+                    text = match.value,
+                    startOffset = start,
+                    endOffset = match.range.last + 1,
+                )
+                searchFrom = match.range.last + 1
+            }
+        }
+        return words
+    }
 }

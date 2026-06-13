@@ -53,22 +53,34 @@ class ScanExportService(context: Context) {
 
     data class ExportResult(val paths: List<String>, val format: ExportFormat)
 
-    fun export(pagePaths: List<String>, options: ExportOptions): ExportResult {
+    fun planExport(pageCount: Int, options: ExportOptions): ExportPlan {
+        val dir = exportDir(options.format)
+        return ExportFileNaming.planExport(dir, options, pageCount)
+    }
+
+    fun export(
+        pagePaths: List<String>,
+        options: ExportOptions,
+        conflictResolution: ExportConflictResolution = ExportConflictResolution.RENAME,
+    ): ExportResult {
         ensurePdfBoxReady()
         val bitmaps = pagePaths.map { BitmapUtils.load(it) }
+        val dir = exportDir(options.format)
+        val targets = ExportFileNaming.resolveTargets(dir, options, bitmaps.size, conflictResolution)
         return when (options.format) {
-            ExportFormat.PDF -> ExportResult(listOf(exportPdf(bitmaps, options)), ExportFormat.PDF)
-            ExportFormat.IMAGES -> ExportResult(exportImages(bitmaps, options), ExportFormat.IMAGES)
-            ExportFormat.LONG_IMAGE -> ExportResult(listOf(exportLongImage(bitmaps, options)), ExportFormat.LONG_IMAGE)
+            ExportFormat.PDF -> ExportResult(listOf(exportPdf(bitmaps, options, targets.single())), ExportFormat.PDF)
+            ExportFormat.IMAGES -> ExportResult(exportImages(bitmaps, options, targets), ExportFormat.IMAGES)
+            ExportFormat.LONG_IMAGE -> ExportResult(listOf(exportLongImage(bitmaps, options, targets.single())), ExportFormat.LONG_IMAGE)
         }
     }
 
-    private fun exportPdf(bitmaps: List<Bitmap>, options: ExportOptions): String {
-        val dir = File(baseDir, "PDF").also { it.mkdirs() }
-        val baseName = sanitizedName(options.documentName.ifBlank { "Document" })
-        val name = if (options.title.isNotBlank()) "${sanitizedName(options.title)}.pdf" else "$baseName.pdf"
-        val file = File(dir, name)
+    private fun exportDir(format: ExportFormat): File =
+        File(baseDir, ExportFileNaming.subfolder(format)).also { it.mkdirs() }
+
+    private fun exportPdf(bitmaps: List<Bitmap>, options: ExportOptions, target: File): String {
+        val baseName = ExportFileNaming.exportBaseName(options, ExportFormat.PDF)
         val quality = jpegQuality(options)
+        target.parentFile?.mkdirs()
         PDDocument().use { document ->
             document.documentInformation.author = options.author.ifBlank { null }
             document.documentInformation.title = options.title.ifBlank { baseName }
@@ -101,10 +113,10 @@ class ScanExportService(context: Context) {
                 policy.encryptionKeyLength = 128
                 document.protect(policy)
             }
-            FileOutputStream(file).use { document.save(it) }
+            FileOutputStream(target).use { document.save(it) }
         }
-        registerMedia(file, "application/pdf")
-        return file.absolutePath
+        registerMedia(target, "application/pdf")
+        return target.absolutePath
     }
 
     /** Lays out source on page canvas with margins, orientation, and optional watermark. */
@@ -190,26 +202,27 @@ class ScanExportService(context: Context) {
         ExportMargins.LARGE -> 32
     }
 
-    private fun exportImages(bitmaps: List<Bitmap>, options: ExportOptions): List<String> {
-        val dir = File(baseDir, "Images").also { it.mkdirs() }
-        val prefix = resolveImagePrefix(dir, options.documentName)
+    private fun exportImages(
+        bitmaps: List<Bitmap>,
+        options: ExportOptions,
+        targets: List<File>,
+    ): List<String> {
         val quality = jpegQuality(options)
         return bitmaps.mapIndexed { index, bitmap ->
             val rendered = renderPageBitmap(bitmap, options)
-            val fileName = if (options.documentName.isNotBlank()) {
-                "${sanitizedName(options.documentName)}_${index + 1}.jpg"
-            } else {
-                "${prefix}${index + 1}.jpg"
-            }
-            val file = File(dir, fileName)
+            val file = targets[index]
+            file.parentFile?.mkdirs()
             BitmapUtils.save(rendered, file.absolutePath, quality)
             registerMedia(file, "image/jpeg")
             file.absolutePath
         }
     }
 
-    private fun exportLongImage(bitmaps: List<Bitmap>, options: ExportOptions): String {
-        val dir = File(baseDir, "LongImages").also { it.mkdirs() }
+    private fun exportLongImage(
+        bitmaps: List<Bitmap>,
+        options: ExportOptions,
+        target: File,
+    ): String {
         val renderedPages = bitmaps.map { renderPageBitmap(it, options) }
         val width = renderedPages.maxOf { it.width }
         val spacing = longImageSpacing(options.margins)
@@ -223,45 +236,11 @@ class ScanExportService(context: Context) {
             canvas.drawBitmap(page, x.toFloat(), y.toFloat(), null)
             y += page.height + spacing
         }
-        val name = sanitizedName(options.documentName.ifBlank { "long_image" }) + ".jpg"
-        val file = File(dir, name)
-        BitmapUtils.save(longBitmap, file.absolutePath, jpegQuality(options))
-        registerMedia(file, "image/jpeg")
-        return file.absolutePath
+        target.parentFile?.mkdirs()
+        BitmapUtils.save(longBitmap, target.absolutePath, jpegQuality(options))
+        registerMedia(target, "image/jpeg")
+        return target.absolutePath
     }
-
-    /** Returns prefix like image_a (no trailing underscore). Files: image_a1.jpg */
-    fun resolveImagePrefix(dir: File, customName: String): String {
-        if (customName.isNotBlank()) return sanitizedName(customName)
-        val existing = dir.listFiles()
-            ?.mapNotNull { file ->
-                Regex("""^image_([a-z]+)\d+\.jpg$""").find(file.name)?.groupValues?.get(1)
-            }?.toSet().orEmpty()
-        var length = 1
-        while (length <= 6) {
-            for (candidate in generatePrefixes(length)) {
-                if (candidate !in existing) return "image_$candidate"
-            }
-            length++
-        }
-        return "image_exp${System.currentTimeMillis()}"
-    }
-
-    private fun generatePrefixes(length: Int): List<String> {
-        val out = mutableListOf<String>()
-        fun recurse(current: String, remaining: Int) {
-            if (remaining == 0) {
-                out.add(current)
-                return
-            }
-            for (c in 'a'..'z') recurse(current + c, remaining - 1)
-        }
-        recurse("", length)
-        return out
-    }
-
-    private fun sanitizedName(name: String): String =
-        name.trim().replace(Regex("[^A-Za-z0-9._-]"), "_").ifBlank { "Document" }
 
     private fun jpegQuality(options: ExportOptions): Int {
         val base = when (options.quality) {

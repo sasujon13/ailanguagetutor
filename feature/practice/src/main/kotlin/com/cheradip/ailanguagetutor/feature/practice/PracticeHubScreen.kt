@@ -47,6 +47,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 
 import com.cheradip.ailanguagetutor.core.locale.appString
+import com.cheradip.ailanguagetutor.feature.dictionary.WordDefinitionSheet
 import com.cheradip.ailanguagetutor.ui.components.CheradipScrollScreen
 import com.cheradip.ailanguagetutor.ui.components.IconTextButton
 import com.cheradip.ailanguagetutor.ui.components.InputChannel
@@ -288,6 +289,9 @@ fun PracticeHubScreen(
 
                 onCancelVoiceAutoAi = viewModel::cancelVoiceAutoAiTimer,
 
+                onWordTapOutput = { offset -> viewModel.onWordTap(PracticeGrammarTarget.OUTPUT, offset) },
+                onWordTapInput = { offset -> viewModel.onWordTap(PracticeGrammarTarget.INPUT, offset) },
+
             )
 
         }
@@ -308,6 +312,19 @@ fun PracticeHubScreen(
 
         }
 
+    }
+
+    WordDefinitionSheet(
+        sheet = hubState.wordSheet,
+        onDismiss = viewModel::dismissWordSheet,
+        onSpeak = viewModel::speakWord,
+        onSave = viewModel::saveSelectedWord,
+    )
+
+    LaunchedEffect(hubState.grammarStudyMessage) {
+        hubState.grammarStudyMessage?.let {
+            viewModel.clearGrammarStudyMessage()
+        }
     }
 
 }

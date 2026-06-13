@@ -110,10 +110,15 @@ class DocumentRepository @Inject constructor(
         pageId: Long,
         ocrText: String,
         wordMapJson: String,
+        ocrContentType: String? = null,
     ) = withContext(Dispatchers.IO) {
         documentPageDao.getById(pageId)?.let { page ->
             documentPageDao.update(
-                page.copy(ocrText = ocrText, wordMapJson = wordMapJson),
+                page.copy(
+                    ocrText = ocrText,
+                    wordMapJson = wordMapJson,
+                    ocrContentType = ocrContentType,
+                ),
             )
         }
     }
@@ -141,6 +146,7 @@ class DocumentRepository @Inject constructor(
         editStateJson = editStateJson,
         ocrText = ocrText,
         wordMapJson = wordMapJson,
+        ocrContentType = ocrContentType,
         width = width,
         height = height,
     )

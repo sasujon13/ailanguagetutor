@@ -56,6 +56,9 @@ import com.cheradip.ailanguagetutor.feature.billing.AdminConsoleScreen
 import com.cheradip.ailanguagetutor.feature.billing.PaywallScreen
 import com.cheradip.ailanguagetutor.feature.billing.ReferralScreen
 import com.cheradip.ailanguagetutor.feature.grammar.GrammarBookScreen
+import com.cheradip.ailanguagetutor.feature.help.ManualType
+import com.cheradip.ailanguagetutor.feature.help.UserManualDetailScreen
+import com.cheradip.ailanguagetutor.feature.help.UserManualHubScreen
 import com.cheradip.ailanguagetutor.feature.home.HomeScreen
 import com.cheradip.ailanguagetutor.feature.journal.LibraryScreen
 import com.cheradip.ailanguagetutor.feature.languages.LanguagesScreen
@@ -264,7 +267,9 @@ fun AppNavHost(
             }
             composable(Routes.HOME) {
                 HomeScreen(
-                    onScanClick = { navController.navigate(Routes.scanner("camera")) },
+                    onScanClick = { scanOnly ->
+                        navController.navigate(Routes.scanner("camera", scanOnly))
+                    },
                     onCameraClick = { navController.navigate(Routes.scanner("camera")) },
                     onImportClick = { navController.navigate(Routes.scanner("import")) },
                     onPracticeClick = {
@@ -345,6 +350,9 @@ fun AppNavHost(
                     onNavigateSignUp = { navController.navigate(Routes.register()) },
                     onNavigateReferral = { navController.navigate(Routes.REFERRAL) },
                     onNavigatePaywall = { navController.navigate(Routes.PAYWALL) },
+                    onNavigateUserManual = {
+                        navController.navigate(Routes.USER_MANUAL) { launchSingleTop = true }
+                    },
                 )
             }
             composable(Routes.SETTINGS) {
@@ -365,16 +373,22 @@ fun AppNavHost(
                         type = NavType.StringType
                         defaultValue = "camera"
                     },
+                    navArgument("scanOnly") {
+                        type = NavType.BoolType
+                        defaultValue = false
+                    },
                 ),
             ) { entry ->
                 val mode = entry.arguments?.getString("mode") ?: "camera"
+                val scanOnly = entry.arguments?.getBoolean("scanOnly") ?: false
                 ScannerScreen(
                     documentId = null,
                     launchMode = if (mode == "import") ScannerLaunchMode.IMPORT else ScannerLaunchMode.CAMERA,
+                    scanOnly = scanOnly,
                     onBack = { navController.popBackStack() },
                     onDone = { docId ->
                         navController.navigate(Routes.ocrProcessing(docId)) {
-                            popUpTo(Routes.scanner(mode)) { inclusive = true }
+                            popUpTo(Routes.scanner(mode, scanOnly)) { inclusive = true }
                         }
                     },
                 )
@@ -496,6 +510,32 @@ fun AppNavHost(
             }
             composable(Routes.ADMIN_AI) {
                 AdminConsoleScreen(initialTab = 1)
+            }
+            composable(Routes.USER_MANUAL) {
+                val isAdmin = currentUser?.role == "admin"
+                UserManualHubScreen(
+                    isAdmin = isAdmin,
+                    onOpenManual = { manual ->
+                        navController.navigate(Routes.userManualRead(manual.id))
+                    },
+                )
+            }
+            composable(
+                route = Routes.USER_MANUAL_READ,
+                arguments = listOf(navArgument("manualId") { type = NavType.StringType }),
+            ) { entry ->
+                val manualId = entry.arguments?.getString("manualId")
+                val manualType = ManualType.fromId(manualId)
+                if (manualType == null) {
+                    LaunchedEffect(Unit) { navController.popBackStack() }
+                    return@composable
+                }
+                val isAdmin = currentUser?.role == "admin"
+                if (manualType != ManualType.USER && !isAdmin) {
+                    LaunchedEffect(Unit) { navController.popBackStack() }
+                    return@composable
+                }
+                UserManualDetailScreen(manualType = manualType)
             }
             }
         }

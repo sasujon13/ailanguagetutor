@@ -36,6 +36,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.cheradip.ailanguagetutor.core.model.ProcessingIntent
+import com.cheradip.ailanguagetutor.core.model.ScannedContentType
 import com.cheradip.ailanguagetutor.feature.dictionary.WordDefinitionSheet
 import com.cheradip.ailanguagetutor.ui.components.CheradipTopBar
 import com.cheradip.ailanguagetutor.ui.components.GrammarDepthChips
@@ -146,14 +147,29 @@ fun ReaderScreen(
                         modifier = Modifier.padding(vertical = 8.dp),
                     )
                 }
-                ClickableText(
-                    text = annotated,
-                    style = MaterialTheme.typography.bodyLarge.copy(
-                        color = MaterialTheme.colorScheme.onSurface,
-                        lineHeight = MaterialTheme.typography.bodyLarge.lineHeight,
-                    ),
-                    onClick = { offset -> viewModel.onWordTap(offset) },
+                AssistChip(
+                    onClick = {},
+                    label = { Text(uiState.primaryContentType.displayLabel()) },
                 )
+                val useStructured = uiState.primaryContentType != ScannedContentType.PROSE ||
+                    uiState.fullText.contains("```") ||
+                    uiState.fullText.contains("## ")
+                if (useStructured) {
+                    StructuredReaderText(
+                        text = uiState.fullText,
+                        useMonospace = uiState.primaryContentType == ScannedContentType.CODE,
+                        modifier = Modifier.padding(vertical = 8.dp),
+                    )
+                } else {
+                    ClickableText(
+                        text = annotated,
+                        style = MaterialTheme.typography.bodyLarge.copy(
+                            color = MaterialTheme.colorScheme.onSurface,
+                            lineHeight = MaterialTheme.typography.bodyLarge.lineHeight,
+                        ),
+                        onClick = { offset -> viewModel.onWordTap(offset) },
+                    )
+                }
                 }
             }
         }

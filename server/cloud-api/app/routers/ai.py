@@ -67,3 +67,26 @@ async def explain_paragraph(body: AiParagraphRequest, db: Session = Depends(get_
             explanation = llm_text
 
     return {"explanation": explanation, "provider_used": provider_id}
+
+
+@router.post("/structure-ocr")
+async def structure_ocr(body: dict, db: Session = Depends(get_db)) -> dict:
+    """Structure noisy OCR for math, code, flowcharts — uses cloud LLM pool (not home AI)."""
+    raw_text = (body.get("raw_text") or body.get("prompt") or "")[:6000]
+    content_type = (body.get("content_type") or "prose").lower()
+    prompt = body.get("prompt") or (
+        f"Fix OCR errors and structure this {content_type} scan text:\n\n{raw_text}"
+    )
+    structured = raw_text
+    provider_id = "local-stub"
+
+    if _has_any_llm_key():
+        llm_text, provider_id = await generate_with_fallback(db, prompt, max_tokens=2048)
+        if llm_text:
+            structured = llm_text
+
+    return {
+        "structured_text": structured,
+        "content_type": content_type,
+        "provider_used": provider_id,
+    }

@@ -19,7 +19,7 @@ def select_model(
     | OCR cleanup       | Mistral 7B   |
     | Simple Q&A        | Mistral 7B   |
     | Medium reasoning  | Qwen 7B      |
-    | Complex reasoning | Qwen 14B     |
+    | Complex reasoning | Qwen 14B (Plus + mode 5 only) |
     """
     if intent == TaskIntent.TRANSLATION:
         return ModelSlot.NLLB
@@ -35,24 +35,21 @@ def select_model(
         return ModelSlot.MISTRAL_7B
     if mode == 2:
         return ModelSlot.NLLB
-    if mode == 5 and req.subscription_tier == SubscriptionTier.PLUS and bucket == "HIGH":
-        return ModelSlot.QWEN_14B
     if mode in (1, 3, 5):
         if bucket == "LOW":
             return ModelSlot.MISTRAL_7B
         if bucket == "MEDIUM":
             return ModelSlot.QWEN_7B
-        if req.subscription_tier == SubscriptionTier.PLUS and mode == 5:
+        # HIGH complexity: Qwen 14B only for Plus tier + High Accuracy (mode 5)
+        if mode == 5 and req.subscription_tier == SubscriptionTier.PLUS:
             return ModelSlot.QWEN_14B
         return ModelSlot.QWEN_7B
 
-    # Default answer path by complexity only
+    # Default answer path by complexity only (no mode 5 / no 14B)
     if bucket == "LOW":
         return ModelSlot.MISTRAL_7B
     if bucket == "MEDIUM":
         return ModelSlot.QWEN_7B
-    if req.subscription_tier == SubscriptionTier.PLUS:
-        return ModelSlot.QWEN_14B
     return ModelSlot.QWEN_7B
 
 

@@ -9,6 +9,7 @@ from pathlib import Path
 import httpx
 
 from app.config import Settings
+from app.schemas import SubscriptionTier
 
 from app.services.gpu_status import GpuStatus, probe_gpu
 
@@ -123,13 +124,23 @@ class ModelLoader:
         self.active_llm = slot.value
         self._loaded.add(slot.value)
 
-    def slot_for_mode(self, mode: int, complexity: str = "MEDIUM") -> ModelSlot:
+    def slot_for_mode(
+        self,
+        mode: int,
+        complexity: str = "MEDIUM",
+        tier: str | None = None,
+    ) -> ModelSlot:
+        """Rough mode→slot hint. Qwen 14B is never chosen here — use model_selector + tier gate."""
         if mode == 4:
             return ModelSlot.MISTRAL_7B
-        if mode == 5 and complexity == "HIGH":
-            return ModelSlot.QWEN_14B
         if mode == 2:
             return ModelSlot.NLLB
+        if (
+            mode == 5
+            and complexity == "HIGH"
+            and tier == SubscriptionTier.PLUS.value
+        ):
+            return ModelSlot.QWEN_14B
         return ModelSlot.QWEN_7B
 
     def status(self) -> dict:

@@ -19,6 +19,7 @@ data class DocumentPage(
     val editStateJson: String? = null,
     val ocrText: String?,
     val wordMapJson: String?,
+    val ocrContentType: String? = null,
     val width: Int,
     val height: Int,
 )

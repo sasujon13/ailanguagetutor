@@ -4,7 +4,14 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.cheradip.ailanguagetutor.core.ai.AiPrefetchCoordinator
 import com.cheradip.ailanguagetutor.core.ai.GrammarPreferenceRepository
+import com.cheradip.ailanguagetutor.core.ai.GrammarExplainer
 import com.cheradip.ailanguagetutor.core.ai.UnifiedTextPipeline
+import com.cheradip.ailanguagetutor.core.database.repository.SavedWordRepository
+import com.cheradip.ailanguagetutor.core.model.WordDefinition
+import com.cheradip.ailanguagetutor.core.model.WordSheetState
+import com.cheradip.ailanguagetutor.core.model.WordSpan
+import com.cheradip.ailanguagetutor.core.ocr.WordMapBuilder
+import com.cheradip.ailanguagetutor.core.pack.DictionaryRepository
 import com.cheradip.ailanguagetutor.core.audio.PracticeLanguageConfig
 import com.cheradip.ailanguagetutor.core.audio.PracticeLanguageRepository
 import com.cheradip.ailanguagetutor.core.audio.PronunciationEngine
@@ -39,6 +46,9 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Dispatchers
 import javax.inject.Inject
 
 enum class SpeechCaptureMode { NONE, VOICE_INPUT, CALIBRATION }
@@ -52,6 +62,8 @@ data class CalibrationUiState(
     val lastScore: Float? = null,
     val message: String? = null,
 )
+
+enum class PracticeGrammarTarget { INPUT, OUTPUT }
 
 data class PracticeHubUiState(
     val typedInput: String = "",
@@ -70,6 +82,11 @@ data class PracticeHubUiState(
     val resultSaved: Boolean = false,
     val saveMessage: String? = null,
     val processError: String? = null,
+    val inputWords: List<WordSpan> = emptyList(),
+    val outputWords: List<WordSpan> = emptyList(),
+    val wordSheet: WordSheetState? = null,
+    val lastInputSource: InputSource = InputSource.TYPED,
+    val grammarStudyMessage: String? = null,
 )
 
 @HiltViewModel
@@ -87,11 +104,15 @@ class PracticeHubViewModel @Inject constructor(
     private val offlinePracticeProcessor: OfflinePracticeProcessor,
     private val networkConnectivityMonitor: NetworkConnectivityMonitor,
     grammarPreferenceRepository: GrammarPreferenceRepository,
+    private val grammarExplainer: GrammarExplainer,
+    private val dictionaryRepository: DictionaryRepository,
+    private val wordMapBuilder: WordMapBuilder,
+    private val savedWordRepository: SavedWordRepository,
 ) : ViewModel() {
     private val _uiState = MutableStateFlow(PracticeHubUiState())
     val uiState: StateFlow<PracticeHubUiState> = _uiState.asStateFlow()
 
-    private val grammarDepth = grammarPreferenceRepository.depth
+    val grammarDepth = grammarPreferenceRepository.depth
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), GrammarDepth.WORD)
 
     val practiceLanguages = practiceLanguageRepository.config
@@ -215,6 +236,8 @@ class PracticeHubViewModel @Inject constructor(
                 resultSaved = false,
                 saveMessage = null,
                 processError = null,
+                inputWords = wordMapBuilder.buildFromPlainText(text),
+                wordSheet = null,
             )
         }
         aiPrefetchCoordinator.schedulePracticeWarm(
@@ -244,6 +267,9 @@ class PracticeHubViewModel @Inject constructor(
                 resultSaved = false,
                 saveMessage = null,
                 processError = null,
+                inputWords = wordMapBuilder.buildFromPlainText(trimmed),
+                lastInputSource = inputSource,
+                wordSheet = null,
             )
         }
         cancelVoiceAutoAiTimer()
@@ -258,6 +284,7 @@ class PracticeHubViewModel @Inject constructor(
 
     fun processTypedInputWithSavedLanguages() {
         cancelVoiceAutoAiTimer()
+        _uiState.update { it.copy(lastInputSource = InputSource.TYPED) }
         runProcess { processWithAi(inputSource = InputSource.TYPED) }
     }
 
@@ -287,6 +314,8 @@ class PracticeHubViewModel @Inject constructor(
                     outputOffline = true,
                     aiLoading = false,
                     processError = null,
+                    outputWords = wordMapBuilder.buildFromPlainText(output),
+                    wordSheet = null,
                 )
             }
         }
@@ -334,6 +363,7 @@ class PracticeHubViewModel @Inject constructor(
                     title = "Learning: typed",
                     sourceLang = langs.inputLanguage,
                     targetLang = langs.outputLanguage,
+                    inputSource = inputSource,
                 )
                 return
             }
@@ -374,6 +404,7 @@ class PracticeHubViewModel @Inject constructor(
                 title = "Learning: typed",
                 sourceLang = langs.inputLanguage,
                 targetLang = langs.outputLanguage,
+                inputSource = inputSource,
             )
         } else {
             _uiState.update {
@@ -409,6 +440,7 @@ class PracticeHubViewModel @Inject constructor(
                 title = "Learning: offline process",
                 sourceLang = langs.inputLanguage,
                 targetLang = langs.outputLanguage,
+                inputSource = _uiState.value.lastInputSource,
             )
         } else {
             _uiState.update {
@@ -418,6 +450,8 @@ class PracticeHubViewModel @Inject constructor(
                     aiIntent = ProcessingIntent.TRANSLATION,
                     outputOffline = true,
                     processError = null,
+                    outputWords = wordMapBuilder.buildFromPlainText(output),
+                    wordSheet = null,
                 )
             }
         }
@@ -459,6 +493,7 @@ class PracticeHubViewModel @Inject constructor(
         title: String,
         sourceLang: String,
         targetLang: String,
+        inputSource: InputSource = _uiState.value.lastInputSource,
     ) {
         val activityId = learningActivityRepository.record(
             title = title,
@@ -479,6 +514,10 @@ class PracticeHubViewModel @Inject constructor(
                 resultSaved = false,
                 saveMessage = null,
                 processError = null,
+                inputWords = wordMapBuilder.buildFromPlainText(text),
+                outputWords = wordMapBuilder.buildFromPlainText(output),
+                lastInputSource = inputSource,
+                wordSheet = null,
             )
         }
         learningActivitySyncRepository.syncIfLoggedIn()
@@ -570,6 +609,112 @@ class PracticeHubViewModel @Inject constructor(
         _uiState.update { it.copy(saveMessage = null) }
     }
 
+    fun onWordTap(target: PracticeGrammarTarget, offset: Int) {
+        val state = _uiState.value
+        val langs = practiceLanguages.value
+        val fullText: String
+        val words: List<WordSpan>
+        val languageCode: String
+        val inputSource: InputSource
+        when (target) {
+            PracticeGrammarTarget.INPUT -> {
+                fullText = state.typedInput
+                words = state.inputWords
+                languageCode = langs.inputLanguage
+                inputSource = state.lastInputSource
+            }
+            PracticeGrammarTarget.OUTPUT -> {
+                fullText = state.aiOutput.orEmpty()
+                words = state.outputWords
+                languageCode = langs.outputLanguage
+                inputSource = state.lastInputSource
+            }
+        }
+        if (fullText.isBlank()) return
+        val word = wordMapBuilder.findWordAtOffset(words, offset) ?: return
+        val depth = grammarDepth.value
+        viewModelScope.launch {
+            val lookupLang = resolvePracticeLanguage(languageCode)
+            val def = dictionaryRepository.lookup(word.text, lookupLang)
+                ?: WordDefinition(
+                    word = word.text,
+                    languageCode = lookupLang,
+                    meanings = listOf(
+                        if (state.activeLanguageCodes.isEmpty()) {
+                            "Download a language pack in Languages to see offline meanings."
+                        } else {
+                            "This word is not in your downloaded packs yet."
+                        },
+                    ),
+                )
+            val contextSnippet = grammarExplainer.contextForDepth(fullText, offset, depth)
+            _uiState.update {
+                it.copy(
+                    wordSheet = WordSheetState(
+                        definition = def,
+                        grammarLoading = true,
+                        grammarDepth = depth,
+                        contextSnippet = contextSnippet,
+                    ),
+                )
+            }
+            val grammar = try {
+                grammarExplainer.explain(
+                    fullText = fullText,
+                    tapOffset = offset,
+                    focusWord = word.text,
+                    languageCode = languageCode,
+                    targetLang = langs.outputLanguage,
+                    depth = depth,
+                    inputSource = inputSource,
+                )
+            } catch (_: GuestAiLimitReachedException) {
+                "Sign in to continue using AI grammar."
+            } catch (_: Exception) {
+                "Grammar unavailable offline."
+            }
+            _uiState.update { current ->
+                current.copy(
+                    wordSheet = current.wordSheet?.copy(
+                        grammarText = grammar,
+                        grammarLoading = false,
+                    ),
+                )
+            }
+        }
+    }
+
+    fun dismissWordSheet() {
+        _uiState.update { it.copy(wordSheet = null) }
+    }
+
+    fun speakWord(text: String) {
+        val lang = practiceLanguages.value.inputLanguage
+        pronunciationEngine.speak(text, lang)
+    }
+
+    fun saveSelectedWord() {
+        val def = _uiState.value.wordSheet?.definition ?: return
+        viewModelScope.launch {
+            savedWordRepository.save(
+                word = def.word,
+                languageCode = def.languageCode,
+                meaning = def.meanings.firstOrNull() ?: "",
+            )
+            _uiState.update { it.copy(grammarStudyMessage = "Saved to study list") }
+        }
+    }
+
+    fun clearGrammarStudyMessage() {
+        _uiState.update { it.copy(grammarStudyMessage = null) }
+    }
+
+    private suspend fun resolvePracticeLanguage(preferred: String): String {
+        val active = languagePackRepository.observeActive().first().map { it.languageCode }
+        if (active.any { it.equals(preferred, ignoreCase = true) }) return preferred
+        return active.firstOrNull() ?: preferred
+    }
+
     fun restoreActivity(activityId: Long) {
         if (activityId <= 0L) return
         viewModelScope.launch {
@@ -593,6 +738,11 @@ class PracticeHubViewModel @Inject constructor(
                     resultSaved = activity.isSaved,
                     saveMessage = null,
                     processError = null,
+                    inputWords = wordMapBuilder.buildFromPlainText(activity.inputText.orEmpty()),
+                    outputWords = wordMapBuilder.buildFromPlainText(
+                        activity.outputText ?: activity.summary ?: "",
+                    ),
+                    wordSheet = null,
                 )
             }
         }
@@ -628,6 +778,9 @@ class PracticeHubViewModel @Inject constructor(
                             isListening = false,
                             speechMode = SpeechCaptureMode.NONE,
                             processError = null,
+                            inputWords = wordMapBuilder.buildFromPlainText(state.text),
+                            lastInputSource = InputSource.VOICE,
+                            wordSheet = null,
                         )
                     }
                     val langs = practiceLanguages.value

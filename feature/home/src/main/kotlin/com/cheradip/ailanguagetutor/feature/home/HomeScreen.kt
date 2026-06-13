@@ -44,7 +44,7 @@ private enum class HomeActivityMode {
 @Composable
 fun HomeScreen(
     modifier: Modifier = Modifier,
-    onScanClick: () -> Unit = {},
+    onScanClick: (scanOnly: Boolean) -> Unit = {},
     onCameraClick: () -> Unit = {},
     onPracticeClick: () -> Unit = {},
     onTypeClick: () -> Unit = {},
@@ -58,7 +58,11 @@ fun HomeScreen(
     val activityMode = HomeActivityMode.entries[activityModeOrdinal.coerceIn(HomeActivityMode.entries.indices)]
 
     val learningActions = listOf(
-        QuickAction(appString("action_scan"), Icons.Default.QrCodeScanner, onScanClick),
+        QuickAction(
+            appString("action_scan"),
+            Icons.Default.QrCodeScanner,
+            onClick = { onScanClick(activityMode == HomeActivityMode.SCAN_ONLY) },
+        ),
         QuickAction(appString("action_camera"), Icons.Default.CameraAlt, onCameraClick),
         QuickAction(appString("action_import"), Icons.Default.PhotoLibrary, onImportClick),
         QuickAction(appString("action_practice"), Icons.AutoMirrored.Filled.MenuBook, onPracticeClick),

@@ -265,6 +265,23 @@ class HomeAiService @Inject constructor(
         return grammarBookApi().grammarBookEnrichSection(body)
     }
 
+    suspend fun cleanOcr(
+        text: String,
+        languageCode: String,
+        tier: SubscriptionTier,
+    ): String {
+        val body = buildRequest(
+            text = text,
+            mode = AiEngineMode.LIGHTWEIGHT,
+            intent = ProcessingIntent.ANSWER,
+            inputSource = InputSource.OCR_SCAN,
+            tier = tier,
+            languageCode = languageCode,
+            targets = emptyList(),
+        )
+        return api().cleanOcr(body).cleanedText
+    }
+
     private fun buildRequest(
         text: String,
         mode: AiEngineMode,

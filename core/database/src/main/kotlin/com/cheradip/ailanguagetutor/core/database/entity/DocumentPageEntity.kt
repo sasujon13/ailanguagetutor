@@ -26,6 +26,7 @@ data class DocumentPageEntity(
     val editStateJson: String? = null,
     val ocrText: String? = null,
     val wordMapJson: String? = null,
+    val ocrContentType: String? = null,
     val width: Int = 0,
     val height: Int = 0,
 )

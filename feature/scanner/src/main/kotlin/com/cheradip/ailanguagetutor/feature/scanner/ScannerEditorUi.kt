@@ -2,6 +2,8 @@ package com.cheradip.ailanguagetutor.feature.scanner
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.rememberTransformableState
@@ -17,6 +19,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -63,11 +66,14 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import com.cheradip.ailanguagetutor.core.image.EditStage
+import java.io.File
 import com.cheradip.ailanguagetutor.core.image.WatermarkMode
 import com.cheradip.ailanguagetutor.core.image.CleanParams
 import com.cheradip.ailanguagetutor.core.image.CropPreset
@@ -87,6 +93,58 @@ import com.cheradip.ailanguagetutor.core.image.ScanTool
 import com.cheradip.ailanguagetutor.core.image.TransitionParams
 import kotlin.math.hypot
 import kotlin.math.roundToInt
+
+@Composable
+private fun scanPreviewImageModel(path: String, cacheKey: String): Any {
+    val context = LocalContext.current
+    return remember(path, cacheKey) {
+        ImageRequest.Builder(context)
+            .data(File(path))
+            .memoryCacheKey(cacheKey)
+            .diskCacheKey(cacheKey)
+            .build()
+    }
+}
+
+@Composable
+fun ScannerPageThumbnailStrip(
+    pages: List<ScannerPageItem>,
+    selectedPageId: Long?,
+    thumbnailPathFor: (ScannerPageItem) -> String,
+    onSelectPage: (Long) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val scrollState = rememberScrollState()
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(72.dp)
+            .horizontalScroll(scrollState)
+            .padding(horizontal = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        pages.forEach { page ->
+            val selected = page.id == selectedPageId
+            val borderColor = if (selected) {
+                MaterialTheme.colorScheme.primary
+            } else {
+                MaterialTheme.colorScheme.outlineVariant
+            }
+            AsyncImage(
+                model = thumbnailPathFor(page),
+                contentDescription = "Page ${page.pageIndex + 1}",
+                modifier = Modifier
+                    .width(48.dp)
+                    .height(56.dp)
+                    .clip(RoundedCornerShape(6.dp))
+                    .border(2.dp, borderColor, RoundedCornerShape(6.dp))
+                    .clickable { onSelectPage(page.id) },
+                contentScale = ContentScale.Crop,
+            )
+        }
+    }
+}
 
 @Composable
 fun ScannerPreviewArea(
@@ -115,8 +173,12 @@ fun ScannerPreviewArea(
     ) {
         val preview = uiState.previewPath
         if (preview != null) {
+            val previewModel = scanPreviewImageModel(
+                path = preview,
+                cacheKey = "scan-preview-${uiState.selectedPageId}-${uiState.previewRevision}",
+            )
             AsyncImage(
-                model = preview,
+                model = previewModel,
                 contentDescription = "Page preview",
                 modifier = Modifier
                     .fillMaxSize()
@@ -137,6 +199,8 @@ fun ScannerPreviewArea(
                         uiState.draftTransition.corners
                     },
                     previewPath = preview,
+                    previewRevision = uiState.previewRevision,
+                    selectedPageId = uiState.selectedPageId,
                     lockRectangle = uiState.activeTool == ScanTool.CROP && cropPreset != CropPreset.FREEFORM,
                     onCornersChanged = { quad ->
                         if (uiState.activeTool == ScanTool.CROP) {
@@ -589,6 +653,48 @@ private fun <T : Enum<T>> EnumChips(label: String, values: List<T>, selected: T,
 }
 
 @Composable
+fun ScanExportConflictDialog(
+    existingNames: List<String>,
+    renameHint: String,
+    onReplace: () -> Unit,
+    onRename: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("File already exists") },
+        text = {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text("These files would be overwritten:")
+                existingNames.forEach { name ->
+                    Text("• $name", style = MaterialTheme.typography.bodyMedium)
+                }
+                if (renameHint.isNotBlank()) {
+                    Text(
+                        "Save with a new name instead:",
+                        style = MaterialTheme.typography.labelMedium,
+                        modifier = Modifier.padding(top = 8.dp),
+                    )
+                    Text(renameHint, style = MaterialTheme.typography.bodySmall)
+                }
+            }
+        },
+        confirmButton = {
+            Button(onClick = onRename) { Text("Save as new name") }
+        },
+        dismissButton = {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TextButton(onClick = onDismiss) { Text("Cancel") }
+                TextButton(onClick = onReplace) { Text("Replace") }
+            }
+        },
+    )
+}
+
+@Composable
 fun ScanExportPreviewDialog(
     paths: List<String>,
     onDismiss: () -> Unit,
@@ -687,6 +793,8 @@ private fun HoldCompareButton(onCompareHold: (Boolean) -> Unit) {
 private fun CropCornerOverlay(
     corners: QuadPoints,
     previewPath: String,
+    previewRevision: Long,
+    selectedPageId: Long?,
     lockRectangle: Boolean,
     onCornersChanged: (QuadPoints) -> Unit,
 ) {
@@ -746,7 +854,10 @@ private fun CropCornerOverlay(
                     .background(Color.White),
             ) {
                 AsyncImage(
-                    model = previewPath,
+                    model = scanPreviewImageModel(
+                        path = previewPath,
+                        cacheKey = "scan-magnifier-$selectedPageId-$previewRevision",
+                    ),
                     contentDescription = "Magnifier",
                     modifier = Modifier.fillMaxSize().graphicsLayer { scaleX = 2.5f; scaleY = 2.5f },
                     contentScale = ContentScale.Crop,

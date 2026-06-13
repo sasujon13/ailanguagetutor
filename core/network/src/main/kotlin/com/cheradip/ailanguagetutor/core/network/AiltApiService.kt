@@ -112,6 +112,9 @@ interface AiltAiService {
 
     @POST("ai/explain-paragraph")
     suspend fun explainParagraph(@Body body: AiParagraphRequest): AiParagraphResponse
+
+    @POST("ai/structure-ocr")
+    suspend fun structureOcr(@Body body: AiStructureOcrRequest): AiStructureOcrResponse
 }
 
 interface AiltLearningService {

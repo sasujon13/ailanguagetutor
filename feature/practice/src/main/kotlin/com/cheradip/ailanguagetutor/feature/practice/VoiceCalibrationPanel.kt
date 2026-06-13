@@ -225,6 +225,8 @@ fun PracticeInputCard(
     onSave: () -> Unit,
     onCancelVoiceAutoAi: () -> Unit = {},
     onOpenVoiceCalibration: (() -> Unit)? = null,
+    onWordTapInput: (Int) -> Unit = {},
+    onWordTapOutput: (Int) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     var syncedLine by remember { mutableStateOf("") }
@@ -309,6 +311,18 @@ fun PracticeInputCard(
             if (hubState.aiLoading) {
                 CircularProgressIndicator(modifier = Modifier.align(Alignment.CenterHorizontally))
             }
+            if (hubState.aiOutput == null && hubState.typedInput.isNotBlank() && !hubState.isListening) {
+                Text(
+                    "Your text — tap a word for grammar",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                PracticeTappableText(
+                    text = hubState.typedInput,
+                    words = hubState.inputWords,
+                    onWordTap = onWordTapInput,
+                )
+            }
             hubState.aiOutput?.let { output ->
                 val label = when {
                     hubState.outputOffline -> "Offline"
@@ -316,10 +330,28 @@ fun PracticeInputCard(
                     else -> "Answer"
                 }
                 Text(
-                    "$label: $output",
-                    style = MaterialTheme.typography.bodyMedium,
+                    "$label (tap a word for grammar):",
+                    style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.primary,
                 )
+                PracticeTappableText(
+                    text = output,
+                    words = hubState.outputWords,
+                    onWordTap = onWordTapOutput,
+                )
+                if (hubState.typedInput.isNotBlank()) {
+                    Text(
+                        "Your input — tap a word for grammar",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 8.dp),
+                    )
+                    PracticeTappableText(
+                        text = hubState.typedInput,
+                        words = hubState.inputWords,
+                        onWordTap = onWordTapInput,
+                    )
+                }
                 IconTextButton(
                     label = "Listen",
                     icon = Icons.AutoMirrored.Filled.VolumeUp,
@@ -339,6 +371,13 @@ fun PracticeInputCard(
                 syncedLine = output
             }
             hubState.saveMessage?.let { msg ->
+                Text(
+                    msg,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
+            hubState.grammarStudyMessage?.let { msg ->
                 Text(
                     msg,
                     style = MaterialTheme.typography.bodySmall,

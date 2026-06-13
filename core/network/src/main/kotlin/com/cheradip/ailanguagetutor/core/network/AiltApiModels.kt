@@ -209,6 +209,21 @@ data class AiParagraphResponse(
     @Json(name = "provider_used") val providerUsed: String? = null,
 )
 
+@JsonClass(generateAdapter = true)
+data class AiStructureOcrRequest(
+    @Json(name = "raw_text") val rawText: String,
+    @Json(name = "content_type") val contentType: String,
+    @Json(name = "language_code") val languageCode: String,
+    val prompt: String,
+)
+
+@JsonClass(generateAdapter = true)
+data class AiStructureOcrResponse(
+    @Json(name = "structured_text") val structuredText: String,
+    @Json(name = "content_type") val contentType: String? = null,
+    @Json(name = "provider_used") val providerUsed: String? = null,
+)
+
 /** Admin: per-provider health for free/paid AI pool (keys live on server only). */
 @JsonClass(generateAdapter = true)
 data class AiProviderStatusDto(

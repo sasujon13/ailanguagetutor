@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Login
 import androidx.compose.material.icons.filled.PersonAdd
+import androidx.compose.material.icons.filled.MenuBook
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.automirrored.filled.Logout
@@ -34,6 +35,7 @@ fun ProfileScreen(
     onNavigateSignUp: () -> Unit,
     onNavigateReferral: () -> Unit,
     onNavigatePaywall: () -> Unit,
+    onNavigateUserManual: () -> Unit,
     onLoggedOut: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
@@ -90,6 +92,13 @@ fun ProfileScreen(
                 SettingsNavRow(appString("settings_subscription"), Icons.Default.Star, onNavigatePaywall)
             }
             item {
+                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+                SectionHeader(title = appString("profile_help"))
+            }
+            item {
+                SettingsNavRow(appString("profile_user_manual"), Icons.Default.MenuBook, onNavigateUserManual)
+            }
+            item {
                 IconTextButton(
                     label = appString("profile_logout"),
                     icon = Icons.AutoMirrored.Filled.Logout,
@@ -144,6 +153,13 @@ fun ProfileScreen(
                     onNavigatePaywall,
                     subtitle = appString("profile_sign_in_for_subscription"),
                 )
+            }
+            item {
+                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+                SectionHeader(title = appString("profile_help"))
+            }
+            item {
+                SettingsNavRow(appString("profile_user_manual"), Icons.Default.MenuBook, onNavigateUserManual)
             }
         }
         item {

@@ -32,6 +32,22 @@ object AppStrings {
         "guest_ai_login_required" to "You've used your 99 free AI requests. Sign in or create an account to continue.",
         "login_subtitle_guest_ai" to "Sign in to continue using AI",
         "profile_footer" to "Use the menu (☰) on any screen to jump between sections.",
+        "profile_help" to "Help",
+        "profile_user_manual" to "User Manual",
+
+        // User manuals
+        "manual_hub_title" to "User Manual",
+        "manual_hub_subtitle_user" to "How to use AI Language Tutor",
+        "manual_hub_subtitle_admin" to "User, administrator, and developer guides",
+        "manual_hub_intro" to "Pick a guide below. Step-by-step instructions, examples, and troubleshooting.",
+        "manual_hub_available" to "Available guides",
+        "manual_user_title" to "User Guide",
+        "manual_user_subtitle" to "Scanning, practice, subscriptions, and tips",
+        "manual_admin_title" to "Administrator Guide",
+        "manual_admin_subtitle" to "Promo codes, AI providers, and daily operations",
+        "manual_developer_title" to "Developer Guide",
+        "manual_developer_subtitle" to "Architecture, build, and API examples",
+        "manual_load_error" to "Could not load this manual.",
 
         // App language
         "app_language" to "App language",

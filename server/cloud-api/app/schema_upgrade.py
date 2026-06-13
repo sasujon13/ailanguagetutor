@@ -15,6 +15,7 @@ _COLUMN_PATCHES: list[tuple[str, str, str]] = [
     ("users", "email_verified", "email_verified TINYINT(1) NOT NULL DEFAULT 0"),
     ("users", "whatsapp_verified", "whatsapp_verified TINYINT(1) NOT NULL DEFAULT 0"),
     ("users", "login_with", "login_with VARCHAR(16) NULL"),
+    ("users", "registered_device_id", "registered_device_id VARCHAR(128) NULL"),
     ("promo_codes", "auto_apply", "auto_apply TINYINT(1) NOT NULL DEFAULT 0"),
     ("promo_codes", "paywall_slot", "paywall_slot INT NOT NULL DEFAULT 2"),
     ("device_trials", "guest_ai_count", "guest_ai_count INT NOT NULL DEFAULT 0"),

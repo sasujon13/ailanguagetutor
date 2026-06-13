@@ -18,6 +18,14 @@ class Settings(BaseSettings):
     otp_ttl_minutes: int = 15
     session_ttl_days: int = 30
     dev_log_otp: bool = True
+    smtp_enabled: bool = True
+    smtp_host: str = "127.0.0.1"
+    smtp_port: int = 1025
+    smtp_from: str = "admin@ailanguagetutor.com"
+    smtp_user: str = "admin@ailanguagetutor.com"
+    smtp_password: str = ""
+    smtp_use_tls: bool = False
+    support_whatsapp: str = "+8801722710298"
     gemini_api_key: str = ""
     gemini_model: str = "gemini-flash-latest"
     openai_api_key: str = ""

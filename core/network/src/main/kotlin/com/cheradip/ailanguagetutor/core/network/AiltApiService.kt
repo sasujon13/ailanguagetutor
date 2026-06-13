@@ -21,17 +21,26 @@ interface AiltAuthService {
     @POST("auth/verify-email")
     suspend fun verifyEmail(@Body body: OtpVerifyRequest): AuthLoginResponse
 
-    @POST("auth/verify-whatsapp")
-    suspend fun verifyWhatsApp(@Body body: OtpVerifyRequest): AuthLoginResponse
-
     @POST("auth/signup/init")
     suspend fun signupInit(@Body body: SignupInitRequest): SignupInitResponse
 
-    @POST("auth/signup/verify-email")
-    suspend fun signupVerifyEmail(@Body body: OtpVerifyRequest): AuthLoginResponse
+    @POST("auth/recovery/send")
+    suspend fun recoverySend(@Body body: RecoverySendRequest): RecoverySendResponse
 
-    @POST("auth/signup/verify-whatsapp")
-    suspend fun signupVerifyWhatsApp(@Body body: OtpVerifyRequest): AuthLoginResponse
+    @POST("auth/recovery/reset")
+    suspend fun recoveryReset(@Body body: RecoveryResetRequest): OkMessageResponse
+
+    @POST("auth/password/update/send")
+    suspend fun passwordUpdateSend(@Body body: PasswordUpdateSendRequest): PasswordUpdateSendResponse
+
+    @POST("auth/password/update/confirm")
+    suspend fun passwordUpdateConfirm(@Body body: PasswordUpdateConfirmRequest): OkMessageResponse
+
+    @POST("auth/email/change/send")
+    suspend fun emailChangeSend(@Body body: EmailChangeSendRequest): EmailChangeSendResponse
+
+    @POST("auth/email/change/confirm")
+    suspend fun emailChangeConfirm(@Body body: EmailChangeConfirmRequest): EmailChangeConfirmResponse
 }
 
 interface AiltDeviceService {

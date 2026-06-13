@@ -31,6 +31,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import com.cheradip.ailanguagetutor.core.locale.AppLocaleManager
 import com.cheradip.ailanguagetutor.core.locale.AppStrings
 import com.cheradip.ailanguagetutor.core.locale.LocalAppStrings
@@ -54,9 +55,12 @@ import com.cheradip.ailanguagetutor.core.device.ScanWorkflowRepository
 import com.cheradip.ailanguagetutor.core.device.ScanWorkflowStage
 import com.cheradip.ailanguagetutor.core.database.repository.DocumentRepository
 import com.cheradip.ailanguagetutor.core.database.repository.LearningActivitySyncRepository
+import com.cheradip.ailanguagetutor.feature.auth.ChangeEmailScreen
+import com.cheradip.ailanguagetutor.feature.auth.ForgotPasswordScreen
 import com.cheradip.ailanguagetutor.feature.auth.LoginScreen
 import com.cheradip.ailanguagetutor.feature.auth.ProfileScreen
 import com.cheradip.ailanguagetutor.feature.auth.SignUpScreen
+import com.cheradip.ailanguagetutor.feature.auth.UpdatePasswordScreen
 import com.cheradip.ailanguagetutor.feature.billing.AdminConsoleScreen
 import com.cheradip.ailanguagetutor.feature.billing.PaywallScreen
 import com.cheradip.ailanguagetutor.feature.billing.ReferralScreen
@@ -64,6 +68,7 @@ import com.cheradip.ailanguagetutor.feature.grammar.GrammarBookScreen
 import com.cheradip.ailanguagetutor.feature.help.ManualType
 import com.cheradip.ailanguagetutor.feature.help.UserManualDetailScreen
 import com.cheradip.ailanguagetutor.feature.help.UserManualHubScreen
+import com.cheradip.ailanguagetutor.ui.components.SupportActions
 import com.cheradip.ailanguagetutor.feature.home.HomeScreen
 import com.cheradip.ailanguagetutor.feature.journal.LibraryScreen
 import com.cheradip.ailanguagetutor.feature.languages.LanguagesScreen
@@ -99,6 +104,8 @@ fun AppNavHost(
     modifier: Modifier = Modifier,
 ) {
     val navController = rememberNavController()
+    val context = LocalContext.current
+    val openSupport = { SupportActions.openWhatsAppSupport(context) }
     val backStack by navController.currentBackStackEntryAsState()
     val currentRoute = backStack?.destination?.route
     val accessState by checkAppAccessUseCase.accessState.collectAsStateWithLifecycle()
@@ -184,7 +191,15 @@ fun AppNavHost(
 
     LaunchedEffect(accessState, currentRoute) {
         if (accessState == AccessState.TRIAL_EXPIRED &&
-            routeBase !in setOf(Routes.PAYWALL, "login", "register", Routes.ONBOARDING)
+            routeBase !in setOf(
+                Routes.PAYWALL,
+                "login",
+                "register",
+                Routes.FORGOT_PASSWORD,
+                Routes.UPDATE_PASSWORD,
+                Routes.CHANGE_EMAIL,
+                Routes.ONBOARDING,
+            )
         ) {
             navController.navigate(Routes.PAYWALL) { launchSingleTop = true }
         }
@@ -391,6 +406,9 @@ fun AppNavHost(
                     authRepository = authRepository,
                     onNavigateLogin = { navController.navigate(Routes.login()) },
                     onNavigateSignUp = { navController.navigate(Routes.register()) },
+                    onNavigateUpdatePassword = { navController.navigate(Routes.UPDATE_PASSWORD) },
+                    onNavigateChangeEmail = { navController.navigate(Routes.CHANGE_EMAIL) },
+                    onOpenSupport = openSupport,
                     onNavigateReferral = { navController.navigate(Routes.REFERRAL) },
                     onNavigatePaywall = { navController.navigate(Routes.PAYWALL) },
                     onNavigateUserManual = {
@@ -405,6 +423,7 @@ fun AppNavHost(
                     onNavigateAdmin = { navController.navigate(Routes.ADMIN) },
                     onNavigateAdminAi = { navController.navigate(Routes.ADMIN_AI) },
                     onNavigateModeSelection = { navController.navigate(Routes.MODE_SELECTION) },
+                    onOpenSupport = openSupport,
                     isAdmin = currentUser?.role == "admin",
                     pronunciationEngine = pronunciationEngine,
                 )
@@ -504,10 +523,13 @@ fun AppNavHost(
                             popUpTo(Routes.login(returnTo))
                         }
                     },
+                    onNavigateForgotPassword = {
+                        navController.navigate(Routes.FORGOT_PASSWORD)
+                    },
                     subtitle = when (returnTo) {
                         "paywall" -> "Sign in to subscribe"
                         "guest_ai" -> AppStrings.text("login_subtitle_guest_ai", strings)
-                        else -> "Email or WhatsApp"
+                        else -> "Email address"
                     },
                 )
             }
@@ -539,6 +561,42 @@ fun AppNavHost(
                     },
                     onBack = { navController.popBackStack() },
                 )
+            }
+            composable(Routes.FORGOT_PASSWORD) {
+                ForgotPasswordScreen(
+                    authRepository = authRepository,
+                    onResetComplete = {
+                        navController.navigate(Routes.login()) {
+                            popUpTo(Routes.FORGOT_PASSWORD) { inclusive = true }
+                        }
+                    },
+                    onNavigateLogin = {
+                        navController.navigate(Routes.login()) {
+                            popUpTo(Routes.FORGOT_PASSWORD) { inclusive = true }
+                        }
+                    },
+                    onBack = { navController.popBackStack() },
+                )
+            }
+            composable(Routes.UPDATE_PASSWORD) {
+                UpdatePasswordScreen(
+                    authRepository = authRepository,
+                    onUpdated = { navController.popBackStack() },
+                    onBack = { navController.popBackStack() },
+                )
+            }
+            composable(Routes.CHANGE_EMAIL) {
+                val email = currentUser?.email.orEmpty()
+                if (email.isBlank()) {
+                    LaunchedEffect(Unit) { navController.popBackStack() }
+                } else {
+                    ChangeEmailScreen(
+                        authRepository = authRepository,
+                        currentEmail = email,
+                        onEmailChanged = { navController.popBackStack() },
+                        onBack = { navController.popBackStack() },
+                    )
+                }
             }
             composable(Routes.PAYWALL) {
                 PaywallScreen(

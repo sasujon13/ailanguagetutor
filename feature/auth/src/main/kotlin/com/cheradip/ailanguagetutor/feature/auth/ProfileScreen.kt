@@ -4,11 +4,14 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Email
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Login
 import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.MenuBook
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.SupportAgent
 import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material3.Card
 import androidx.compose.material3.HorizontalDivider
@@ -33,6 +36,9 @@ fun ProfileScreen(
     authRepository: AuthRepository,
     onNavigateLogin: () -> Unit,
     onNavigateSignUp: () -> Unit,
+    onNavigateUpdatePassword: () -> Unit = {},
+    onNavigateChangeEmail: () -> Unit = {},
+    onOpenSupport: () -> Unit = {},
     onNavigateReferral: () -> Unit,
     onNavigatePaywall: () -> Unit,
     onNavigateUserManual: () -> Unit,
@@ -90,6 +96,28 @@ fun ProfileScreen(
             }
             item {
                 SettingsNavRow(appString("settings_subscription"), Icons.Default.Star, onNavigatePaywall)
+            }
+            item {
+                SettingsNavRow(
+                    appString("profile_update_password"),
+                    Icons.Default.Lock,
+                    onNavigateUpdatePassword,
+                )
+            }
+            item {
+                SettingsNavRow(
+                    appString("profile_change_email"),
+                    Icons.Default.Email,
+                    onNavigateChangeEmail,
+                )
+            }
+            item {
+                SettingsNavRow(
+                    appString("settings_support"),
+                    Icons.Default.SupportAgent,
+                    onOpenSupport,
+                    subtitle = appString("settings_support_sub"),
+                )
             }
             item {
                 HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
@@ -160,6 +188,14 @@ fun ProfileScreen(
             }
             item {
                 SettingsNavRow(appString("profile_user_manual"), Icons.Default.MenuBook, onNavigateUserManual)
+            }
+            item {
+                SettingsNavRow(
+                    appString("settings_support"),
+                    Icons.Default.SupportAgent,
+                    onOpenSupport,
+                    subtitle = appString("settings_support_sub"),
+                )
             }
         }
         item {

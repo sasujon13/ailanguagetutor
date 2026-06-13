@@ -7,12 +7,18 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.cheradip.ailanguagetutor.core.common.AppConfig
+import com.cheradip.ailanguagetutor.core.common.DeviceIdProvider
 import com.cheradip.ailanguagetutor.core.common.SessionTokenHolder
 import com.cheradip.ailanguagetutor.core.network.AiltAuthService
 import com.cheradip.ailanguagetutor.core.network.AuthLoginRequest
-import com.cheradip.ailanguagetutor.core.network.OtpRequest
-import com.cheradip.ailanguagetutor.core.network.OtpVerifyRequest
+import com.cheradip.ailanguagetutor.core.network.EmailChangeConfirmRequest
+import com.cheradip.ailanguagetutor.core.network.EmailChangeSendRequest
+import com.cheradip.ailanguagetutor.core.network.PasswordUpdateConfirmRequest
+import com.cheradip.ailanguagetutor.core.network.PasswordUpdateSendRequest
+import com.cheradip.ailanguagetutor.core.network.RecoveryResetRequest
+import com.cheradip.ailanguagetutor.core.network.RecoverySendRequest
 import com.cheradip.ailanguagetutor.core.network.SignupInitRequest
+import com.cheradip.ailanguagetutor.core.network.userFacingMessage
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
@@ -32,10 +38,13 @@ data class AuthUser(
 data class SignupDetails(
     val fullName: String,
     val email: String,
-    val whatsapp: String,
     val username: String,
     val password: String,
-    val loginWith: String,
+)
+
+data class PasswordSendResult(
+    val message: String,
+    val requiresOtp: Boolean,
 )
 
 @Singleton
@@ -44,6 +53,7 @@ class AuthRepository @Inject constructor(
     private val appConfig: AppConfig,
     private val authService: AiltAuthService,
     private val sessionTokenHolder: SessionTokenHolder,
+    private val deviceIdProvider: DeviceIdProvider,
 ) {
     private val keyEmail = stringPreferencesKey("email")
     private val keyRole = stringPreferencesKey("role")
@@ -60,63 +70,125 @@ class AuthRepository @Inject constructor(
         )
     }
 
+    private fun deviceId(): String = deviceIdProvider.deviceId()
+
     suspend fun syncSessionFromStore() {
         val prefs = context.authDataStore.data.first()
         sessionTokenHolder.setToken(prefs[keySession])
     }
 
-    suspend fun login(username: String, password: String): Result<AuthUser> {
-        val remote = runCatching {
-            authService.login(AuthLoginRequest(username, password))
-        }.getOrNull()
-
-        val user = remote?.let {
-            AuthUser(it.email, it.role, it.whatsapp, it.sessionToken)
-        } ?: localLogin(username, password)
-
-        return user?.let {
-            persistUser(it)
-            Result.success(it)
-        } ?: Result.failure(IllegalArgumentException("Invalid credentials"))
+    suspend fun login(username: String, password: String): Result<AuthUser> = try {
+        val resp = authService.login(AuthLoginRequest(username.trim(), password, deviceId()))
+        val user = AuthUser(resp.email, resp.role, resp.whatsapp, resp.sessionToken)
+        persistUser(user)
+        Result.success(user)
+    } catch (e: Exception) {
+        val local = localLogin(username, password)
+        if (local != null) {
+            persistUser(local)
+            Result.success(local)
+        } else {
+            Result.failure(IllegalArgumentException(e.userFacingMessage("Login failed")))
+        }
     }
 
-    suspend fun signupInit(details: SignupDetails): Result<String> = runCatching {
+    suspend fun signupInit(details: SignupDetails): Result<AuthUser> = try {
         val resp = authService.signupInit(
             SignupInitRequest(
                 fullName = details.fullName,
                 email = details.email.trim().lowercase(),
-                whatsapp = details.whatsapp.trim(),
                 username = details.username.trim(),
                 password = details.password,
-                loginWith = details.loginWith,
+                deviceId = deviceId(),
             ),
         )
-        resp.message
+        val token = resp.sessionToken ?: throw IllegalStateException("Signup did not return a session")
+        val user = AuthUser(resp.email, resp.role, whatsapp = null, sessionToken = token)
+        persistUser(user)
+        Result.success(user)
+    } catch (e: Exception) {
+        Result.failure(IllegalArgumentException(e.userFacingMessage("Signup failed")))
     }
 
-    suspend fun signupVerifyEmail(email: String, code: String): Result<Unit> = runCatching {
-        authService.signupVerifyEmail(OtpVerifyRequest(email.trim().lowercase(), code.trim()))
+    suspend fun recoverySend(username: String): Result<PasswordSendResult> = try {
+        val resp = authService.recoverySend(RecoverySendRequest(username.trim(), deviceId()))
+        Result.success(PasswordSendResult(resp.message, resp.requiresOtp))
+    } catch (e: Exception) {
+        Result.failure(IllegalArgumentException(e.userFacingMessage("Could not start password reset")))
     }
 
-    suspend fun signupVerifyWhatsApp(whatsapp: String, code: String): Result<AuthUser> = runCatching {
-        val resp = authService.signupVerifyWhatsApp(OtpVerifyRequest(whatsapp.trim(), code.trim()))
-        AuthUser(resp.email, resp.role, resp.whatsapp, resp.sessionToken).also { persistUser(it) }
+    suspend fun recoveryReset(
+        username: String,
+        newPassword: String,
+        otp: String?,
+    ): Result<String> = try {
+        val resp = authService.recoveryReset(
+            RecoveryResetRequest(
+                username = username.trim(),
+                newPassword = newPassword,
+                otp = otp?.trim()?.takeIf { it.isNotBlank() },
+                deviceId = deviceId(),
+            ),
+        )
+        Result.success(resp.message)
+    } catch (e: Exception) {
+        Result.failure(IllegalArgumentException(e.userFacingMessage("Password reset failed")))
     }
 
-    suspend fun requestOtp(target: String): Result<Unit> =
-        runCatching { authService.register(OtpRequest(target)) }
+    suspend fun passwordUpdateSend(currentPassword: String): Result<PasswordSendResult> = try {
+        val resp = authService.passwordUpdateSend(
+            PasswordUpdateSendRequest(currentPassword, deviceId()),
+        )
+        Result.success(PasswordSendResult(resp.message, resp.requiresOtp))
+    } catch (e: Exception) {
+        Result.failure(IllegalArgumentException(e.userFacingMessage("Could not start password update")))
+    }
 
-    suspend fun verifyEmail(target: String, code: String): Result<AuthUser> =
-        runCatching {
-            val resp = authService.verifyEmail(OtpVerifyRequest(target, code))
-            AuthUser(resp.email, resp.role, resp.whatsapp, resp.sessionToken).also { persistUser(it) }
-        }
+    suspend fun passwordUpdateConfirm(
+        currentPassword: String,
+        newPassword: String,
+        otp: String?,
+    ): Result<String> = try {
+        val resp = authService.passwordUpdateConfirm(
+            PasswordUpdateConfirmRequest(
+                newPassword = newPassword,
+                currentPassword = currentPassword,
+                otp = otp?.trim()?.takeIf { it.isNotBlank() },
+                deviceId = deviceId(),
+            ),
+        )
+        Result.success(resp.message)
+    } catch (e: Exception) {
+        Result.failure(IllegalArgumentException(e.userFacingMessage("Password update failed")))
+    }
 
-    suspend fun verifyWhatsApp(target: String, code: String): Result<AuthUser> =
-        runCatching {
-            val resp = authService.verifyWhatsApp(OtpVerifyRequest(target, code))
-            AuthUser(resp.email, resp.role, resp.whatsapp, resp.sessionToken).also { persistUser(it) }
-        }
+    suspend fun emailChangeSend(): Result<PasswordSendResult> = try {
+        val resp = authService.emailChangeSend(EmailChangeSendRequest(deviceId()))
+        Result.success(PasswordSendResult(resp.message, resp.requiresOtp))
+    } catch (e: Exception) {
+        Result.failure(IllegalArgumentException(e.userFacingMessage("Could not start email change")))
+    }
+
+    suspend fun emailChangeConfirm(otp: String?, newEmail: String): Result<AuthUser> = try {
+        val resp = authService.emailChangeConfirm(
+            EmailChangeConfirmRequest(
+                newEmail = newEmail.trim().lowercase(),
+                otp = otp?.trim()?.takeIf { it.isNotBlank() },
+                deviceId = deviceId(),
+            ),
+        )
+        val current = context.authDataStore.data.first()
+        val updated = AuthUser(
+            email = resp.email ?: newEmail.trim().lowercase(),
+            role = current[keyRole] ?: "user",
+            whatsapp = current[keyWhatsapp],
+            sessionToken = current[keySession],
+        )
+        persistUser(updated)
+        Result.success(updated)
+    } catch (e: Exception) {
+        Result.failure(IllegalArgumentException(e.userFacingMessage("Email change failed")))
+    }
 
     suspend fun logout() {
         context.authDataStore.edit { it.clear() }
@@ -143,8 +215,6 @@ class AuthRepository @Inject constructor(
                 AuthUser(email = adminEmail, role = "admin", whatsapp = "+8801722710298")
             username.contains("@") && password.length >= 6 ->
                 AuthUser(email = username, role = "user")
-            username.startsWith("+") && password.length >= 6 ->
-                AuthUser(email = "$username@phone.local", role = "user", whatsapp = username)
             else -> null
         }
     }

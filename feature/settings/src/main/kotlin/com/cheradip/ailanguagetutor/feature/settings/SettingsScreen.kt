@@ -8,6 +8,7 @@ import androidx.compose.material.icons.filled.MenuBook
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.SupportAgent
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
@@ -45,6 +46,7 @@ fun SettingsScreen(
     onNavigateAdmin: () -> Unit = {},
     onNavigateAdminAi: () -> Unit = {},
     onNavigateModeSelection: () -> Unit = {},
+    onOpenSupport: () -> Unit = {},
     isAdmin: Boolean = false,
     pronunciationEngine: PronunciationEngine? = null,
     viewModel: SettingsViewModel = hiltViewModel(),
@@ -155,6 +157,14 @@ fun SettingsScreen(
         }
         item {
             SettingsNavRow(appString("settings_referrals"), Icons.Default.Share, onNavigateReferral)
+        }
+        item {
+            SettingsNavRow(
+                appString("settings_support"),
+                Icons.Default.SupportAgent,
+                onOpenSupport,
+                subtitle = appString("settings_support_sub"),
+            )
         }
         if (isAdmin) {
             item {

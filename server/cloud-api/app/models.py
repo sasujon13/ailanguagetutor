@@ -21,6 +21,7 @@ class User(Base):
     email_verified: Mapped[bool] = mapped_column(Boolean, default=False)
     whatsapp_verified: Mapped[bool] = mapped_column(Boolean, default=False)
     login_with: Mapped[str | None] = mapped_column(String(16))
+    registered_device_id: Mapped[str | None] = mapped_column(String(128))
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
     sessions: Mapped[list[SessionToken]] = relationship(back_populates="user")

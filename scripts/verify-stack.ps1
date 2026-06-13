@@ -21,6 +21,13 @@ Write-Host ""
 $homeHealth = Test-Endpoint "Home AI health" "http://127.0.0.1:8787/health"
 $cloudHealth = Test-Endpoint "Cloud API health" "http://127.0.0.1:8790/api/ailt/health"
 
+$smtpListen = Get-NetTCPConnection -LocalPort 1025 -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1
+if ($smtpListen) {
+    Write-Host ('OK  SMTP mail receiver (127.0.0.1:1025) PID=' + $smtpListen.OwningProcess)
+} else {
+    Write-Host 'FAIL SMTP mail receiver — start: server\mail\run-dev-smtp.ps1'
+}
+
 if ($cloudHealth) {
     $packCount = $cloudHealth.language_packs_available
     Write-Host ('  packs=' + $packCount + ' db=' + $cloudHealth.database)

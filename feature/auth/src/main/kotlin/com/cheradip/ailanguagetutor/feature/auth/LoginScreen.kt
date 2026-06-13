@@ -33,7 +33,8 @@ fun LoginScreen(
     modifier: Modifier = Modifier,
     onBack: (() -> Unit)? = null,
     onNavigateSignUp: (() -> Unit)? = null,
-    subtitle: String = "Email or WhatsApp",
+    onNavigateForgotPassword: (() -> Unit)? = null,
+    subtitle: String = "Email address",
 ) {
     var username by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
@@ -51,7 +52,7 @@ fun LoginScreen(
             OutlinedTextField(
                 value = username,
                 onValueChange = { username = it },
-                label = { Text("Email or WhatsApp") },
+                label = { Text("Email") },
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
                 leadingIcon = { androidx.compose.material3.Icon(Icons.Default.Email, contentDescription = null) },
@@ -88,6 +89,16 @@ fun LoginScreen(
                 },
                 enabled = !loading && username.isNotBlank() && password.isNotBlank(),
             )
+        }
+        if (onNavigateForgotPassword != null) {
+            item {
+                IconTextButton(
+                    label = "Forgot password?",
+                    icon = Icons.Default.Lock,
+                    onClick = onNavigateForgotPassword,
+                    filled = false,
+                )
+            }
         }
         if (onNavigateSignUp != null) {
             item {

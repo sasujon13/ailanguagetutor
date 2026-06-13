@@ -16,6 +16,8 @@ data class AuthLoginResponse(
     val role: String = "user",
     val whatsapp: String? = null,
     val sessionToken: String? = null,
+    val emailVerified: Boolean? = null,
+    val whatsappVerified: Boolean? = null,
 )
 
 @JsonClass(generateAdapter = true)
@@ -28,14 +30,90 @@ data class OtpVerifyRequest(val target: String, val code: String)
 data class SignupInitRequest(
     val fullName: String,
     val email: String,
-    val whatsapp: String,
     val username: String,
     val password: String,
-    val loginWith: String,
+    val deviceId: String? = null,
 )
 
 @JsonClass(generateAdapter = true)
 data class SignupInitResponse(
+    val ok: Boolean = true,
+    val message: String = "",
+    val email: String = "",
+    val role: String = "user",
+    val sessionToken: String? = null,
+)
+
+@JsonClass(generateAdapter = true)
+data class RecoverySendRequest(
+    val username: String,
+    val deviceId: String? = null,
+)
+
+@JsonClass(generateAdapter = true)
+data class RecoverySendResponse(
+    val ok: Boolean = true,
+    val message: String = "",
+    val requiresOtp: Boolean = true,
+)
+
+@JsonClass(generateAdapter = true)
+data class RecoveryResetRequest(
+    val username: String,
+    val newPassword: String,
+    val otp: String? = null,
+    val deviceId: String? = null,
+)
+
+@JsonClass(generateAdapter = true)
+data class PasswordUpdateSendRequest(
+    val currentPassword: String,
+    val deviceId: String? = null,
+)
+
+@JsonClass(generateAdapter = true)
+data class PasswordUpdateSendResponse(
+    val ok: Boolean = true,
+    val message: String = "",
+    val requiresOtp: Boolean = true,
+)
+
+@JsonClass(generateAdapter = true)
+data class PasswordUpdateConfirmRequest(
+    val newPassword: String,
+    val currentPassword: String,
+    val otp: String? = null,
+    val deviceId: String? = null,
+)
+
+@JsonClass(generateAdapter = true)
+data class EmailChangeSendRequest(
+    val deviceId: String? = null,
+)
+
+@JsonClass(generateAdapter = true)
+data class EmailChangeSendResponse(
+    val ok: Boolean = true,
+    val message: String = "",
+    val requiresOtp: Boolean = true,
+)
+
+@JsonClass(generateAdapter = true)
+data class EmailChangeConfirmRequest(
+    val newEmail: String,
+    val otp: String? = null,
+    val deviceId: String? = null,
+)
+
+@JsonClass(generateAdapter = true)
+data class EmailChangeConfirmResponse(
+    val ok: Boolean = true,
+    val message: String = "",
+    val email: String? = null,
+)
+
+@JsonClass(generateAdapter = true)
+data class OkMessageResponse(
     val ok: Boolean = true,
     val message: String = "",
 )

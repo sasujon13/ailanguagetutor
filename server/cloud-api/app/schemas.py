@@ -12,6 +12,8 @@ class AuthLoginResponse(BaseModel):
     role: str = "user"
     whatsapp: str | None = None
     sessionToken: str | None = None
+    emailVerified: bool | None = None
+    whatsappVerified: bool | None = None
 
 
 class OtpRequest(BaseModel):
@@ -26,15 +28,69 @@ class OtpVerifyRequest(BaseModel):
 class SignupInitRequest(BaseModel):
     fullName: str = Field(min_length=2, max_length=80)
     email: str
-    whatsapp: str
     username: str = Field(min_length=3, max_length=64)
     password: str = Field(min_length=8)
-    loginWith: str = Field(description="email or whatsapp")
+    deviceId: str | None = None
 
 
 class SignupInitResponse(BaseModel):
     ok: bool = True
-    message: str = "Email verification code sent"
+    message: str = "Account created"
+    email: str = ""
+    role: str = "user"
+    sessionToken: str | None = None
+
+
+class RecoverySendRequest(BaseModel):
+    username: str
+    deviceId: str | None = None
+
+
+class RecoverySendResponse(BaseModel):
+    ok: bool = True
+    message: str = ""
+    requiresOtp: bool = True
+
+
+class RecoveryResetRequest(BaseModel):
+    username: str
+    newPassword: str = Field(min_length=8)
+    otp: str | None = None
+    deviceId: str | None = None
+
+
+class PasswordUpdateSendRequest(BaseModel):
+    currentPassword: str
+    deviceId: str | None = None
+
+
+class PasswordUpdateSendResponse(BaseModel):
+    ok: bool = True
+    message: str = ""
+    requiresOtp: bool = True
+
+
+class PasswordUpdateConfirmRequest(BaseModel):
+    newPassword: str = Field(min_length=8)
+    currentPassword: str
+    otp: str | None = None
+    deviceId: str | None = None
+
+
+class EmailChangeSendRequest(BaseModel):
+    deviceId: str | None = None
+
+
+class EmailChangeSendResponse(BaseModel):
+    ok: bool = True
+    message: str = ""
+    requiresOtp: bool = True
+
+
+class EmailChangeConfirmRequest(BaseModel):
+    newEmail: str
+    otp: str | None = None
+    deviceId: str | None = None
 
 
 class ReferralWithdrawRequest(BaseModel):

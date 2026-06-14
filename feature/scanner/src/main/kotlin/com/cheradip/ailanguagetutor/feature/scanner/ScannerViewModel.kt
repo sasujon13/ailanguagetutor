@@ -392,11 +392,7 @@ class ScannerViewModel @Inject constructor(
         _uiState.update {
             it.copy(
                 activeTool = resolved,
-                previewCompareMode = if (resolved == ScanTool.CROP) {
-                    PreviewCompareMode.ORIGINAL
-                } else {
-                    PreviewCompareMode.AFTER
-                },
+                previewCompareMode = PreviewCompareMode.AFTER,
             )
         }
         persistWorkflow()
@@ -600,16 +596,18 @@ class ScannerViewModel @Inject constructor(
     fun updateDraftCrop(block: (CropParams) -> CropParams) {
         val pageId = _uiState.value.selectedPageId ?: return
         val state = editStates[pageId] ?: return
-        val updated = state.copy(draftCrop = block(state.draftCrop))
+        val draftCrop = block(state.draftCrop).let { crop ->
+            crop.copy(rotationDegrees = normalizeRotationDegrees(crop.rotationDegrees))
+        }
+        val updated = state.copy(draftCrop = draftCrop)
         editStates[pageId] = updated
         _uiState.update { it.copy(draftCrop = updated.draftCrop) }
         updateCropSkew()
-        val cropEditing = _uiState.value.activeTool == ScanTool.CROP
-        val showCropResult = _uiState.value.previewCompareMode == PreviewCompareMode.AFTER
-        if (!cropEditing || showCropResult) {
-            refreshPreview(pageId, debounceMs = 75)
-        }
+        refreshPreview(pageId, debounceMs = 75)
     }
+
+    private fun normalizeRotationDegrees(degrees: Float): Float =
+        ((degrees % 360f) + 360f) % 360f
 
     fun updateDraftTransition(block: (TransitionParams) -> TransitionParams) {
         val pageId = _uiState.value.selectedPageId ?: return

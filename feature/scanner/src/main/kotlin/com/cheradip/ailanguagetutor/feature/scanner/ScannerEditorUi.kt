@@ -31,7 +31,11 @@ import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Redo
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Restore
+import androidx.compose.material.icons.filled.RestartAlt
+import androidx.compose.material.icons.filled.RotateLeft
+import androidx.compose.material.icons.filled.RotateRight
 import androidx.compose.material.icons.filled.Save
+import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.Undo
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
@@ -207,14 +211,15 @@ fun ScannerPreviewArea(
             ),
         contentAlignment = Alignment.Center,
     ) {
+        val showCropOverlay = isCropMode && uiState.previewCompareMode == PreviewCompareMode.ORIGINAL
         val preview = when {
-            isCropMode -> uiState.selectedPageOriginalPath ?: uiState.previewPath
-            else -> uiState.previewPath
+            showCropOverlay -> uiState.selectedPageOriginalPath ?: uiState.previewPath
+            else -> uiState.previewPath ?: uiState.selectedPageOriginalPath
         }
         if (preview != null) {
             val previewModel = scanPreviewImageModel(
                 path = preview,
-                cacheKey = if (isCropMode) {
+                cacheKey = if (showCropOverlay) {
                     "scan-crop-source-${uiState.selectedPageId}"
                 } else {
                     "scan-preview-${uiState.selectedPageId}-${uiState.previewRevision}"
@@ -239,7 +244,7 @@ fun ScannerPreviewArea(
                     ),
                 contentScale = ContentScale.Fit,
             )
-            if (isCropMode) {
+            if (showCropOverlay) {
                 val cropPreset = uiState.draftCrop.preset
                 CropCornerOverlay(
                     corners = uiState.draftCrop.corners,
@@ -354,13 +359,11 @@ fun ScannerEditingControls(
         }
 
         if (uiState.editHistory.isNotEmpty()) {
-            Text("Version history", style = MaterialTheme.typography.labelMedium)
             Row(
                 modifier = Modifier.horizontalScroll(rememberScrollState()).padding(top = 4.dp, bottom = 4.dp),
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Icon(Icons.Default.History, contentDescription = null, modifier = Modifier.size(16.dp))
                 uiState.editHistory.takeLast(10).forEach { (index, label) ->
                     FilterChip(
                         selected = uiState.selectedHistoryIndex == index,
@@ -387,7 +390,14 @@ private fun ScannerToolBar(activeTool: ScanTool?, onOpenTool: (ScanTool) -> Unit
             .horizontalScroll(rememberScrollState())
             .padding(horizontal = 8.dp, vertical = 4.dp),
         horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
+        Icon(
+            Icons.Default.History,
+            contentDescription = "Version history",
+            modifier = Modifier.size(20.dp),
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
         tools.forEach { (tool, labelIcon) ->
             val (label, icon) = labelIcon
             FilterChip(
@@ -465,18 +475,10 @@ private fun ScannerToolPanel(
                         AssistChip(onClick = { onCropPreset(preset) }, label = { Text(preset.name.replace('_', ' ')) })
                     }
                 }
-                FloatSlider("Rotation °", uiState.draftCrop.rotationDegrees, -180f, 180f) { v ->
-                    onUpdateCrop { it.copy(rotationDegrees = v) }
-                }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    TextButton(onClick = {
-                        onUpdateCrop { it.copy(rotationDegrees = ((it.rotationDegrees + 90f) % 360f + 360f) % 360f) }
-                    }) { Text("Rotate +90°") }
-                    TextButton(onClick = {
-                        onUpdateCrop { it.copy(rotationDegrees = ((it.rotationDegrees - 90f) % 360f + 360f) % 360f) }
-                    }) { Text("Rotate -90°") }
-                    TextButton(onClick = { onUpdateCrop { it.copy(rotationDegrees = 0f) } }) { Text("Reset") }
-                }
+                RotationDegreeSlider(
+                    degrees = uiState.draftCrop.rotationDegrees,
+                    onDegreesChange = { deg -> onUpdateCrop { it.copy(rotationDegrees = deg) } },
+                )
                 if (kotlin.math.abs(uiState.cropSkewDegrees) > 1f) {
                     Text(
                         "Skew detected: ${uiState.cropSkewDegrees.toInt()}° — use Auto straighten",
@@ -484,7 +486,13 @@ private fun ScannerToolPanel(
                         color = MaterialTheme.colorScheme.primary,
                     )
                 }
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
                     ToggleChip("Auto straighten", uiState.draftCrop.autoStraighten) {
                         onUpdateCrop { p -> p.copy(autoStraighten = !p.autoStraighten) }
                     }
@@ -497,13 +505,8 @@ private fun ScannerToolPanel(
                     ToggleChip("H align", uiState.draftCrop.horizontalAlignment) {
                         onUpdateCrop { p -> p.copy(horizontalAlignment = !p.horizontalAlignment) }
                     }
-                    ToggleChip("V align", uiState.draftCrop.verticalAlignment) {
-                        onUpdateCrop { p -> p.copy(verticalAlignment = !p.verticalAlignment) }
-                    }
-                }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    TextButton(onClick = onAutoDetect) { Text("Auto detect edges") }
-                    TextButton(onClick = onRestoreCrop) { Text("Restore boundaries") }
+                    ActionChip("Auto detect edges", onAutoDetect)
+                    ActionChip("Restore boundaries", onRestoreCrop)
                 }
                 if (uiState.draftCrop.preset == CropPreset.ID_CARD ||
                     uiState.draftCrop.preset == CropPreset.BUSINESS_CARD ||
@@ -554,6 +557,15 @@ private fun ScannerToolPanel(
 @Composable
 private fun ToggleChip(label: String, selected: Boolean, onToggle: () -> Unit) {
     FilterChip(selected = selected, onClick = onToggle, label = { Text(label, style = MaterialTheme.typography.labelSmall) })
+}
+
+@Composable
+private fun ActionChip(label: String, onClick: () -> Unit) {
+    FilterChip(
+        selected = false,
+        onClick = onClick,
+        label = { Text(label, style = MaterialTheme.typography.labelSmall) },
+    )
 }
 
 @Composable
@@ -962,27 +974,68 @@ private fun EditPreviewActions(
     showBeforeAfter: Boolean,
     onSelect: (PreviewCompareMode) -> Unit,
 ) {
-    Text("Preview", style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(top = 8.dp))
     Row(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+        modifier = Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 4.dp),
         horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
+        Icon(
+            Icons.Default.Visibility,
+            contentDescription = "Preview",
+            modifier = Modifier.size(20.dp),
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
         FilterChip(
             selected = selected == PreviewCompareMode.ORIGINAL,
             onClick = { onSelect(PreviewCompareMode.ORIGINAL) },
-            label = { Text("See Original") },
+            label = { Text("Original", style = MaterialTheme.typography.labelSmall) },
         )
         if (showBeforeAfter) {
             FilterChip(
                 selected = selected == PreviewCompareMode.BEFORE,
                 onClick = { onSelect(PreviewCompareMode.BEFORE) },
-                label = { Text("Before") },
+                label = { Text("Before", style = MaterialTheme.typography.labelSmall) },
             )
             FilterChip(
                 selected = selected == PreviewCompareMode.AFTER,
                 onClick = { onSelect(PreviewCompareMode.AFTER) },
-                label = { Text("After") },
+                label = { Text("After", style = MaterialTheme.typography.labelSmall) },
             )
+        }
+    }
+}
+
+@Composable
+private fun RotationDegreeSlider(
+    degrees: Float,
+    onDegreesChange: (Float) -> Unit,
+) {
+    val normalized = ((degrees % 360f) + 360f) % 360f
+    val displayDegrees = normalized.roundToInt()
+    Text(
+        "Rotation: $displayDegrees°",
+        style = MaterialTheme.typography.labelMedium,
+        modifier = Modifier.padding(top = 4.dp),
+    )
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        IconButton(onClick = { onDegreesChange(0f) }) {
+            Icon(Icons.Default.RestartAlt, contentDescription = "Reset rotation")
+        }
+        Slider(
+            value = normalized,
+            onValueChange = { onDegreesChange(it.roundToInt().toFloat()) },
+            valueRange = 0f..360f,
+            steps = 359,
+            modifier = Modifier.weight(1f),
+        )
+        IconButton(onClick = { onDegreesChange(((normalized - 45f) % 360f + 360f) % 360f) }) {
+            Icon(Icons.Default.RotateLeft, contentDescription = "Rotate -45°")
+        }
+        IconButton(onClick = { onDegreesChange(((normalized + 45f) % 360f + 360f) % 360f) }) {
+            Icon(Icons.Default.RotateRight, contentDescription = "Rotate +45°")
         }
     }
 }

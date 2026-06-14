@@ -49,6 +49,9 @@ interface TranslationCacheDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(entity: TranslationCacheEntity)
+
+    @Query("DELETE FROM translation_cache WHERE LOWER(sourceLang) = LOWER(:lang) OR LOWER(targetLang) = LOWER(:lang)")
+    suspend fun clearForLanguage(lang: String)
 }
 
 @Dao

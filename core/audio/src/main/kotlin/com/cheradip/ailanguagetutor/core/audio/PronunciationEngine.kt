@@ -139,7 +139,12 @@ class PronunciationEngine @Inject constructor(
             putString(TextToSpeech.Engine.KEY_PARAM_UTTERANCE_ID, utteranceId)
         }
         @Suppress("DEPRECATION")
-        engine.speak(chunk, TextToSpeech.QUEUE_FLUSH, params, utteranceId)
+        engine.speak(
+            chunk,
+            if (chunkIndex == 0) TextToSpeech.QUEUE_FLUSH else TextToSpeech.QUEUE_ADD,
+            params,
+            utteranceId,
+        )
         _playbackState.value = TtsPlaybackState.PLAYING
     }
 
@@ -178,16 +183,53 @@ class PronunciationEngine @Inject constructor(
     private fun shouldIgnoreProgress(): Boolean =
         suppressProgressEvents || pausedByUser
 
-    /** Word-level chunks so pause/resume continues at the current word. */
-    private fun splitForLocale(text: String, languageCode: String): List<String> {
-        val words = text.trim().split(Regex("\\s+")).filter { it.isNotBlank() }
-        if (!languageCode.startsWith("en")) return words
-        return buildList {
-            words.forEach { word ->
-                val parts = word.split(Regex("(?<=\\D)(?=\\d)|(?<=\\d)(?=\\D)"))
-                addAll(parts.filter { it.isNotBlank() })
+    /** Natural speech chunks (sentences) for human-like TTS; not word-by-word. */
+    private fun splitForLocale(text: String, @Suppress("UNUSED_PARAMETER") languageCode: String): List<String> {
+        val normalized = normalizePlaybackText(text)
+        if (normalized.isBlank()) return emptyList()
+        if (normalized.length <= MAX_UTTERANCE_CHARS) return listOf(normalized)
+
+        val sentences = normalized
+            .split(Regex("""(?<=[.!?。！？；])(?:\s+|$)"""))
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+
+        if (sentences.isEmpty()) return listOf(normalized.take(MAX_UTTERANCE_CHARS))
+
+        val chunks = mutableListOf<String>()
+        val buffer = StringBuilder()
+        for (sentence in sentences) {
+            if (buffer.isEmpty()) {
+                if (sentence.length <= MAX_UTTERANCE_CHARS) {
+                    buffer.append(sentence)
+                } else {
+                    chunks.addAll(splitLongSentence(sentence))
+                }
+            } else if (buffer.length + 1 + sentence.length <= MAX_UTTERANCE_CHARS) {
+                buffer.append(' ').append(sentence)
+            } else {
+                chunks.add(buffer.toString())
+                buffer.clear()
+                if (sentence.length <= MAX_UTTERANCE_CHARS) {
+                    buffer.append(sentence)
+                } else {
+                    chunks.addAll(splitLongSentence(sentence))
+                }
             }
         }
+        if (buffer.isNotEmpty()) chunks.add(buffer.toString())
+        return chunks.ifEmpty { listOf(normalized.take(MAX_UTTERANCE_CHARS)) }
+    }
+
+    private fun splitLongSentence(sentence: String): List<String> {
+        val parts = mutableListOf<String>()
+        var start = 0
+        while (start < sentence.length) {
+            val end = (start + MAX_UTTERANCE_CHARS).coerceAtMost(sentence.length)
+            parts.add(sentence.substring(start, end).trim())
+            start = end
+        }
+        return parts.filter { it.isNotEmpty() }
     }
 
     private fun normalizePlaybackText(text: String): String =
@@ -211,5 +253,10 @@ class PronunciationEngine @Inject constructor(
         resolved.voice?.let { engine.voice = it }
         engine.setPitch(resolved.pitch)
         engine.setSpeechRate(speechRate)
+    }
+
+    companion object {
+        /** Android TTS engine limit is ~4000 chars; stay under for reliability. */
+        private const val MAX_UTTERANCE_CHARS = 3_500
     }
 }

@@ -157,6 +157,17 @@ class AiRoutingPolicy(Base):
     prefer_paid_when_free_exhausted: Mapped[bool] = mapped_column(Boolean, default=True)
 
 
+class AdminReportSettings(Base):
+    """Per-service toggles for admin report generation (single-row config)."""
+
+    __tablename__ = "admin_report_settings"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    cloud_reports_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    home_ai_reports_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    debug_reports_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+
+
 class UserLearningActivity(Base):
     __tablename__ = "user_learning_activities"
 

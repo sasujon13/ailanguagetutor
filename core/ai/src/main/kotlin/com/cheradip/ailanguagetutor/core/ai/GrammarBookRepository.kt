@@ -8,6 +8,7 @@ import com.cheradip.ailanguagetutor.core.model.GrammarBookChapter
 import com.cheradip.ailanguagetutor.core.model.GrammarBookSection
 import com.cheradip.ailanguagetutor.core.model.GrammarSectionEnrichment
 import com.cheradip.ailanguagetutor.core.model.InputSource
+import com.cheradip.ailanguagetutor.core.pack.LanguageCodeResolver
 import com.cheradip.ailanguagetutor.core.network.CHECK_INTERNET_CONNECTION
 import com.cheradip.ailanguagetutor.core.network.NetworkErrorFormatter
 import com.cheradip.ailanguagetutor.core.network.HomeAiGrammarBookChapterDto
@@ -27,6 +28,7 @@ class GrammarBookRepository @Inject constructor(
     private val checkAppAccess: CheckAppAccessUseCase,
     private val aiCacheDao: AiCacheDao,
     private val networkErrors: NetworkErrorFormatter,
+    private val englishPivotAi: EnglishPivotAiCoordinator,
     moshi: Moshi,
 ) {
     private val adapter = moshi.adapter(HomeAiGrammarBookResponse::class.java)
@@ -58,16 +60,22 @@ class GrammarBookRepository @Inject constructor(
                 )
             }
             runCatching {
+                val generateInEnglish = !LanguageCodeResolver.isEnglish(code)
                 homeAiService.fetchGrammarBook(
-                    languageCode = code,
+                    languageCode = if (generateInEnglish) "en" else code,
                     languageName = languageName,
                     mode = mode,
                     tier = tier,
-                )
-            }.onSuccess { response ->
-                val book = response.toModel()
+                ).let { response ->
+                    if (generateInEnglish) {
+                        pivotGrammarBookToLanguage(response.toModel(), code, languageName)
+                    } else {
+                        response.toModel()
+                    }
+                }
+            }.onSuccess { book ->
                 persistLocal(code, book)
-                return@withContext Result.success(book.copy(cached = response.cached))
+                return@withContext Result.success(book)
             }.onFailure { err ->
                 return@withContext Result.failure(
                     IllegalStateException(
@@ -107,22 +115,34 @@ class GrammarBookRepository @Inject constructor(
         }
 
         runCatching {
+            val enBody = englishPivotAi.toEnglish(section.body, code, InputSource.TYPED)
+            val enHeading = englishPivotAi.toEnglish(section.heading, code, InputSource.TYPED)
             homeAiService.enrichGrammarBookSection(
-                languageCode = code,
+                languageCode = "en",
                 languageName = languageName,
                 chapterNumber = chapterNumber,
                 chapterTitle = chapterTitle,
-                sectionHeading = section.heading,
-                sectionBody = section.body,
-                examples = section.examples,
+                sectionHeading = enHeading,
+                sectionBody = enBody,
+                examples = section.examples.map {
+                    englishPivotAi.toEnglish(it, code, InputSource.TYPED)
+                },
                 mode = mode,
                 tier = tier,
             )
         }.map { response ->
             val enrichment = GrammarSectionEnrichment(
-                expandedBody = response.expandedBody.ifBlank { section.body },
-                extraExamples = response.extraExamples,
-                learnerTip = response.learnerTip,
+                expandedBody = englishPivotAi.fromEnglish(
+                    response.expandedBody.ifBlank { section.body },
+                    code,
+                    InputSource.TYPED,
+                ),
+                extraExamples = response.extraExamples.map {
+                    englishPivotAi.fromEnglish(it, code, InputSource.TYPED)
+                },
+                learnerTip = response.learnerTip.takeIf { it.isNotBlank() }?.let {
+                    englishPivotAi.fromEnglish(it, code, InputSource.TYPED)
+                }.orEmpty(),
                 loaded = true,
             )
             persistEnrichment(cacheKey, response)
@@ -186,7 +206,36 @@ class GrammarBookRepository @Inject constructor(
         )
     }
 
-    private fun cacheKey(languageCode: String) = "grammar_book:v1:${languageCode.lowercase()}"
+    private fun cacheKey(languageCode: String) = "grammar_book:v2:${languageCode.lowercase()}"
+
+    private suspend fun pivotGrammarBookToLanguage(
+        englishBook: GrammarBook,
+        targetCode: String,
+        languageName: String,
+    ): GrammarBook {
+        suspend fun localize(text: String): String {
+            if (text.isBlank()) return text
+            return englishPivotAi.fromEnglish(text, targetCode, InputSource.TYPED)
+        }
+        return englishBook.copy(
+            title = localize(englishBook.title),
+            languageCode = targetCode,
+            languageName = languageName.ifBlank { englishBook.languageName },
+            chapters = englishBook.chapters.map { chapter ->
+                chapter.copy(
+                    title = localize(chapter.title),
+                    summary = localize(chapter.summary),
+                    sections = chapter.sections.map { section ->
+                        section.copy(
+                            heading = localize(section.heading),
+                            body = localize(section.body),
+                            examples = section.examples.map { localize(it) },
+                        )
+                    },
+                )
+            },
+        )
+    }
 
     private fun isLegacyPlaceholderBook(book: GrammarBook): Boolean {
         if (book.chapters.size != 1) return false

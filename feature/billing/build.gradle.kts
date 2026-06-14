@@ -21,6 +21,8 @@ dependencies {
     implementation(project(":ui:theme"))
     implementation(project(":ui:components"))
     implementation(project(":core:billing"))
+    implementation(project(":core:pack"))
+    implementation(project(":core:network"))
     implementation(project(":core:auth"))
     implementation(project(":core:ai"))
     implementation(project(":core:locale"))

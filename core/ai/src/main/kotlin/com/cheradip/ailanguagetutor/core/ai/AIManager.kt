@@ -46,6 +46,7 @@ class AIManager @Inject constructor(
     private val aiProviderRepository: AiProviderRepository,
     private val appConfig: AppConfig,
     private val guestAiUsageRepository: GuestAiUsageRepository,
+    private val englishPivotAi: EnglishPivotAiCoordinator,
 ) {
     private var lastBackend: AiBackend = AiBackend.CLOUD_POOL
 
@@ -127,6 +128,14 @@ class AIManager @Inject constructor(
         val key = "grammar:${depth.id}:$sourceLang:${prompt.hashCode()}"
         aiCacheDao.get(key)?.responseJson?.let { return@withContext it }
 
+        val enContext = englishPivotAi.toEnglish(contextText, sourceLang, inputSource)
+        val enFocus = focusWord?.let { englishPivotAi.toEnglish(it, sourceLang, inputSource) }
+        val enPrompt = buildGrammarPrompt(enContext, enFocus, "en", "en", depth)
+        val enKey = "grammar:${depth.id}:en:${enPrompt.hashCode()}"
+        aiCacheDao.get(enKey)?.responseJson?.let {
+            return@withContext englishPivotAi.fromEnglish(it, targetLang, inputSource)
+        }
+
         val mode = aiModePrefs.resolvedMode(inputSource, tier)
         val backend = homeAiSettings.preferredBackend.first()
         if (backend == AiBackend.LOCAL_HOME) {
@@ -134,20 +143,20 @@ class AIManager @Inject constructor(
             runCatching {
                 withTimeout(appConfig.homeAiTimeoutMs) {
                     homeAiService.ask(
-                        text = prompt,
+                        text = enPrompt,
                         mode = mode,
                         intent = ProcessingIntent.ANSWER,
                         inputSource = inputSource,
                         tier = tier,
-                        languageCode = sourceLang,
-                        targetLang = targetLang,
+                        languageCode = "en",
+                        targetLang = "en",
                     )
                 }
             }.onSuccess { result ->
                 guestAiUsageRepository.recordGuestAiUsage()
                 lastBackend = AiBackend.LOCAL_HOME
-                aiCacheDao.put(AiCacheEntity(key, result, System.currentTimeMillis()))
-                return@withContext result
+                aiCacheDao.put(AiCacheEntity(enKey, result, System.currentTimeMillis()))
+                return@withContext englishPivotAi.fromEnglish(result, targetLang, inputSource)
             }.onFailure { e ->
                 val reason = when (e) {
                     is TimeoutCancellationException -> "home_ai_timeout_${appConfig.homeAiTimeoutMs}ms"
@@ -161,9 +170,9 @@ class AIManager @Inject constructor(
             guestAiUsageRepository.ensureGuestCanUseAi()
             aiService.explainParagraph(
                 AiParagraphRequest(
-                    paragraph = prompt,
-                    sourceLang = sourceLang,
-                    targetLang = targetLang,
+                    paragraph = enPrompt,
+                    sourceLang = "en",
+                    targetLang = "en",
                 ),
             )
         }.fold(
@@ -178,8 +187,9 @@ class AIManager @Inject constructor(
                 offlineSummary(contextText)
             },
         )
-        aiCacheDao.put(AiCacheEntity(key, cloud, System.currentTimeMillis()))
-        cloud
+        val localized = englishPivotAi.fromEnglish(cloud, targetLang, inputSource)
+        aiCacheDao.put(AiCacheEntity(enKey, cloud, System.currentTimeMillis()))
+        localized
     }
 
     /** Warm local + server cache in one Home AI round-trip; no duplicate grammar calls. */
@@ -344,17 +354,50 @@ class AIManager @Inject constructor(
 
         val profile = MixedLanguageAnalyzer.analyze(paragraph, sourceLang, targetLang)
         val effectiveSource = profile.effectiveSourceLang()
+        val responseLang = englishPivotAi.responseLanguage(effectiveSource, targetLang, intent)
 
+        if (englishPivotAi.needsPivot(effectiveSource, responseLang)) {
+            val enInput = englishPivotAi.toEnglish(paragraph, effectiveSource, inputSource)
+            val enOutput = runAiCore(
+                paragraph = enInput,
+                sourceLang = "en",
+                targetLang = "en",
+                inputSource = inputSource,
+                intent = intent,
+                tier = tier,
+            )
+            return@withContext englishPivotAi.fromEnglish(enOutput, responseLang, inputSource)
+        }
+
+        runAiCore(
+            paragraph = paragraph,
+            sourceLang = effectiveSource,
+            targetLang = targetLang,
+            inputSource = inputSource,
+            intent = intent,
+            tier = tier,
+        )
+    }
+
+    private suspend fun runAiCore(
+        paragraph: String,
+        sourceLang: String,
+        targetLang: String,
+        inputSource: InputSource,
+        intent: ProcessingIntent,
+        tier: SubscriptionTier,
+    ): String {
+        val profile = MixedLanguageAnalyzer.analyze(paragraph, sourceLang, targetLang)
         val mode = aiModePrefs.resolvedMode(inputSource, tier)
-        val key = "batch:$effectiveSource:$targetLang:${intent.name}:${mode.id}:${inputSource.name}:${paragraph.hashCode()}"
-        aiCacheDao.get(key)?.responseJson?.let { return@withContext formatAiOutput(it) }
+        val key = "batch:$sourceLang:$targetLang:${intent.name}:${mode.id}:${inputSource.name}:${paragraph.hashCode()}"
+        aiCacheDao.get(key)?.responseJson?.let { return formatAiOutput(it) }
 
         val backend = homeAiSettings.preferredBackend.first()
         if (backend == AiBackend.LOCAL_HOME) {
             guestAiUsageRepository.ensureGuestCanUseAi()
             runCatching {
                 withTimeout(appConfig.homeAiTimeoutMs) {
-                    callHomeAi(paragraph, effectiveSource, targetLang, inputSource, intent, mode, tier)
+                    callHomeAi(paragraph, sourceLang, targetLang, inputSource, intent, mode, tier)
                 }
             }.onSuccess { result ->
                 if (intent == ProcessingIntent.TRANSLATION && isTranslationStub(result)) {
@@ -364,7 +407,7 @@ class AIManager @Inject constructor(
                     lastBackend = AiBackend.LOCAL_HOME
                     val formatted = formatAiOutput(result)
                     aiCacheDao.put(AiCacheEntity(key, formatted, System.currentTimeMillis()))
-                    return@withContext formatted
+                    return formatted
                 }
             }.onFailure { e ->
                 val reason = when (e) {
@@ -379,14 +422,14 @@ class AIManager @Inject constructor(
             guestAiUsageRepository.ensureGuestCanUseAi()
             val prompt = PracticePromptBuilder.build(
                 paragraph,
-                effectiveSource,
+                sourceLang,
                 targetLang,
                 intent,
                 profile,
             )
             val body = AiParagraphRequest(
                 paragraph = prompt,
-                sourceLang = effectiveSource,
+                sourceLang = sourceLang,
                 targetLang = targetLang,
             )
             aiService.explainParagraph(body)
@@ -404,7 +447,7 @@ class AIManager @Inject constructor(
         )
         val formatted = formatAiOutput(cloud)
         aiCacheDao.put(AiCacheEntity(key, formatted, System.currentTimeMillis()))
-        formatted
+        return formatted
     }
 
     private fun formatAiOutput(raw: String): String = AiResponseFormatter.format(raw)

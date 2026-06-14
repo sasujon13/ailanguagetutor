@@ -3,7 +3,7 @@ package com.cheradip.ailanguagetutor.core.translation
 import com.cheradip.ailanguagetutor.core.model.ProcessingIntent
 import com.cheradip.ailanguagetutor.core.pack.DictionaryRepository
 import com.cheradip.ailanguagetutor.core.pack.LanguagePackRepository
-import kotlinx.coroutines.flow.first
+import com.cheradip.ailanguagetutor.core.translation.EnglishPivotTranslator
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -12,6 +12,7 @@ class OfflinePracticeProcessor @Inject constructor(
     private val translationEngine: OfflineTranslationEngine,
     private val dictionaryRepository: DictionaryRepository,
     private val languagePackRepository: LanguagePackRepository,
+    private val englishPivotTranslator: EnglishPivotTranslator,
 ) {
     suspend fun process(
         text: String,
@@ -22,8 +23,7 @@ class OfflinePracticeProcessor @Inject constructor(
         val trimmed = text.trim()
         if (trimmed.isBlank()) return ""
 
-        val activePacks = languagePackRepository.observeActiveLanguageCodes().first()
-        if (activePacks.isEmpty()) {
+        if (!languagePackRepository.hasDownloadedPacks()) {
             return "Download at least one language pack on the Languages tab to use offline Process."
         }
 
@@ -51,6 +51,13 @@ class OfflinePracticeProcessor @Inject constructor(
 
     private suspend fun processAnswer(trimmed: String, src: String, tgt: String): String {
         val sb = StringBuilder()
+        val lookupLang = src
+        val englishQuestion = if (englishPivotTranslator.needsPivot(src)) {
+            englishPivotTranslator.toEnglish(trimmed, src)
+        } else {
+            trimmed
+        }
+
         if (!src.equals(tgt, ignoreCase = true)) {
             val lines = translationEngine.translateParagraph(trimmed, src, tgt)
             val translated = lines.joinToString("\n") { it.translatedText }
@@ -63,7 +70,6 @@ class OfflinePracticeProcessor @Inject constructor(
             }
         }
 
-        val lookupLang = if (src.equals(tgt, ignoreCase = true)) src else src
         val tokens = trimmed.split(Regex("""[^\p{L}\p{N}'-]+""")).filter { it.length > 1 }
         if (tokens.isNotEmpty()) {
             sb.appendLine("Vocabulary (${lookupLang.uppercase()}):")
@@ -78,6 +84,12 @@ class OfflinePracticeProcessor @Inject constructor(
                     sb.appendLine("• $token: not in downloaded pack")
                 }
             }
+            sb.appendLine()
+        }
+
+        if (englishPivotTranslator.needsPivot(src) && englishQuestion != trimmed) {
+            sb.appendLine("Question (EN pivot):")
+            sb.appendLine(englishQuestion)
             sb.appendLine()
         }
 

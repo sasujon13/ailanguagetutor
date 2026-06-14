@@ -117,6 +117,15 @@ interface AiltAdminService {
     /** Platform metrics — admin login required. */
     @GET("admin/reports")
     suspend fun reports(): AdminReportsResponse
+
+    @GET("admin/reports/settings")
+    suspend fun reportsSettings(): AdminReportSettingsDto
+
+    @PATCH("admin/reports/settings")
+    suspend fun patchReportsSettings(@Body body: AdminReportSettingsPatchRequest): AdminReportSettingsDto
+
+    @GET("admin/reports/debug")
+    suspend fun reportsDebug(): AdminReportsDebugResponse
 }
 
 interface AiltAiService {

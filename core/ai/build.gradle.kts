@@ -23,6 +23,7 @@ dependencies {
     implementation(project(":core:billing"))
     implementation(project(":core:device"))
     implementation(project(":core:pack"))
+    implementation(project(":core:translation"))
     implementation(project(":core:ocr"))
     implementation(libs.androidx.core.ktx)
     implementation(libs.datastore.preferences)

@@ -8,6 +8,11 @@ import com.cheradip.ailanguagetutor.core.network.AiltBillingService
 import com.cheradip.ailanguagetutor.core.network.AiltPromoService
 import com.cheradip.ailanguagetutor.core.network.AiltReferralService
 import com.cheradip.ailanguagetutor.core.network.BillingVerifyRequest
+import com.cheradip.ailanguagetutor.core.network.AdminReportSettingsPatchRequest
+import com.cheradip.ailanguagetutor.core.network.AdminReportsDebugResponse
+import com.cheradip.ailanguagetutor.core.network.AdminReportsLanguageActivityRow
+import com.cheradip.ailanguagetutor.core.network.AdminReportsLanguagePackRow
+import com.cheradip.ailanguagetutor.core.network.AdminReportSettingsDto
 import com.cheradip.ailanguagetutor.core.network.CHECK_INTERNET_CONNECTION
 import com.cheradip.ailanguagetutor.core.network.NetworkErrorFormatter
 import com.cheradip.ailanguagetutor.core.network.PromoValidateRequest
@@ -391,6 +396,12 @@ class AdminPromoRepository @Inject constructor(
 
 data class AdminReportsSnapshot(
     val generatedAtMs: Long = 0L,
+    val cloudReportsEnabled: Boolean = true,
+    val homeAiReportsEnabled: Boolean = true,
+    val debugReportsEnabled: Boolean = true,
+    val languagePackCatalogActive: Int = 0,
+    val languagePackRows: List<AdminReportsLanguagePackRow> = emptyList(),
+    val learningActivityByLanguage: List<AdminReportsLanguageActivityRow> = emptyList(),
     val totalUsers: Int = 0,
     val regularUsers: Int = 0,
     val adminUsers: Int = 0,
@@ -436,6 +447,12 @@ class AdminReportsRepository @Inject constructor(
             val resp = adminService.reports()
             AdminReportsSnapshot(
                 generatedAtMs = resp.generatedAtMs,
+                cloudReportsEnabled = resp.reportSettings.cloudReportsEnabled,
+                homeAiReportsEnabled = resp.reportSettings.homeAiReportsEnabled,
+                debugReportsEnabled = resp.reportSettings.debugReportsEnabled,
+                languagePackCatalogActive = resp.languagePacks.catalogActive,
+                languagePackRows = resp.languagePacks.packs,
+                learningActivityByLanguage = resp.languagePacks.learningActivityByLanguage,
                 totalUsers = resp.users.total,
                 regularUsers = resp.users.regular,
                 adminUsers = resp.users.admins,
@@ -470,5 +487,46 @@ class AdminReportsRepository @Inject constructor(
         }.recoverCatching { error ->
             throw IllegalStateException(networkErrors.present(error, "Could not load reports"))
         }
+    }
+
+    suspend fun fetchReportSettings(): Result<AdminReportSettingsDto> {
+        if (!networkErrors.isOnline()) {
+            return Result.failure(IllegalStateException(CHECK_INTERNET_CONNECTION))
+        }
+        return runCatching { adminService.reportsSettings() }
+            .recoverCatching { error ->
+                throw IllegalStateException(networkErrors.present(error, "Could not load report settings"))
+            }
+    }
+
+    suspend fun updateReportSettings(
+        cloudReportsEnabled: Boolean? = null,
+        homeAiReportsEnabled: Boolean? = null,
+        debugReportsEnabled: Boolean? = null,
+    ): Result<AdminReportSettingsDto> {
+        if (!networkErrors.isOnline()) {
+            return Result.failure(IllegalStateException(CHECK_INTERNET_CONNECTION))
+        }
+        return runCatching {
+            adminService.patchReportsSettings(
+                AdminReportSettingsPatchRequest(
+                    cloudReportsEnabled = cloudReportsEnabled,
+                    homeAiReportsEnabled = homeAiReportsEnabled,
+                    debugReportsEnabled = debugReportsEnabled,
+                ),
+            )
+        }.recoverCatching { error ->
+            throw IllegalStateException(networkErrors.present(error, "Could not update report settings"))
+        }
+    }
+
+    suspend fun fetchDebugReports(): Result<AdminReportsDebugResponse> {
+        if (!networkErrors.isOnline()) {
+            return Result.failure(IllegalStateException(CHECK_INTERNET_CONNECTION))
+        }
+        return runCatching { adminService.reportsDebug() }
+            .recoverCatching { error ->
+                throw IllegalStateException(networkErrors.present(error, "Could not load debug reports"))
+            }
     }
 }

@@ -3,6 +3,7 @@ package com.cheradip.ailanguagetutor.core.pack
 import android.content.Context
 import com.cheradip.ailanguagetutor.core.common.AppConfig
 import com.cheradip.ailanguagetutor.core.database.dao.LanguagePackDao
+import com.cheradip.ailanguagetutor.core.database.dao.TranslationCacheDao
 import com.cheradip.ailanguagetutor.core.database.entity.LanguagePackStateEntity
 import com.cheradip.ailanguagetutor.core.model.LanguageCatalogEntry
 import com.cheradip.ailanguagetutor.core.model.WordDefinition
@@ -36,27 +37,50 @@ data class SamplePackFile(
 class PackDatabaseConnector @Inject constructor(
     @ApplicationContext private val context: Context,
     private val languagePackDao: LanguagePackDao,
+    private val packUsageTracker: PackUsageTracker,
 ) {
     private val moshi = Moshi.Builder().add(KotlinJsonAdapterFactory()).build()
     private val packAdapter = moshi.adapter(SamplePackFile::class.java)
     private val jsonPackCache = mutableMapOf<String, SamplePackFile>()
 
     fun invalidateCache(languageCode: String) {
-        jsonPackCache.remove(languageCode.lowercase())
+        for (code in LanguageCodeResolver.packFallbackChain(languageCode)) {
+            jsonPackCache.remove(code.lowercase())
+        }
     }
 
     suspend fun loadPack(languageCode: String): SamplePackFile? = withContext(Dispatchers.IO) {
-        val code = languageCode.lowercase()
-        jsonPackCache[code]?.let { return@withContext it }
-        val state = languagePackDao.getByCode(code)
-        val pack = when {
-            state?.localPath != null -> state.localPath?.let { loadJsonPackIfPresent(it) }
-            RichBundledLexicon.BUNDLED_LANGUAGE_CODES.contains(code) ->
-                RichBundledLexicon.samplePack(code)
-            code == "en" -> RichBundledLexicon.samplePack("en")
-            else -> null
-        } ?: RichBundledLexicon.samplePack(code)
-        pack?.also { jsonPackCache[code] = it }
+        for (code in LanguageCodeResolver.packFallbackChain(languageCode)) {
+            jsonPackCache[code]?.let { return@withContext it }
+            val state = languagePackDao.getByCode(code)
+            val downloaded = when {
+                state?.localPath != null -> state.localPath?.let { loadJsonPackIfPresent(it) }
+                else -> null
+            }
+            val bundled = RichBundledLexicon.samplePack(code)
+                ?: if (LanguageCodeResolver.normalizePackCode(code) == "en") RichBundledLexicon.samplePack("en") else null
+            val pack = mergeSamplePacks(bundled, downloaded)
+            if (pack != null) {
+                jsonPackCache[code] = pack
+                packUsageTracker.record("load_pack", languageCode, code, "json_or_bundled")
+                return@withContext pack
+            }
+        }
+        null
+    }
+
+    private fun mergeSamplePacks(vararg packs: SamplePackFile?): SamplePackFile? {
+        val valid = packs.filterNotNull()
+        if (valid.isEmpty()) return null
+        return valid.reduce { acc, next ->
+            SamplePackFile(
+                version = maxOf(acc.version, next.version),
+                languageCode = next.languageCode.ifBlank { acc.languageCode },
+                entries = acc.entries + next.entries,
+                phrases = acc.phrases + next.phrases,
+                translations = acc.translations + next.translations,
+            )
+        }
     }
 
     private fun loadJsonPackIfPresent(localPath: String): SamplePackFile? {
@@ -67,26 +91,183 @@ class PackDatabaseConnector @Inject constructor(
 
     suspend fun lookupWordTranslation(word: String, sourceLang: String, targetLang: String): String? =
         withContext(Dispatchers.IO) {
-            val normalized = normalizeToken(word)
-            if (normalized.isBlank()) return@withContext null
-            if (sourceLang.equals(targetLang, ignoreCase = true)) return@withContext normalized
+            val src = LanguageCodeResolver.normalizePackCode(sourceLang)
+            val tgt = LanguageCodeResolver.normalizePackCode(targetLang)
+            if (src == tgt) return@withContext DictionaryLookupHelper.normalize(word).ifBlank { null }
 
-            suspend fun fromTranslationDb(lang: String): String? {
-                val state = languagePackDao.getByCode(lang) ?: return null
-                val db = PackInstaller.translationDb(state.localPath) ?: return null
-                return PackSqliteReader.pivotTranslation(
-                    db,
-                    normalized,
-                    sourceLang.lowercase(),
-                    targetLang.lowercase(),
-                )
+            for (form in DictionaryLookupHelper.lookupForms(word, sourceLang)) {
+                lookupWordTranslationOnce(form, sourceLang, targetLang, src, tgt)?.let { return@withContext it }
             }
-
-            fromTranslationDb(sourceLang)
-                ?: languagePackDao.listDownloaded()
-                    .firstOrNull { it.isActive }
-                    ?.let { fromTranslationDb(it.languageCode) }
+            null
         }
+
+    private suspend fun lookupWordTranslationOnce(
+        word: String,
+        sourceLang: String,
+        targetLang: String,
+        src: String,
+        tgt: String,
+    ): String? {
+        val normalized = DictionaryLookupHelper.normalize(word)
+        if (normalized.isBlank()) return null
+
+        val triedPacks = mutableSetOf<String>()
+        suspend fun tryPack(packCode: String): String? {
+            val key = packCode.lowercase()
+            if (!triedPacks.add(key)) return null
+            return lookupWordDirect(normalized, key, src, tgt)
+        }
+
+        for (packCode in LanguageCodeResolver.packFallbackChain(sourceLang)) {
+            tryPack(packCode)?.let { hit ->
+                packUsageTracker.record("word_translation", sourceLang, packCode, "direct")
+                return hit
+            }
+        }
+        for (packCode in LanguageCodeResolver.packFallbackChain(targetLang)) {
+            tryPack(packCode)?.let { hit ->
+                packUsageTracker.record("word_translation", sourceLang, packCode, "direct_target")
+                return hit
+            }
+        }
+        for (state in downloadedPackStates()) {
+            tryPack(state.languageCode)?.let { hit ->
+                packUsageTracker.record("word_translation", sourceLang, state.languageCode, "downloaded")
+                return hit
+            }
+        }
+        lookupViaEnglishPivot(normalized, sourceLang, src, tgt)?.let { hit ->
+            packUsageTracker.record("word_translation", sourceLang, "en+pivot", "english_pivot")
+            return hit
+        }
+        return null
+    }
+
+    private suspend fun downloadedPackStates(): List<LanguagePackStateEntity> =
+        languagePackDao.listDownloaded()
+            .sortedWith(
+                compareByDescending<LanguagePackStateEntity> { it.isActive }
+                    .thenByDescending { it.downloadedAt },
+            )
+
+    private suspend fun lookupWordDirect(
+        normalized: String,
+        packCode: String,
+        sourceLang: String,
+        targetLang: String,
+    ): String? {
+        languagePackDao.getByCode(packCode)?.localPath?.let { path ->
+            PackInstaller.translationDb(path)?.let { db ->
+                PackSqliteReader.pivotTranslation(db, normalized, sourceLang, targetLang)?.let { return it }
+            }
+        }
+        loadPack(packCode)?.translations?.get("$normalized|$targetLang")?.let { return it }
+        if (sourceLang == "en") {
+            loadPack("en")?.translations?.get("$normalized|$targetLang")?.let { return it }
+        }
+        if (targetLang != "en" && sourceLang != "en") {
+            resolveEnglishLemma(normalized, sourceLang)?.let { english ->
+                lookupEnglishToTarget(english, targetLang)
+                    ?: lookupWordDirect(english, "en", "en", targetLang)
+                    ?: lookupJsonTranslation(english, "en", targetLang)
+            }?.let { return it }
+        }
+        return null
+    }
+
+    private suspend fun lookupViaEnglishPivot(
+        normalized: String,
+        sourceLang: String,
+        src: String,
+        tgt: String,
+    ): String? {
+        if (src == "en") {
+            return lookupEnglishToTarget(normalized, tgt)
+        }
+        var english: String? = null
+        for (packCode in LanguageCodeResolver.packFallbackChain(sourceLang)) {
+            val hit = lookupWordDirect(normalized, packCode, src, "en")
+            if (hit != null) {
+                english = hit
+                break
+            }
+        }
+        if (english == null) {
+            for (state in downloadedPackStates()) {
+                val hit = lookupWordDirect(normalized, state.languageCode, src, "en")
+                if (hit != null) {
+                    english = hit
+                    break
+                }
+            }
+        }
+        english = english ?: lookupJsonTranslation(normalized, sourceLang, "en")
+        english = english ?: resolveEnglishLemma(normalized, sourceLang)
+        if (english == null) return null
+        return lookupEnglishToTarget(english, tgt)
+    }
+
+    private suspend fun lookupEnglishToTarget(english: String, targetLang: String): String? {
+        if (targetLang == "en") return english
+        val triedPacks = mutableSetOf<String>()
+        suspend fun tryPack(packCode: String): String? {
+            val key = packCode.lowercase()
+            if (!triedPacks.add(key)) return null
+            for (form in DictionaryLookupHelper.lookupForms(english, "en")) {
+                lookupWordDirect(form, key, "en", targetLang)?.let { return it }
+                lookupJsonTranslation(form, "en", targetLang)?.let { return it }
+            }
+            return null
+        }
+        for (packCode in LanguageCodeResolver.packFallbackChain(targetLang)) {
+            tryPack(packCode)?.let { return it }
+        }
+        for (state in downloadedPackStates()) {
+            tryPack(state.languageCode)?.let { return it }
+        }
+        return null
+    }
+
+    private suspend fun resolveEnglishLemma(word: String, sourceLang: String): String? {
+        if (LanguageCodeResolver.isEnglish(sourceLang)) {
+            return DictionaryLookupHelper.normalize(word).ifBlank { null }
+        }
+        for (form in DictionaryLookupHelper.lookupForms(word, sourceLang)) {
+            for (packCode in LanguageCodeResolver.packFallbackChain(sourceLang)) {
+                englishLemmaFromPack(form, packCode)?.let { return it }
+            }
+            for (state in downloadedPackStates()) {
+                englishLemmaFromPack(form, state.languageCode)?.let { return it }
+            }
+        }
+        return null
+    }
+
+    private suspend fun englishLemmaFromPack(form: String, packCode: String): String? {
+        val code = LanguageCodeResolver.normalizePackCode(packCode)
+        loadPack(code)?.entries?.get(form)?.firstOrNull()?.let { gloss ->
+            return DictionaryLookupHelper.englishLemmaFromGloss(gloss)
+        }
+        languagePackDao.getByCode(packCode)?.localPath?.let { path ->
+            PackInstaller.dictionaryDb(path)?.let { db ->
+                for (candidate in DictionaryLookupHelper.lookupForms(form, code)) {
+                    PackSqliteReader.lookupWord(db, candidate, code)?.firstOrNull()?.let { gloss ->
+                        return DictionaryLookupHelper.englishLemmaFromGloss(gloss)
+                    }
+                }
+            }
+        }
+        return null
+    }
+
+    private suspend fun lookupJsonTranslation(word: String, sourceLang: String, targetLang: String): String? {
+        for (form in DictionaryLookupHelper.lookupForms(word, sourceLang)) {
+            for (packCode in LanguageCodeResolver.packFallbackChain(sourceLang)) {
+                loadPack(packCode)?.translations?.get("$form|$targetLang")?.let { return it }
+            }
+        }
+        return null
+    }
 
     suspend fun lookupWord(word: String, preferredLanguageCode: String): List<String>? = withContext(Dispatchers.IO) {
         val normalized = normalizeToken(word)
@@ -101,6 +282,10 @@ class PackDatabaseConnector @Inject constructor(
 
         tryLanguage(preferredLanguageCode)?.let { return@withContext it }
 
+        for (code in LanguageCodeResolver.packFallbackChain(preferredLanguageCode)) {
+            tryLanguage(code)?.let { return@withContext it }
+        }
+
         languagePackDao.listDownloaded()
             .sortedWith(compareByDescending<LanguagePackStateEntity> { it.isActive }.thenByDescending { it.downloadedAt })
             .forEach { state ->
@@ -112,56 +297,97 @@ class PackDatabaseConnector @Inject constructor(
 
     private suspend fun lookupInLanguage(normalized: String, languageCode: String): List<String>? {
         val state = languagePackDao.getByCode(languageCode)
-        PackInstaller.dictionaryDb(state?.localPath)?.let { db ->
-            PackSqliteReader.lookupWord(db, normalized, languageCode)?.let { return it }
+        val packCode = LanguageCodeResolver.normalizePackCode(languageCode)
+        for (form in DictionaryLookupHelper.lookupForms(normalized, languageCode)) {
+            PackInstaller.dictionaryDb(state?.localPath)?.let { db ->
+                PackSqliteReader.lookupWord(db, form, packCode)?.let { return it }
+            }
         }
         loadPack(languageCode)?.entries?.let { entries ->
-            lookupInEntries(entries, normalized)?.let { return it }
+            lookupInEntries(entries, normalized, languageCode)?.let { return it }
         }
         return null
     }
 
-    private fun lookupInEntries(entries: Map<String, List<String>>, normalized: String): List<String>? {
-        entries[normalized]?.let { return it }
-        if (normalized.endsWith("'s")) {
-            entries[normalized.removeSuffix("'s")]?.let { return it }
-        }
-        if (normalized.endsWith("s") && normalized.length > 3) {
-            entries[normalized.removeSuffix("s")]?.let { return it }
-        }
-        if (normalized.endsWith("ing") && normalized.length > 4) {
-            entries[normalized.removeSuffix("ing")]?.let { return it }
-        }
-        if (normalized.endsWith("ed") && normalized.length > 3) {
-            entries[normalized.removeSuffix("ed")]?.let { return it }
+    private fun lookupInEntries(
+        entries: Map<String, List<String>>,
+        normalized: String,
+        languageCode: String,
+    ): List<String>? {
+        for (form in DictionaryLookupHelper.lookupForms(normalized, languageCode)) {
+            entries[form]?.let { return it }
         }
         return null
     }
 
-    suspend fun lookupPhrase(phrase: String, languageCode: String): String? = withContext(Dispatchers.IO) {
-        val normalized = phrase.lowercase().trim()
-        val state = languagePackDao.getByCode(languageCode)
-        PackInstaller.translationDb(state?.localPath)?.let { db ->
-            PackSqliteReader.lookupPhrase(db, normalized, languageCode)?.let { return@withContext it }
-        }
-        loadPack(languageCode)?.phrases?.get(normalized)
-    }
+    suspend fun lookupPhrase(phrase: String, sourceLang: String, targetLang: String? = null): String? =
+        withContext(Dispatchers.IO) {
+            val normalized = phrase.lowercase().trim()
+            val src = LanguageCodeResolver.normalizePackCode(sourceLang)
+            val tgt = targetLang?.let { LanguageCodeResolver.normalizePackCode(it) }
 
-    suspend fun pivotTranslation(text: String, targetLang: String): String? = withContext(Dispatchers.IO) {
-        val normalized = text.lowercase().trim()
-        val enState = languagePackDao.getByCode("en")
-        PackInstaller.translationDb(enState?.localPath)?.let { db ->
-            PackSqliteReader.pivotTranslation(db, normalized, "en", targetLang)?.let { return@withContext it }
-        }
-        val sourceState = languagePackDao.getByCode(targetLang)
-        PackInstaller.translationDb(sourceState?.localPath)?.let { db ->
-            PackSqliteReader.pivotTranslation(db, normalized, targetLang, "en")?.let { return@withContext it }
-        }
-        loadPack("en")?.translations?.get("$normalized|$targetLang")
-    }
+            for (packCode in LanguageCodeResolver.packFallbackChain(sourceLang)) {
+                languagePackDao.getByCode(packCode)?.localPath?.let { path ->
+                    PackInstaller.translationDb(path)?.let { db ->
+                        PackSqliteReader.lookupPhrase(db, normalized, src)?.let { hit ->
+                            packUsageTracker.record("phrase", sourceLang, packCode, "sqlite")
+                            return@withContext hit
+                        }
+                    }
+                }
+                loadPack(packCode)?.phrases?.get(normalized)?.let { hit ->
+                    packUsageTracker.record("phrase", sourceLang, packCode, "json")
+                    return@withContext hit
+                }
+            }
 
-    private fun normalizeToken(word: String): String =
-        word.lowercase().trim().trim('(', ')', '.', ',', ';', ':', '!', '?', '"')
+            if (tgt != null && !src.equals(tgt, ignoreCase = true)) {
+                pivotTranslation(phrase, src, tgt)?.let { return@withContext it }
+            }
+            null
+        }
+
+    suspend fun pivotTranslation(text: String, sourceLang: String, targetLang: String): String? =
+        withContext(Dispatchers.IO) {
+            val normalized = text.lowercase().trim()
+            val src = LanguageCodeResolver.normalizePackCode(sourceLang)
+            val tgt = LanguageCodeResolver.normalizePackCode(targetLang)
+            if (src == tgt) return@withContext text
+
+            lookupPhrase(text, src, tgt)?.let { return@withContext it }
+
+            for (packCode in LanguageCodeResolver.packFallbackChain(src)) {
+                languagePackDao.getByCode(packCode)?.localPath?.let { path ->
+                    PackInstaller.translationDb(path)?.let { db ->
+                        PackSqliteReader.pivotTranslation(db, normalized, src, tgt)?.let { hit ->
+                            packUsageTracker.record("pivot", sourceLang, packCode, "sqlite")
+                            return@withContext hit
+                        }
+                    }
+                }
+            }
+
+            val parts = text.split(Regex("""(\s+)"""))
+            var anyHit = false
+            val built = buildString {
+                for (part in parts) {
+                    if (part.isBlank() || part.none { ch -> ch.isLetterOrDigit() || Character.isLetterOrDigit(ch) }) {
+                        append(part)
+                        continue
+                    }
+                    val translated = lookupWordTranslation(part, src, tgt)
+                    if (translated != null) {
+                        anyHit = true
+                        append(translated)
+                    } else {
+                        append(part)
+                    }
+                }
+            }
+            built.takeIf { anyHit }
+        }
+
+    private fun normalizeToken(word: String): String = DictionaryLookupHelper.normalize(word)
 }
 
 @Singleton
@@ -193,7 +419,7 @@ class DictionaryRepository @Inject constructor(
             if (DictionaryLookupHelper.isNumericToken(word)) {
                 return@withContext DictionaryLookupHelper.placeholderDefinition(word, languageCode, true)
             }
-            for (form in DictionaryLookupHelper.lookupForms(word)) {
+            for (form in DictionaryLookupHelper.lookupForms(word, languageCode)) {
                 val fromPack = packConnector.lookupWord(form, languageCode)
                 if (fromPack != null) {
                     return@withContext WordDefinition(
@@ -228,6 +454,7 @@ class LanguagePackRepository @Inject constructor(
     private val languagePackDao: LanguagePackDao,
     private val languageService: AiltLanguageService,
     private val packConnector: PackDatabaseConnector,
+    private val translationCacheDao: TranslationCacheDao,
     private val okHttpClient: OkHttpClient,
     private val appConfig: AppConfig,
     private val networkErrors: NetworkErrorFormatter,
@@ -245,6 +472,9 @@ class LanguagePackRepository @Inject constructor(
         observeActive().map { packs -> packs.map { it.languageCode.lowercase() } }
 
     fun observeAll(): Flow<List<LanguagePackStateEntity>> = languagePackDao.observeAll()
+
+    suspend fun hasDownloadedPacks(): Boolean =
+        languagePackDao.listDownloaded().isNotEmpty()
 
     suspend fun downloadAndActivate(languageCode: String): Result<Unit> = withContext(Dispatchers.IO) {
         runCatching {
@@ -298,6 +528,11 @@ class LanguagePackRepository @Inject constructor(
                     ),
                 )
             }
+            for (code in LanguageCodeResolver.packFallbackChain(languageCode)) {
+                packConnector.invalidateCache(code)
+                translationCacheDao.clearForLanguage(code)
+            }
+            translationCacheDao.clearForLanguage("en")
             packConnector.loadPack(languageCode)
             Unit
         }.recoverCatching { error ->

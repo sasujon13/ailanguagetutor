@@ -7,9 +7,11 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.deps import require_admin
 from app.models import (
+    AdminReportSettings,
     AiProvider,
     AiRoutingPolicy,
     DeviceTrial,
+    LanguagePack,
     PromoCode,
     ReferralBalance,
     ReferralPolicy,
@@ -22,6 +24,16 @@ from app.schemas import AdminPromoCodeDto, AdminPromoPatchDto, AiProviderToggleR
 from app.security import quota_used_percent
 
 router = APIRouter(prefix="/admin", tags=["admin"])
+
+
+def _report_settings(db: Session) -> AdminReportSettings:
+    row = db.scalar(select(AdminReportSettings).limit(1))
+    if row is None:
+        row = AdminReportSettings()
+        db.add(row)
+        db.commit()
+        db.refresh(row)
+    return row
 
 
 def _effective_health(provider: AiProvider) -> str:
@@ -187,12 +199,88 @@ def toggle_ai_provider(provider_id: str, body: AiProviderToggleRequest, db: Sess
     }
 
 
+@router.get("/reports/settings")
+def admin_reports_settings(
+    db: Session = Depends(get_db),
+    _admin: User = Depends(require_admin),
+) -> dict:
+    s = _report_settings(db)
+    return {
+        "cloud_reports_enabled": s.cloud_reports_enabled,
+        "home_ai_reports_enabled": s.home_ai_reports_enabled,
+        "debug_reports_enabled": s.debug_reports_enabled,
+    }
+
+
+@router.patch("/reports/settings")
+def patch_admin_reports_settings(
+    body: dict,
+    db: Session = Depends(get_db),
+    _admin: User = Depends(require_admin),
+) -> dict:
+    s = _report_settings(db)
+    if "cloud_reports_enabled" in body:
+        s.cloud_reports_enabled = bool(body["cloud_reports_enabled"])
+    if "home_ai_reports_enabled" in body:
+        s.home_ai_reports_enabled = bool(body["home_ai_reports_enabled"])
+    if "debug_reports_enabled" in body:
+        s.debug_reports_enabled = bool(body["debug_reports_enabled"])
+    db.commit()
+    db.refresh(s)
+    return {
+        "cloud_reports_enabled": s.cloud_reports_enabled,
+        "home_ai_reports_enabled": s.home_ai_reports_enabled,
+        "debug_reports_enabled": s.debug_reports_enabled,
+    }
+
+
+@router.get("/reports/debug")
+def admin_reports_debug(
+    db: Session = Depends(get_db),
+    _admin: User = Depends(require_admin),
+) -> dict:
+    s = _report_settings(db)
+    if not s.debug_reports_enabled:
+        raise HTTPException(403, "Debug reports are disabled by admin settings.")
+    packs = db.scalars(select(LanguagePack).order_by(LanguagePack.code)).all()
+    activity_by_lang = db.execute(
+        select(UserLearningActivity.language_code, func.count())
+        .group_by(UserLearningActivity.language_code)
+        .order_by(func.count().desc())
+    ).all()
+    providers = db.scalars(select(AiProvider)).all()
+    return {
+        "generated_at_ms": int(datetime.utcnow().timestamp() * 1000),
+        "language_packs": [
+            {
+                "code": p.code,
+                "version": p.version,
+                "active": p.active,
+                "size_bytes": p.size_bytes,
+            }
+            for p in packs
+        ],
+        "learning_activity_by_language": [
+            {"language_code": row[0], "count": row[1]} for row in activity_by_lang
+        ],
+        "cloud_ai_provider_errors": [
+            {"id": p.id, "last_error": p.last_error, "health": _effective_health(p)}
+            for p in providers
+            if p.last_error
+        ],
+    }
+
+
 @router.get("/reports")
 def admin_reports(
     db: Session = Depends(get_db),
     _admin: User = Depends(require_admin),
 ) -> dict:
     """Aggregate platform metrics for admin dashboard (requires admin login)."""
+    settings = _report_settings(db)
+    if not settings.cloud_reports_enabled:
+        raise HTTPException(503, "Cloud report generation is disabled by admin settings.")
+
     now = datetime.utcnow()
     now_ms = int(now.timestamp() * 1000)
     cutoff_7 = now - timedelta(days=7)
@@ -251,8 +339,28 @@ def admin_reports(
     routing = db.scalar(select(AiRoutingPolicy).limit(1))
     routing_mode = routing.mode if routing else "random_free"
 
+    packs = db.scalars(select(LanguagePack).where(LanguagePack.active.is_(True))).all()
+    activity_by_lang = db.execute(
+        select(UserLearningActivity.language_code, func.count())
+        .group_by(UserLearningActivity.language_code)
+        .order_by(func.count().desc())
+        .limit(12)
+    ).all()
+
     return {
         "generated_at_ms": now_ms,
+        "report_settings": {
+            "cloud_reports_enabled": settings.cloud_reports_enabled,
+            "home_ai_reports_enabled": settings.home_ai_reports_enabled,
+            "debug_reports_enabled": settings.debug_reports_enabled,
+        },
+        "language_packs": {
+            "catalog_active": len(packs),
+            "packs": [{"code": p.code, "version": p.version, "size_bytes": p.size_bytes} for p in packs],
+            "learning_activity_by_language": [
+                {"language_code": row[0], "count": row[1]} for row in activity_by_lang
+            ],
+        },
         "users": {
             "total": total_users,
             "regular": max(0, total_users - admin_users),

@@ -136,6 +136,7 @@ data class HomeAiGrammarBookRequest(
     @Json(name = "language_name") val languageName: String = "",
     @Json(name = "ai_engine_mode") val aiEngineMode: Int = 1,
     @Json(name = "subscription_tier") val subscriptionTier: String = "pro",
+    @Json(name = "english_pivot") val englishPivot: Boolean = true,
 )
 
 @JsonClass(generateAdapter = true)

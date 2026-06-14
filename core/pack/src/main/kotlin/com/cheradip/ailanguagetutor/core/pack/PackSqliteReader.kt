@@ -7,6 +7,7 @@ internal object PackSqliteReader {
     fun lookupWord(dbFile: File, lemma: String, languageCode: String): List<String>? {
         if (!dbFile.isFile) return null
         val normalized = lemma.lowercase().trim()
+        val lang = LanguageCodeResolver.normalizePackCode(languageCode)
         val db = SQLiteDatabase.openDatabase(dbFile.path, null, SQLiteDatabase.OPEN_READONLY)
         return try {
             db.rawQuery(
@@ -16,7 +17,7 @@ internal object PackSqliteReader {
                 WHERE w.language = ? AND (w.lemma = ? OR LOWER(w.word) = ?)
                 ORDER BY m.rank ASC LIMIT 3
                 """.trimIndent(),
-                arrayOf(languageCode.lowercase(), normalized, normalized),
+                arrayOf(lang, normalized, normalized),
             ).use { cursor ->
                 if (!cursor.moveToFirst()) return null
                 buildList {
@@ -51,6 +52,21 @@ internal object PackSqliteReader {
     }
 
     fun pivotTranslation(dbFile: File, sourceWord: String, sourceLang: String, targetLang: String): String? {
+        pivotTranslationDirect(dbFile, sourceWord, sourceLang, targetLang)?.let { return it }
+        if (sourceLang.equals("en", ignoreCase = true) || targetLang.equals("en", ignoreCase = true)) {
+            return null
+        }
+        val normalized = sourceWord.lowercase().trim()
+        val english = pivotTranslationDirect(dbFile, normalized, sourceLang, "en") ?: return null
+        return pivotTranslationDirect(dbFile, english, "en", targetLang)
+    }
+
+    private fun pivotTranslationDirect(
+        dbFile: File,
+        sourceWord: String,
+        sourceLang: String,
+        targetLang: String,
+    ): String? {
         if (!dbFile.isFile) return null
         val normalized = sourceWord.lowercase().trim()
         val db = SQLiteDatabase.openDatabase(dbFile.path, null, SQLiteDatabase.OPEN_READONLY)

@@ -346,12 +346,66 @@ data class AiProviderToggleRequest(val enabled: Boolean)
 @JsonClass(generateAdapter = true)
 data class AdminReportsResponse(
     @Json(name = "generated_at_ms") val generatedAtMs: Long = 0L,
+    @Json(name = "report_settings") val reportSettings: AdminReportSettingsDto = AdminReportSettingsDto(),
+    @Json(name = "language_packs") val languagePacks: AdminReportsLanguagePacks = AdminReportsLanguagePacks(),
     val users: AdminReportsUsers = AdminReportsUsers(),
     val subscriptions: AdminReportsSubscriptions = AdminReportsSubscriptions(),
     val engagement: AdminReportsEngagement = AdminReportsEngagement(),
     val referrals: AdminReportsReferrals = AdminReportsReferrals(),
     @Json(name = "promo_codes") val promoCodes: AdminReportsPromoCodes = AdminReportsPromoCodes(),
     @Json(name = "cloud_ai") val cloudAi: AdminReportsCloudAi = AdminReportsCloudAi(),
+)
+
+@JsonClass(generateAdapter = true)
+data class AdminReportSettingsDto(
+    @Json(name = "cloud_reports_enabled") val cloudReportsEnabled: Boolean = true,
+    @Json(name = "home_ai_reports_enabled") val homeAiReportsEnabled: Boolean = true,
+    @Json(name = "debug_reports_enabled") val debugReportsEnabled: Boolean = true,
+)
+
+@JsonClass(generateAdapter = true)
+data class AdminReportsLanguagePacks(
+    @Json(name = "catalog_active") val catalogActive: Int = 0,
+    val packs: List<AdminReportsLanguagePackRow> = emptyList(),
+    @Json(name = "learning_activity_by_language")
+    val learningActivityByLanguage: List<AdminReportsLanguageActivityRow> = emptyList(),
+)
+
+@JsonClass(generateAdapter = true)
+data class AdminReportsLanguagePackRow(
+    val code: String = "",
+    val version: Int = 1,
+    @Json(name = "size_bytes") val sizeBytes: Long = 0L,
+)
+
+@JsonClass(generateAdapter = true)
+data class AdminReportsLanguageActivityRow(
+    @Json(name = "language_code") val languageCode: String = "",
+    val count: Int = 0,
+)
+
+@JsonClass(generateAdapter = true)
+data class AdminReportsDebugResponse(
+    @Json(name = "generated_at_ms") val generatedAtMs: Long = 0L,
+    @Json(name = "language_packs") val languagePacks: List<AdminReportsLanguagePackRow> = emptyList(),
+    @Json(name = "learning_activity_by_language")
+    val learningActivityByLanguage: List<AdminReportsLanguageActivityRow> = emptyList(),
+    @Json(name = "cloud_ai_provider_errors")
+    val cloudAiProviderErrors: List<AdminReportsProviderErrorRow> = emptyList(),
+)
+
+@JsonClass(generateAdapter = true)
+data class AdminReportsProviderErrorRow(
+    val id: String = "",
+    @Json(name = "last_error") val lastError: String? = null,
+    val health: String = "",
+)
+
+@JsonClass(generateAdapter = true)
+data class AdminReportSettingsPatchRequest(
+    @Json(name = "cloud_reports_enabled") val cloudReportsEnabled: Boolean? = null,
+    @Json(name = "home_ai_reports_enabled") val homeAiReportsEnabled: Boolean? = null,
+    @Json(name = "debug_reports_enabled") val debugReportsEnabled: Boolean? = null,
 )
 
 @JsonClass(generateAdapter = true)

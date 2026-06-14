@@ -18,6 +18,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -34,6 +35,9 @@ import com.cheradip.ailanguagetutor.core.ai.HomeAiSettingsRepository
 import com.cheradip.ailanguagetutor.core.billing.AdminReportsRepository
 import com.cheradip.ailanguagetutor.core.billing.AdminReportsSnapshot
 import com.cheradip.ailanguagetutor.core.locale.appString
+import com.cheradip.ailanguagetutor.core.network.AdminReportSettingsDto
+import com.cheradip.ailanguagetutor.core.network.AdminReportsDebugResponse
+import com.cheradip.ailanguagetutor.core.pack.PackUsageTracker
 import com.cheradip.ailanguagetutor.ui.components.CheradipScreenEdgePadding
 import com.cheradip.ailanguagetutor.ui.components.CheradipTopBar
 import com.cheradip.ailanguagetutor.ui.components.SectionHeader
@@ -52,6 +56,7 @@ class AdminReportsViewModel @Inject constructor(
     private val adminReportsRepository: AdminReportsRepository,
     private val homeAiService: HomeAiService,
     private val homeAiSettings: HomeAiSettingsRepository,
+    private val packUsageTracker: PackUsageTracker,
 ) : ViewModel() {
     private val _loading = MutableStateFlow(false)
     val loading: StateFlow<Boolean> = _loading.asStateFlow()
@@ -71,6 +76,14 @@ class AdminReportsViewModel @Inject constructor(
     private val _homeAiReachable = MutableStateFlow(false)
     val homeAiReachable: StateFlow<Boolean> = _homeAiReachable.asStateFlow()
 
+    private val _reportSettings = MutableStateFlow(AdminReportSettingsDto())
+    val reportSettings: StateFlow<AdminReportSettingsDto> = _reportSettings.asStateFlow()
+
+    private val _debugReports = MutableStateFlow<AdminReportsDebugResponse?>(null)
+    val debugReports: StateFlow<AdminReportsDebugResponse?> = _debugReports.asStateFlow()
+
+    val clientPackUsage = packUsageTracker.recentEvents
+
     init {
         refresh()
     }
@@ -79,13 +92,78 @@ class AdminReportsViewModel @Inject constructor(
         viewModelScope.launch {
             _loading.value = true
             _error.value = null
+            _debugReports.value = null
             _homeAiUrl.value = homeAiSettings.getBaseUrl()
-            _homeAiReachable.value = homeAiService.isReachable()
-            _homeAi.value = if (_homeAiReachable.value) homeAiService.fetchAdminStatus() else null
-            adminReportsRepository.fetchReports()
-                .onSuccess { _cloud.value = it }
-                .onFailure { _error.value = it.message ?: "Could not load reports" }
+
+            adminReportsRepository.fetchReportSettings()
+                .onSuccess { _reportSettings.value = it }
+                .onFailure { _reportSettings.value = AdminReportSettingsDto() }
+
+            val settings = _reportSettings.value
+
+            if (settings.cloudReportsEnabled) {
+                adminReportsRepository.fetchReports()
+                    .onSuccess {
+                        _cloud.value = it
+                        _reportSettings.value = AdminReportSettingsDto(
+                            cloudReportsEnabled = it.cloudReportsEnabled,
+                            homeAiReportsEnabled = it.homeAiReportsEnabled,
+                            debugReportsEnabled = it.debugReportsEnabled,
+                        )
+                    }
+                    .onFailure { _error.value = it.message ?: "Could not load cloud reports" }
+            } else {
+                _cloud.value = null
+            }
+
+            if (settings.homeAiReportsEnabled) {
+                _homeAiReachable.value = homeAiService.isReachable()
+                _homeAi.value = if (_homeAiReachable.value) homeAiService.fetchAdminStatus() else null
+            } else {
+                _homeAiReachable.value = false
+                _homeAi.value = null
+            }
+
+            if (settings.debugReportsEnabled) {
+                adminReportsRepository.fetchDebugReports()
+                    .onSuccess { _debugReports.value = it }
+                    .onFailure {
+                        _debugReports.value = null
+                    }
+            }
+
             _loading.value = false
+        }
+    }
+
+    fun setCloudReportsEnabled(enabled: Boolean) {
+        updateSettings(cloudReportsEnabled = enabled)
+    }
+
+    fun setHomeAiReportsEnabled(enabled: Boolean) {
+        updateSettings(homeAiReportsEnabled = enabled)
+    }
+
+    fun setDebugReportsEnabled(enabled: Boolean) {
+        updateSettings(debugReportsEnabled = enabled)
+    }
+
+    private fun updateSettings(
+        cloudReportsEnabled: Boolean? = null,
+        homeAiReportsEnabled: Boolean? = null,
+        debugReportsEnabled: Boolean? = null,
+    ) {
+        viewModelScope.launch {
+            adminReportsRepository.updateReportSettings(
+                cloudReportsEnabled = cloudReportsEnabled,
+                homeAiReportsEnabled = homeAiReportsEnabled,
+                debugReportsEnabled = debugReportsEnabled,
+            ).onSuccess { updated ->
+                _reportSettings.value = updated
+                refresh()
+            }.onFailure { err ->
+                _error.value = err.message ?: "Could not update report settings"
+            }
         }
     }
 }
@@ -102,6 +180,9 @@ fun AdminReportsScreen(
     val homeAi by viewModel.homeAi.collectAsStateWithLifecycle()
     val homeAiUrl by viewModel.homeAiUrl.collectAsStateWithLifecycle()
     val homeAiReachable by viewModel.homeAiReachable.collectAsStateWithLifecycle()
+    val reportSettings by viewModel.reportSettings.collectAsStateWithLifecycle()
+    val debugReports by viewModel.debugReports.collectAsStateWithLifecycle()
+    val clientPackUsage by viewModel.clientPackUsage.collectAsStateWithLifecycle()
 
     Scaffold(
         modifier = modifier,
@@ -141,6 +222,39 @@ fun AdminReportsScreen(
             error?.let {
                 Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
             }
+
+            SectionHeader(title = "Report services")
+            ReportCard {
+                ReportToggleRow(
+                    label = "Cloud platform reports",
+                    checked = reportSettings.cloudReportsEnabled,
+                    onCheckedChange = viewModel::setCloudReportsEnabled,
+                )
+                ReportToggleRow(
+                    label = "Home AI reports",
+                    checked = reportSettings.homeAiReportsEnabled,
+                    onCheckedChange = viewModel::setHomeAiReportsEnabled,
+                )
+                ReportToggleRow(
+                    label = "Debug reports",
+                    checked = reportSettings.debugReportsEnabled,
+                    onCheckedChange = viewModel::setDebugReportsEnabled,
+                )
+                Text(
+                    "Each service can be stopped independently. Changes are saved to the server.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+
+            if (!reportSettings.cloudReportsEnabled) {
+                Text(
+                    "Cloud report generation is disabled on the server.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+
             cloud?.let { report ->
                 cloudGeneratedLabel(report.generatedAtMs)
                 SectionHeader(title = appString("admin_reports_users"))
@@ -166,6 +280,41 @@ fun AdminReportsScreen(
                     MetricRow(appString("admin_reports_promo_active"), "${report.promoCodesActive} / ${report.promoCodesTotal}")
                     MetricRow(appString("admin_reports_pending_withdrawals"), report.pendingWithdrawals.toString())
                     MetricRow(appString("admin_reports_referral_balance"), "$${"%.2f".format(report.referralBalanceUsd)}")
+                }
+                SectionHeader(title = "Language packs")
+                ReportCard {
+                    MetricRow("Active catalog packs", report.languagePackCatalogActive.toString())
+                    if (report.languagePackRows.isEmpty()) {
+                        Text(
+                            "No language packs in server catalog.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    } else {
+                        report.languagePackRows.forEach { pack ->
+                            MetricRow(
+                                pack.code.uppercase(),
+                                "v${pack.version} · ${pack.sizeBytes / 1024} KB",
+                            )
+                        }
+                    }
+                    if (report.learningActivityByLanguage.isNotEmpty()) {
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+                        Text("Practice activity by language", style = MaterialTheme.typography.titleSmall)
+                        report.learningActivityByLanguage.forEach { row ->
+                            MetricRow(row.languageCode.uppercase(), row.count.toString())
+                        }
+                    }
+                    if (clientPackUsage.isNotEmpty()) {
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+                        Text("This device — recent pack lookups", style = MaterialTheme.typography.titleSmall)
+                        clientPackUsage.take(8).forEach { event ->
+                            MetricRow(
+                                "${event.operation} (${event.requestedLang})",
+                                "${event.resolvedPackCode} · ${event.method}",
+                            )
+                        }
+                    }
                 }
                 SectionHeader(title = appString("admin_reports_cloud_ai"))
                 ReportCard {
@@ -200,6 +349,13 @@ fun AdminReportsScreen(
                 }
             }
             SectionHeader(title = appString("admin_reports_home_ai"))
+            if (!reportSettings.homeAiReportsEnabled) {
+                Text(
+                    "Home AI report fetching is disabled on the server.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
             ReportCard {
                 MetricRow(appString("admin_reports_home_ai_url"), homeAiUrl)
                 MetricRow(
@@ -262,6 +418,48 @@ fun AdminReportsScreen(
                     }
                 }
             }
+
+            if (reportSettings.debugReportsEnabled) {
+                SectionHeader(title = "Debug reports")
+                ReportCard {
+                    val debug = debugReports
+                    if (debug == null) {
+                        Text(
+                            "Debug endpoint enabled but no data loaded yet. Tap Refresh.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    } else {
+                        debug.languagePacks.forEach { pack ->
+                            MetricRow(
+                                pack.code.uppercase(),
+                                "v${pack.version}${if (pack.sizeBytes > 0) " · active" else ""}",
+                            )
+                        }
+                        if (debug.cloudAiProviderErrors.isNotEmpty()) {
+                            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+                            Text("Provider errors", style = MaterialTheme.typography.titleSmall)
+                            debug.cloudAiProviderErrors.forEach { row ->
+                                MetricRow(row.id, row.lastError ?: row.health)
+                            }
+                        }
+                        if (debug.learningActivityByLanguage.isNotEmpty()) {
+                            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+                            Text("All activity languages", style = MaterialTheme.typography.titleSmall)
+                            debug.learningActivityByLanguage.forEach { row ->
+                                MetricRow(row.languageCode.uppercase(), row.count.toString())
+                            }
+                        }
+                    }
+                }
+            } else {
+                Text(
+                    "Debug reports are disabled on the server.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+
             Spacer(modifier = Modifier.height(24.dp))
         }
     }
@@ -297,6 +495,26 @@ private fun ReportCard(content: @Composable ColumnScope.() -> Unit) {
             verticalArrangement = Arrangement.spacedBy(6.dp),
             content = content,
         )
+    }
+}
+
+@Composable
+private fun ReportToggleRow(
+    label: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            label,
+            style = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier.weight(1f),
+        )
+        Switch(checked = checked, onCheckedChange = onCheckedChange)
     }
 }
 

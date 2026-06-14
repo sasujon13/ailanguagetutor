@@ -29,9 +29,18 @@ class OfflineTranslationEngine @Inject constructor(
         sourceLang: String,
         targetLang: String,
     ): List<TranslationResult> = withContext(Dispatchers.Default) {
-        paragraph.split(Regex("(?<=[.!?])\\s+"))
+        splitSentences(paragraph)
             .filter { it.isNotBlank() }
             .map { sentence -> translate(sentence.trim(), sourceLang, targetLang) }
+    }
+
+    /** Sentence boundaries for Latin, CJK, Arabic, and Indic scripts. */
+    private fun splitSentences(paragraph: String): List<String> {
+        if (paragraph.isBlank()) return emptyList()
+        return paragraph.split(Regex("""(?<=[.!?。！？؛۔।])(?:\s+|$)"""))
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .ifEmpty { listOf(paragraph.trim()) }
     }
 
     suspend fun translate(
@@ -50,13 +59,13 @@ class OfflineTranslationEngine @Inject constructor(
             )
         }
 
-        val phraseHit = packConnector.lookupPhrase(text, sourceLang)
+        val phraseHit = packConnector.lookupPhrase(text, sourceLang, targetLang)
         if (phraseHit != null) {
             return@withContext cacheAndReturn(text, phraseHit, sourceLang, targetLang, TranslationStrategy.PHRASE, hash)
         }
 
         if (text.contains(' ') && text.length < 120) {
-            val pivot = packConnector.pivotTranslation(text, targetLang)
+            val pivot = packConnector.pivotTranslation(text, sourceLang, targetLang)
             if (pivot != null) {
                 return@withContext cacheAndReturn(text, pivot, sourceLang, targetLang, TranslationStrategy.WORD_PIVOT, hash)
             }
@@ -79,7 +88,7 @@ class OfflineTranslationEngine @Inject constructor(
         var anyHit = false
         val built = buildString {
             for (part in parts) {
-                if (part.isBlank() || part.none { it.isLetter() }) {
+                if (part.isBlank() || part.none { ch -> ch.isLetterOrDigit() || Character.isLetterOrDigit(ch) }) {
                     append(part)
                     continue
                 }

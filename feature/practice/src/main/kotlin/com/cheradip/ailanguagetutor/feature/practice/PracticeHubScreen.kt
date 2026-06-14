@@ -50,6 +50,7 @@ import com.cheradip.ailanguagetutor.core.locale.appString
 import com.cheradip.ailanguagetutor.core.model.ProcessingIntent
 import com.cheradip.ailanguagetutor.feature.dictionary.WordDefinitionSheet
 import com.cheradip.ailanguagetutor.ui.components.CheradipScrollScreen
+import com.cheradip.ailanguagetutor.ui.components.GrammarDepthChips
 import com.cheradip.ailanguagetutor.ui.components.IconTextButton
 import com.cheradip.ailanguagetutor.ui.components.InputChannel
 import com.cheradip.ailanguagetutor.ui.components.InputChannelBar
@@ -94,6 +95,8 @@ fun PracticeHubScreen(
     val practiceLangs by viewModel.practiceLanguages.collectAsStateWithLifecycle()
 
     val processingIntent by viewModel.processingIntent.collectAsStateWithLifecycle()
+
+    val grammarDepth by viewModel.grammarDepth.collectAsStateWithLifecycle()
 
     val playbackState by viewModel.playbackState.collectAsStateWithLifecycle()
 
@@ -204,23 +207,30 @@ fun PracticeHubScreen(
 
         if (languageOptions.isNotEmpty()) {
 
-            item {
+        item {
 
-                PracticeLanguageSelectors(
-                    languageOptions = languageOptions,
-                    outputLanguageOptions = viewModel.outputLanguageOptions(),
-                    inputLanguage = practiceLangs.inputLanguage,
-                    outputLanguage = practiceLangs.outputLanguage,
-                    processingIntent = processingIntent,
-                    onInputSelected = { viewModel.setInputLanguage(it.code) },
-                    onOutputSelected = { viewModel.setOutputLanguage(it.code) },
-                )
+            PracticeLanguageSelectors(
+                languageOptions = languageOptions,
+                outputLanguageOptions = viewModel.outputLanguageOptions(),
+                inputLanguage = practiceLangs.inputLanguage,
+                outputLanguage = practiceLangs.outputLanguage,
+                processingIntent = processingIntent,
+                onInputSelected = { viewModel.setInputLanguage(it.code) },
+                onOutputSelected = { viewModel.setOutputLanguage(it.code) },
+            )
 
-            }
+        }
 
         }
 
 
+
+        item {
+            GrammarDepthChips(
+                selected = grammarDepth,
+                onSelected = viewModel::setGrammarDepth,
+            )
+        }
 
         item {
 

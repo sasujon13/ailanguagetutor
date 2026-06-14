@@ -80,8 +80,8 @@ internal object OcrStructurePrompts {
             """.trimIndent()
 
             ScannedContentType.MIXED -> """
-                This scan contains mixed content (e.g. code + prose, or math + text).
-                Language: $languageCode.
+                This scan contains mixed content (e.g. Bengali+English explanations with formulas, code + prose, or math + text).
+                Primary language: $languageCode. Preserve all scripts (Bengali, Arabic, Devanagari, Latin, etc.) exactly.
                 
                 Raw OCR:
                 ---
@@ -89,10 +89,11 @@ internal object OcrStructurePrompts {
                 ---
                 
                 Tasks:
-                1. Separate sections with clear headings (## Prose, ## Code, ## Math, etc.).
-                2. Use ``` code fences for code; fix OCR in each section.
-                3. Fix errors and restore logical reading order.
-                4. Note gaps under "## Gaps detected".
+                1. Keep descriptive prose in its original language(s). Do NOT drop Bengali/English bilingual explanations.
+                2. Separate sections with clear headings (## Prose, ## Code, ## Math, etc.) only when content types truly differ.
+                3. Use ``` code fences for code; use $$ ... $$ or Unicode math for equations only on actual formula lines.
+                4. Fix OCR errors and restore logical reading order.
+                5. Note gaps under "## Gaps detected".
                 
                 Reply with ONLY the structured document. No preamble.
             """.trimIndent()

@@ -52,6 +52,7 @@ data class ReaderUiState(
     val translations: List<TranslationResult> = emptyList(),
     val showTranslation: Boolean = false,
     val aiPanelText: String? = null,
+    val aiPanelWords: List<WordSpan> = emptyList(),
     val aiPanelIntent: ProcessingIntent? = null,
     val aiLoading: Boolean = false,
     val aiBackendLabel: String? = null,
@@ -200,6 +201,7 @@ class ReaderViewModel @Inject constructor(
                 it.copy(
                     aiLoading = false,
                     aiPanelText = result.output,
+                    aiPanelWords = wordMapBuilder.buildFromPlainText(result.output),
                     aiPanelIntent = result.intent,
                     aiBackendLabel = result.backend?.name,
                 )
@@ -209,7 +211,7 @@ class ReaderViewModel @Inject constructor(
 
     fun dismissAiPanel() {
         _uiState.update {
-            it.copy(aiPanelText = null, aiPanelIntent = null, aiBackendLabel = null)
+            it.copy(aiPanelText = null, aiPanelWords = emptyList(), aiPanelIntent = null, aiBackendLabel = null)
         }
     }
 
@@ -237,18 +239,49 @@ class ReaderViewModel @Inject constructor(
 
     fun onWordTap(offset: Int) {
         val state = _uiState.value
-        val word = wordMapBuilder.findWordAtOffset(state.words, offset) ?: return
+        explainWordAt(
+            fullText = state.fullText,
+            words = state.words,
+            offset = offset,
+            languageCode = state.languageCode,
+            targetLang = state.targetLanguageCode,
+            inputSource = InputSource.OCR_SCAN,
+        )
+    }
+
+    fun onAiPanelWordTap(offset: Int) {
+        val state = _uiState.value
+        val panelText = state.aiPanelText ?: return
+        explainWordAt(
+            fullText = panelText,
+            words = state.aiPanelWords,
+            offset = offset,
+            languageCode = state.targetLanguageCode,
+            targetLang = state.languageCode,
+            inputSource = InputSource.OCR_SCAN,
+        )
+    }
+
+    private fun explainWordAt(
+        fullText: String,
+        words: List<WordSpan>,
+        offset: Int,
+        languageCode: String,
+        targetLang: String,
+        inputSource: InputSource,
+    ) {
+        val word = wordMapBuilder.findWordAtOffset(words, offset) ?: return
         val depth = grammarDepth.value
         viewModelScope.launch {
             val activePacks = activePackCodes()
-            val lookupLang = resolveReaderLanguage(state.languageCode, activePacks)
+            val lookupLang = resolveReaderLanguage(languageCode, activePacks)
             val def = dictionaryRepository.lookup(word.text, lookupLang)
                 ?: placeholderDefinition(
                     word.text,
                     lookupLang,
                     activePacks.isNotEmpty(),
                 )
-            val contextSnippet = grammarExplainer.contextForDepth(state.fullText, offset, depth)
+            val contextSnippet = grammarExplainer.contextForDepth(fullText, offset, depth)
             _uiState.update {
                 it.copy(
                     selectedDefinition = def,
@@ -263,13 +296,13 @@ class ReaderViewModel @Inject constructor(
             }
             val grammar = try {
                 grammarExplainer.explain(
-                    fullText = state.fullText,
+                    fullText = fullText,
                     tapOffset = offset,
                     focusWord = word.text,
-                    languageCode = state.languageCode,
-                    targetLang = state.targetLanguageCode,
+                    languageCode = languageCode,
+                    targetLang = targetLang,
                     depth = depth,
-                    inputSource = InputSource.OCR_SCAN,
+                    inputSource = inputSource,
                 )
             } catch (_: GuestAiLimitReachedException) {
                 _uiState.update { it.copy(guestAiLoginRequired = true) }
@@ -278,11 +311,12 @@ class ReaderViewModel @Inject constructor(
                 "Grammar unavailable offline."
             }
             _uiState.update { current ->
-                val sheet = current.wordSheet?.copy(
-                    grammarText = grammar,
-                    grammarLoading = false,
+                current.copy(
+                    wordSheet = current.wordSheet?.copy(
+                        grammarText = grammar,
+                        grammarLoading = false,
+                    ),
                 )
-                current.copy(wordSheet = sheet)
             }
         }
     }

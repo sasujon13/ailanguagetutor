@@ -5,7 +5,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.text.ClickableText
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
@@ -28,11 +27,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.buildAnnotatedString
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -41,6 +35,7 @@ import com.cheradip.ailanguagetutor.core.model.ScannedContentType
 import com.cheradip.ailanguagetutor.feature.dictionary.WordDefinitionSheet
 import com.cheradip.ailanguagetutor.ui.components.CheradipTopBar
 import com.cheradip.ailanguagetutor.ui.components.GrammarDepthChips
+import com.cheradip.ailanguagetutor.ui.components.TappableGrammarText
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -62,10 +57,6 @@ fun ReaderScreen(
             snackbarHostState.showSnackbar(it)
             viewModel.clearSaveMessage()
         }
-    }
-
-    val annotated = remember(uiState.fullText, uiState.words) {
-        buildTappableText(uiState.fullText, uiState.words)
     }
 
     Scaffold(
@@ -115,18 +106,20 @@ fun ReaderScreen(
                     Card(modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp)) {
                         Column(modifier = Modifier.padding(12.dp)) {
                             val label = when (uiState.aiPanelIntent) {
-                                ProcessingIntent.TRANSLATION -> "AI translation"
-                                else -> "AI answer"
+                                ProcessingIntent.TRANSLATION -> "AI translation (tap a word for grammar)"
+                                else -> "AI answer (tap a word for grammar)"
                             }
                             Text(label, style = MaterialTheme.typography.titleSmall)
                             uiState.aiBackendLabel?.let {
                                 AssistChip(onClick = {}, label = { Text("via $it") })
                             }
-                            Text(
+                            TappableGrammarText(
                                 text = aiText,
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.padding(top = 4.dp),
+                                words = uiState.aiPanelWords,
+                                onWordTap = viewModel::onAiPanelWordTap,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(top = 4.dp),
                             )
                             IconButton(onClick = viewModel::dismissAiPanel) {
                                 Icon(Icons.Default.Close, contentDescription = "Dismiss AI panel")
@@ -156,25 +149,18 @@ fun ReaderScreen(
                     onClick = {},
                     label = { Text(uiState.primaryContentType.displayLabel()) },
                 )
-                val useStructured = uiState.primaryContentType != ScannedContentType.PROSE ||
-                    uiState.fullText.contains("```") ||
-                    uiState.fullText.contains("## ")
-                if (useStructured) {
-                    StructuredReaderText(
-                        text = uiState.fullText,
-                        useMonospace = uiState.primaryContentType == ScannedContentType.CODE,
-                        modifier = Modifier.padding(vertical = 8.dp),
-                    )
-                } else {
-                    ClickableText(
-                        text = annotated,
-                        style = MaterialTheme.typography.bodyLarge.copy(
-                            color = MaterialTheme.colorScheme.onSurface,
-                            lineHeight = MaterialTheme.typography.bodyLarge.lineHeight,
-                        ),
-                        onClick = { offset -> viewModel.onWordTap(offset) },
-                    )
-                }
+                Text(
+                    "Tap any word for grammar help",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 4.dp, bottom = 4.dp),
+                )
+                TappableGrammarText(
+                    text = uiState.fullText,
+                    words = uiState.words,
+                    onWordTap = viewModel::onWordTap,
+                    modifier = Modifier.padding(vertical = 8.dp),
+                )
                 }
             }
         }
@@ -189,24 +175,3 @@ fun ReaderScreen(
         onSave = viewModel::saveSelectedWord,
     )
 }
-
-private fun buildTappableText(fullText: String, words: List<com.cheradip.ailanguagetutor.core.model.WordSpan>): AnnotatedString =
-    buildAnnotatedString {
-        if (words.isEmpty()) {
-            append(fullText)
-            return@buildAnnotatedString
-        }
-        var cursor = 0
-        words.sortedBy { it.startOffset }.forEach { word ->
-            if (word.startOffset > cursor) {
-                append(fullText.substring(cursor, word.startOffset))
-            }
-            pushStringAnnotation(tag = "word", annotation = word.text)
-            withStyle(SpanStyle(fontWeight = FontWeight.Medium)) {
-                append(fullText.substring(word.startOffset, word.endOffset.coerceAtMost(fullText.length)))
-            }
-            pop()
-            cursor = word.endOffset.coerceAtMost(fullText.length)
-        }
-        if (cursor < fullText.length) append(fullText.substring(cursor))
-    }

@@ -16,9 +16,10 @@ class ScannedContentClassifier @Inject constructor() {
             return ScannedContentType.DIAGRAM
         }
 
+        val scriptProfile = scriptProfile(text)
         val scores = mutableMapOf(
             ScannedContentType.CODE to scoreCode(text, lines),
-            ScannedContentType.MATH to scoreMath(text, lines),
+            ScannedContentType.MATH to scoreMath(text, lines, scriptProfile),
             ScannedContentType.FLOWCHART to scoreFlowchart(text, lines),
         )
 
@@ -28,9 +29,38 @@ class ScannedContentClassifier @Inject constructor() {
             if (second >= 2 && top.value - second <= 1) {
                 return ScannedContentType.MIXED
             }
+            if (scriptProfile.hasSubstantialNonLatin && top.key == ScannedContentType.MATH) {
+                return ScannedContentType.MIXED
+            }
             return top.key
         }
         return ScannedContentType.PROSE
+    }
+
+    private data class ScriptProfile(
+        val bengali: Int,
+        val arabic: Int,
+        val devanagari: Int,
+        val latin: Int,
+    ) {
+        val hasSubstantialNonLatin: Boolean =
+            (bengali + arabic + devanagari) >= 12 && (bengali + arabic + devanagari) >= latin
+    }
+
+    private fun scriptProfile(text: String): ScriptProfile {
+        var bengali = 0
+        var arabic = 0
+        var devanagari = 0
+        var latin = 0
+        text.forEach { ch ->
+            when (ch.code) {
+                in 0x0980..0x09FF -> bengali++
+                in 0x0600..0x06FF, in 0x0750..0x077F -> arabic++
+                in 0x0900..0x097F -> devanagari++
+                in 0x0000..0x024F -> if (ch.isLetter()) latin++
+            }
+        }
+        return ScriptProfile(bengali, arabic, devanagari, latin)
     }
 
     private fun scoreCode(text: String, lines: List<String>): Int {
@@ -53,15 +83,17 @@ class ScannedContentClassifier @Inject constructor() {
         return score
     }
 
-    private fun scoreMath(text: String, lines: List<String>): Int {
+    private fun scoreMath(text: String, lines: List<String>, script: ScriptProfile): Int {
         var score = 0
-        if (MATH_SYMBOLS.containsMatchIn(text)) score += 3
-        if (text.contains('$') || text.contains('\\') || text.contains("∫") || text.contains("∑")) score += 2
-        if (lines.any { EQUATION_LINE.matches(it.trim()) }) score += 2
-        if (lines.count { it.contains('=') && it.any { c -> c.isDigit() } } >= 2) score += 2
+        if (MATH_SYMBOLS.containsMatchIn(text)) score += 2
+        if (text.contains('$') || text.contains('\\') || text.contains("∫") || text.contains("∑")) score += 3
+        val equationLines = lines.count { EQUATION_LINE.matches(it.trim()) }
+        if (equationLines >= 2) score += 3
+        else if (equationLines == 1) score += 1
         if (text.contains("x^") || text.contains("y^") || text.contains("^2") || text.contains("^3")) score += 1
-        if (GREEK_LETTERS.containsMatchIn(text)) score += 2
-        return score
+        if (GREEK_LETTERS.containsMatchIn(text)) score += 1
+        if (script.hasSubstantialNonLatin) score -= 3
+        return score.coerceAtLeast(0)
     }
 
     private fun scoreFlowchart(text: String, lines: List<String>): Int {
@@ -76,9 +108,9 @@ class ScannedContentClassifier @Inject constructor() {
     }
 
     companion object {
-        private val MATH_SYMBOLS = Regex("[+\\-*/=^√∫∑∏≤≥≠≈∞]")
+        private val MATH_SYMBOLS = Regex("[+*/=^√∫∑∏≤≥≠≈∞]")
         private val GREEK_LETTERS = Regex("[αβγδεζηθικλμνξοπρστυφχψω]", RegexOption.IGNORE_CASE)
-        private val EQUATION_LINE = Regex(".*[=+\\-*/^].*[0-9].*")
+        private val EQUATION_LINE = Regex(""".*=.*[0-9xXyYzZαβγθπ].*""")
         private val ARROW_LINE = Regex(".*(->|-->|→|=>).*")
         private val BOX_LINE = Regex("^[|\\[\\(+].+[|\\]\\)]+$")
         private val INDENTED_CODE = Regex("^\\s{2,}\\S+.*")

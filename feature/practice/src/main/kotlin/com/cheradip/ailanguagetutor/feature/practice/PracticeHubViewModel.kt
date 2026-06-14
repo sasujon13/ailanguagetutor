@@ -107,7 +107,7 @@ class PracticeHubViewModel @Inject constructor(
     private val aiModePrefs: AiModePreferenceRepository,
     private val offlinePracticeProcessor: OfflinePracticeProcessor,
     private val networkConnectivityMonitor: NetworkConnectivityMonitor,
-    grammarPreferenceRepository: GrammarPreferenceRepository,
+    private val grammarPreferenceRepository: GrammarPreferenceRepository,
     private val grammarExplainer: GrammarExplainer,
     private val dictionaryRepository: DictionaryRepository,
     private val wordMapBuilder: WordMapBuilder,
@@ -777,6 +777,31 @@ class PracticeHubViewModel @Inject constructor(
 
     fun dismissWordSheet() {
         _uiState.update { it.copy(wordSheet = null) }
+    }
+
+    fun setGrammarDepth(depth: GrammarDepth) {
+        viewModelScope.launch {
+            grammarPreferenceRepository.save(depth)
+            val state = _uiState.value
+            if (state.typedInput.isNotBlank()) {
+                val langs = practiceLanguages.value
+                aiPrefetchCoordinator.schedulePracticeWarm(
+                    text = state.typedInput,
+                    languageCode = langs.inputLanguage,
+                    targetLang = langs.outputLanguage,
+                    grammarDepth = depth,
+                )
+            }
+            state.aiOutput?.takeIf { it.isNotBlank() }?.let { output ->
+                val langs = practiceLanguages.value
+                aiPrefetchCoordinator.schedulePracticeWarm(
+                    text = output,
+                    languageCode = langs.outputLanguage,
+                    targetLang = langs.inputLanguage,
+                    grammarDepth = depth,
+                )
+            }
+        }
     }
 
     fun speakWord(text: String) {

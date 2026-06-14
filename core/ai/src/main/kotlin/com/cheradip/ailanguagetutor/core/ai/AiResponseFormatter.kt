@@ -82,19 +82,23 @@ object AiResponseFormatter {
         return s
     }
 
-    /** One equation per line; blank line before math for readability. */
+    /** One equation per line; preserve paragraph breaks. */
     private fun organizeMathBlocks(text: String): String {
         val lines = text.lines()
         if (lines.size <= 1) return text
         return buildString {
             var prevWasEquation = false
-            lines.map { it.trim() }.filter { it.isNotBlank() }.forEach { line ->
-                val equation = isEquationLine(line)
-                if (equation && !prevWasEquation) appendLine()
-                when {
-                    line.startsWith("##") -> appendLine(line)
-                    else -> appendLine(line)
+            lines.forEach { rawLine ->
+                if (rawLine.isBlank()) {
+                    appendLine()
+                    prevWasEquation = false
+                    return@forEach
                 }
+                val line = rawLine.trimEnd()
+                val trimmed = line.trim()
+                val equation = isEquationLine(trimmed)
+                if (equation && !prevWasEquation) appendLine()
+                appendLine(trimmed)
                 prevWasEquation = equation
             }
         }.trim()
@@ -103,10 +107,27 @@ object AiResponseFormatter {
     fun isEquationLine(line: String): Boolean {
         if (line.startsWith("```") || line.startsWith("#")) return false
         val trimmed = line.trim()
-        if (trimmed.length < 3) return false
-        val hasOperator = trimmed.any { it in "=+−-*/^" }
+        if (trimmed.length < 3 || trimmed.length >= 120) return false
+        if (containsNonLatinScript(trimmed)) return false
+        val hasEquals = trimmed.contains('=')
+        val hasLatex = trimmed.contains('\\') || trimmed.contains("frac")
+        val hasStrongMath = Regex("""\\frac|√|∫|∑|∏|≤|≥|≠|≈|∞""").containsMatchIn(trimmed)
+        if (!hasEquals && !hasLatex && !hasStrongMath) return false
         val hasDigitOrVar = trimmed.any { it.isDigit() || it in "xyzαβγθπ" }
-        return hasOperator && hasDigitOrVar && trimmed.length < 120
+        val hasMathOperator = trimmed.any { it in "=+−-*/^" }
+        return hasMathOperator && hasDigitOrVar && (hasEquals || hasLatex || hasStrongMath)
+    }
+
+    private fun containsNonLatinScript(text: String): Boolean {
+        var nonLatinLetters = 0
+        var latinLetters = 0
+        text.forEach { ch ->
+            when {
+                ch in 'a'..'z' || ch in 'A'..'Z' -> latinLetters++
+                ch.isLetter() -> nonLatinLetters++
+            }
+        }
+        return nonLatinLetters >= 4 && nonLatinLetters >= latinLetters
     }
 
     private fun stripMarkdownEmphasis(text: String): String =

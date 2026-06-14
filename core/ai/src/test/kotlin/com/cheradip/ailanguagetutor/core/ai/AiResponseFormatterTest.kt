@@ -29,4 +29,15 @@ class AiResponseFormatterTest {
         val profile = MixedLanguageAnalyzer.analyze(text, "bn", "bn")
         assertTrue(profile.isMixed)
     }
+
+    @Test
+    fun bengaliProseLineIsNotEquation() {
+        val line = "এই সমীকরণটি solve করুন এবং value find করুন।"
+        assertFalse(AiResponseFormatter.isEquationLine(line))
+    }
+
+    @Test
+    fun plainEquationLineIsDetected() {
+        assertTrue(AiResponseFormatter.isEquationLine("d = y / tan α"))
+    }
 }

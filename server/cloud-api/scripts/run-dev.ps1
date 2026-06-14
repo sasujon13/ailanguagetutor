@@ -14,15 +14,12 @@ if ($existing) {
     exit 0
 }
 
-if (-not (Test-Path ".venv")) {
-    python -m venv .venv
-}
-& .\.venv\Scripts\python.exe -m pip install -e . -q
-
 if (-not (Test-Path ".env")) {
     Copy-Item ".env.example" ".env"
     Write-Host "Created .env - edit DATABASE_URL / ADMIN_SEED_PASSWORD if needed."
 }
+
+& (Join-Path $Root "scripts\ensure-venv.ps1") -Quiet
 
 # Load admin password from repo local.env.properties if present
 $EnvFile = Join-Path (Split-Path -Parent (Split-Path -Parent $Root)) "local.env.properties"

@@ -17,8 +17,5 @@ if (Test-Path $RepoEnv) {
     }
 }
 
-if (-not (Test-Path ".venv")) {
-    python -m venv .venv
-}
-& .\.venv\Scripts\python.exe -m pip install -e . -q
+& (Join-Path $Root "scripts\ensure-venv.ps1") -Quiet
 & .\.venv\Scripts\python.exe scripts\init_db.py

@@ -62,6 +62,7 @@ import com.cheradip.ailanguagetutor.feature.auth.ProfileScreen
 import com.cheradip.ailanguagetutor.feature.auth.SignUpScreen
 import com.cheradip.ailanguagetutor.feature.auth.UpdatePasswordScreen
 import com.cheradip.ailanguagetutor.feature.billing.AdminConsoleScreen
+import com.cheradip.ailanguagetutor.feature.billing.AdminReportsScreen
 import com.cheradip.ailanguagetutor.feature.billing.PaywallScreen
 import com.cheradip.ailanguagetutor.feature.billing.ReferralScreen
 import com.cheradip.ailanguagetutor.feature.grammar.GrammarBookScreen
@@ -414,6 +415,10 @@ fun AppNavHost(
                     onNavigateUserManual = {
                         navController.navigate(Routes.USER_MANUAL) { launchSingleTop = true }
                     },
+                    onNavigateAdminReports = {
+                        navController.navigate(Routes.ADMIN_REPORTS) { launchSingleTop = true }
+                    },
+                    isAdmin = currentUser?.role == "admin",
                 )
             }
             composable(Routes.SETTINGS) {
@@ -422,6 +427,9 @@ fun AppNavHost(
                     onNavigatePaywall = { navController.navigate(Routes.PAYWALL) },
                     onNavigateAdmin = { navController.navigate(Routes.ADMIN) },
                     onNavigateAdminAi = { navController.navigate(Routes.ADMIN_AI) },
+                    onNavigateAdminReports = {
+                        navController.navigate(Routes.ADMIN_REPORTS) { launchSingleTop = true }
+                    },
                     onNavigateModeSelection = { navController.navigate(Routes.MODE_SELECTION) },
                     onOpenSupport = openSupport,
                     isAdmin = currentUser?.role == "admin",
@@ -628,6 +636,14 @@ fun AppNavHost(
             }
             composable(Routes.ADMIN_AI) {
                 AdminConsoleScreen(initialTab = 1)
+            }
+            composable(Routes.ADMIN_REPORTS) {
+                val isAdmin = currentUser?.role == "admin"
+                if (!isAdmin) {
+                    LaunchedEffect(Unit) { navController.popBackStack() }
+                    return@composable
+                }
+                AdminReportsScreen(onBack = { navController.popBackStack() })
             }
             composable(Routes.USER_MANUAL) {
                 val isAdmin = currentUser?.role == "admin"

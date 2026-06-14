@@ -29,3 +29,9 @@ def get_current_user(
     if not user:
         raise HTTPException(401, "User not found")
     return user
+
+
+def require_admin(user: User = Depends(get_current_user)) -> User:
+    if user.role != "admin":
+        raise HTTPException(403, "Admin access required")
+    return user

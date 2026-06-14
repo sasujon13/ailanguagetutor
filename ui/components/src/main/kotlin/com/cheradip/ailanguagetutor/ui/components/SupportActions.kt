@@ -13,4 +13,14 @@ object SupportActions {
         val intent = Intent(Intent.ACTION_VIEW, uri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         context.startActivity(intent)
     }
+
+    /** Opens the system share sheet (Messages, Facebook, Messenger, LinkedIn, X, etc.). */
+    fun sharePlainText(context: Context, text: String, chooserTitle: String = "Share via") {
+        if (text.isBlank()) return
+        val intent = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_TEXT, text)
+        }
+        context.startActivity(Intent.createChooser(intent, chooserTitle))
+    }
 }

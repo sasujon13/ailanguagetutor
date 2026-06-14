@@ -26,6 +26,10 @@ class InferenceEngine:
         self.last_model_used: str | None = None
         self.fallback_count = 0
         self.last_translation_backend: str | None = None
+        self.models_used: dict[str, int] = {}
+
+    def _record_model(self, name: str) -> None:
+        self.models_used[name] = self.models_used.get(name, 0) + 1
 
     async def run_llm(
         self,
@@ -38,6 +42,7 @@ class InferenceEngine:
                 await self.loader.ensure_llm(slot)
                 text = await self._infer(slot, prompt, max_tokens)
                 self.last_model_used = slot.value
+                self._record_model(slot.value)
                 if slot != primary:
                     self.fallback_count += 1
                     logger.warning("Fallback: %s -> %s", primary.value, slot.value)
@@ -59,6 +64,7 @@ class InferenceEngine:
     ) -> dict[str, str]:
         await self.loader.ensure_llm(ModelSlot.NLLB)
         self.last_model_used = ModelSlot.NLLB.value
+        self._record_model(ModelSlot.NLLB.value)
         translations = {
             lang: await self._infer_nllb(text, source_lang, lang)
             for lang in target_langs
@@ -166,4 +172,5 @@ class InferenceEngine:
             "last_translation_backend": self.last_translation_backend,
             "fallback_count": self.fallback_count,
             "active_llm": self.loader.active_llm,
+            "models_used": dict(sorted(self.models_used.items(), key=lambda x: -x[1])),
         }

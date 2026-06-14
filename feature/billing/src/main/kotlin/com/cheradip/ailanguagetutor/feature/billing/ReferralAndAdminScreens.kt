@@ -1,11 +1,17 @@
 package com.cheradip.ailanguagetutor.feature.billing
 
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Login
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilledIconButton
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -16,7 +22,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.cheradip.ailanguagetutor.core.auth.AuthUser
@@ -24,6 +32,7 @@ import com.cheradip.ailanguagetutor.core.billing.ReferralRepository
 import com.cheradip.ailanguagetutor.ui.components.CheradipDropdown
 import com.cheradip.ailanguagetutor.ui.components.CheradipScrollScreen
 import com.cheradip.ailanguagetutor.ui.components.IconTextButton
+import com.cheradip.ailanguagetutor.ui.components.SupportActions
 import kotlinx.coroutines.launch
 
 private enum class WithdrawMethod(val apiValue: String, val label: String) {
@@ -50,7 +59,12 @@ fun ReferralScreen(
     var withdrawError by remember { mutableStateOf<String?>(null) }
     var withdrawing by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
     val isLoggedIn = currentUser != null
+    val defaultShareMessage = remember(userEmail) {
+        referralRepository.defaultShareMessage(userEmail)
+    }
+    var shareDraft by remember(userEmail) { mutableStateOf(defaultShareMessage) }
 
     CheradipScrollScreen(
         modifier = modifier,
@@ -184,17 +198,65 @@ fun ReferralScreen(
             }
             item {
                 Text(
-                    referralRepository.shareText(userEmail, userWhatsapp),
-                    style = MaterialTheme.typography.bodyMedium,
-                )
-            }
-            item {
-                Text(
                     policy.noticeText,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
+        }
+
+        item {
+            HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
+        }
+        item {
+            Text(
+                "Share with friends",
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.padding(bottom = 8.dp),
+            )
+        }
+        item {
+            OutlinedTextField(
+                value = shareDraft,
+                onValueChange = { shareDraft = it },
+                modifier = Modifier.fillMaxWidth(),
+                minLines = 6,
+                maxLines = 12,
+                placeholder = { Text(defaultShareMessage) },
+            )
+        }
+        item {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 16.dp, bottom = 8.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                FilledIconButton(
+                    onClick = {
+                        SupportActions.sharePlainText(
+                            context = context,
+                            text = shareDraft.ifBlank { defaultShareMessage },
+                            chooserTitle = "Share referral message",
+                        )
+                    },
+                    modifier = Modifier.size(72.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Share,
+                        contentDescription = "Share referral message",
+                        modifier = Modifier.size(36.dp),
+                    )
+                }
+            }
+        }
+        item {
+            Text(
+                "Tap to share via Facebook, Messenger, WhatsApp, SMS, LinkedIn, X, email, and other apps.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(bottom = 16.dp),
+            )
         }
     }
 }

@@ -23,6 +23,7 @@ object Routes {
     const val REFERRAL = "referral"
     const val ADMIN = "admin"
     const val ADMIN_AI = "admin/ai"
+    const val ADMIN_REPORTS = "admin/reports"
     const val MODE_SELECTION = "mode_selection"
     const val USER_MANUAL = "user_manual"
     const val USER_MANUAL_READ = "user_manual/{manualId}"

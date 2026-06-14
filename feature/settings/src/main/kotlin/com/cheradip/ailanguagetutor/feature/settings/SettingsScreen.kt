@@ -3,6 +3,7 @@ package com.cheradip.ailanguagetutor.feature.settings
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AdminPanelSettings
+import androidx.compose.material.icons.filled.Assessment
 import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.MenuBook
 import androidx.compose.material.icons.filled.Person
@@ -45,6 +46,7 @@ fun SettingsScreen(
     onNavigatePaywall: () -> Unit = {},
     onNavigateAdmin: () -> Unit = {},
     onNavigateAdminAi: () -> Unit = {},
+    onNavigateAdminReports: () -> Unit = {},
     onNavigateModeSelection: () -> Unit = {},
     onOpenSupport: () -> Unit = {},
     isAdmin: Boolean = false,
@@ -173,6 +175,9 @@ fun SettingsScreen(
             }
             item {
                 SettingsNavRow(appString("settings_admin_console"), Icons.Default.AdminPanelSettings, onNavigateAdmin)
+            }
+            item {
+                SettingsNavRow(appString("settings_admin_reports"), Icons.Default.Assessment, onNavigateAdminReports, subtitle = appString("settings_admin_reports_sub"))
             }
             item {
                 SettingsNavRow(appString("settings_admin_ai"), Icons.Default.Cloud, onNavigateAdminAi, subtitle = appString("settings_admin_ai_sub"))

@@ -105,10 +105,15 @@ class ReferralRepository @Inject constructor(
         resp.message
     }
 
-    fun shareText(email: String?, whatsapp: String?): String {
-        val ref = whatsapp ?: email ?: "your username"
-        return "Use my reference when you subscribe to AI Language Tutor: $ref"
+    fun defaultShareMessage(email: String?, buyerBonusPercent: Int = 30): String {
+        val emailRef = email?.takeIf { it.isNotBlank() } ?: "[your email here]"
+        return "Dear friends, I'm using Cheradip's AI Language Tutor to learn and practice languages, " +
+            "and I highly recommend it. Subscribe using my email, $emailRef, to get an extra " +
+            "$buyerBonusPercent% bonus. After signing up, you can also share your email to refer " +
+            "your friends and earn rewards."
     }
+
+    fun shareText(email: String?, whatsapp: String?): String = defaultShareMessage(email)
 }
 
 @Singleton
@@ -331,6 +336,82 @@ class AdminPromoRepository @Inject constructor(
                 autoApply = autoApply,
                 paywallSlot = paywallSlot,
             ),
+        )
+    }
+}
+
+data class AdminReportsSnapshot(
+    val generatedAtMs: Long = 0L,
+    val totalUsers: Int = 0,
+    val regularUsers: Int = 0,
+    val adminUsers: Int = 0,
+    val emailVerifiedUsers: Int = 0,
+    val newUsers7Days: Int = 0,
+    val newUsers30Days: Int = 0,
+    val activePro: Int = 0,
+    val activePlus: Int = 0,
+    val activeSubscriptions: Int = 0,
+    val learningActivities: Int = 0,
+    val deviceTrials: Int = 0,
+    val guestAiUsesTotal: Int = 0,
+    val pendingWithdrawals: Int = 0,
+    val referralBalanceUsd: Double = 0.0,
+    val promoCodesTotal: Int = 0,
+    val promoCodesActive: Int = 0,
+    val cloudAiRequestsToday: Int = 0,
+    val cloudAiRoutingMode: String = "",
+    val cloudAiProviders: List<AdminReportsCloudProviderRow> = emptyList(),
+)
+
+data class AdminReportsCloudProviderRow(
+    val id: String,
+    val displayName: String,
+    val tier: String,
+    val health: String,
+    val enabled: Boolean,
+    val requestsToday: Int,
+    val quotaDailyLimit: Int?,
+    val quotaUsedPercent: Int,
+)
+
+@Singleton
+class AdminReportsRepository @Inject constructor(
+    private val adminService: AiltAdminService,
+) {
+    suspend fun fetchReports(): Result<AdminReportsSnapshot> = runCatching {
+        val resp = adminService.reports()
+        AdminReportsSnapshot(
+            generatedAtMs = resp.generatedAtMs,
+            totalUsers = resp.users.total,
+            regularUsers = resp.users.regular,
+            adminUsers = resp.users.admins,
+            emailVerifiedUsers = resp.users.emailVerified,
+            newUsers7Days = resp.users.newLast7Days,
+            newUsers30Days = resp.users.newLast30Days,
+            activePro = resp.subscriptions.activePro,
+            activePlus = resp.subscriptions.activePlus,
+            activeSubscriptions = resp.subscriptions.activeTotal,
+            learningActivities = resp.engagement.learningActivities,
+            deviceTrials = resp.engagement.deviceTrials,
+            guestAiUsesTotal = resp.engagement.guestAiUsesTotal,
+            pendingWithdrawals = resp.referrals.pendingWithdrawals,
+            referralBalanceUsd = resp.referrals.totalBalanceUsd,
+            promoCodesTotal = resp.promoCodes.total,
+            promoCodesActive = resp.promoCodes.active,
+            cloudAiRequestsToday = resp.cloudAi.totalRequestsToday,
+            cloudAiRoutingMode = resp.cloudAi.routingMode,
+            cloudAiProviders = resp.cloudAi.providers.map {
+                AdminReportsCloudProviderRow(
+                    id = it.id,
+                    displayName = it.displayName,
+                    tier = it.tier,
+                    health = it.health,
+                    enabled = it.enabled,
+                    requestsToday = it.requestsToday,
+                    quotaDailyLimit = it.quotaDailyLimit,
+                    quotaUsedPercent = it.quotaUsedPercent,
+                )
+            },
         )
     }
 }

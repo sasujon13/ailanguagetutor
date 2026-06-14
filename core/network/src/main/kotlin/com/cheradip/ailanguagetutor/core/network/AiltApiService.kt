@@ -113,6 +113,10 @@ interface AiltAdminService {
         @Path("id") providerId: String,
         @Body body: AiProviderToggleRequest,
     ): AiProviderStatusDto
+
+    /** Platform metrics — admin login required. */
+    @GET("admin/reports")
+    suspend fun reports(): AdminReportsResponse
 }
 
 interface AiltAiService {

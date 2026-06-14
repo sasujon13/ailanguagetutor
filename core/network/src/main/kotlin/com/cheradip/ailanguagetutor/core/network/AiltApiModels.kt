@@ -344,6 +344,72 @@ data class AiRoutingPolicyUpdateRequest(
 data class AiProviderToggleRequest(val enabled: Boolean)
 
 @JsonClass(generateAdapter = true)
+data class AdminReportsResponse(
+    @Json(name = "generated_at_ms") val generatedAtMs: Long = 0L,
+    val users: AdminReportsUsers = AdminReportsUsers(),
+    val subscriptions: AdminReportsSubscriptions = AdminReportsSubscriptions(),
+    val engagement: AdminReportsEngagement = AdminReportsEngagement(),
+    val referrals: AdminReportsReferrals = AdminReportsReferrals(),
+    @Json(name = "promo_codes") val promoCodes: AdminReportsPromoCodes = AdminReportsPromoCodes(),
+    @Json(name = "cloud_ai") val cloudAi: AdminReportsCloudAi = AdminReportsCloudAi(),
+)
+
+@JsonClass(generateAdapter = true)
+data class AdminReportsUsers(
+    val total: Int = 0,
+    val regular: Int = 0,
+    val admins: Int = 0,
+    @Json(name = "email_verified") val emailVerified: Int = 0,
+    @Json(name = "new_last_7_days") val newLast7Days: Int = 0,
+    @Json(name = "new_last_30_days") val newLast30Days: Int = 0,
+)
+
+@JsonClass(generateAdapter = true)
+data class AdminReportsSubscriptions(
+    @Json(name = "active_pro") val activePro: Int = 0,
+    @Json(name = "active_plus") val activePlus: Int = 0,
+    @Json(name = "active_total") val activeTotal: Int = 0,
+)
+
+@JsonClass(generateAdapter = true)
+data class AdminReportsEngagement(
+    @Json(name = "learning_activities") val learningActivities: Int = 0,
+    @Json(name = "device_trials") val deviceTrials: Int = 0,
+    @Json(name = "guest_ai_uses_total") val guestAiUsesTotal: Int = 0,
+)
+
+@JsonClass(generateAdapter = true)
+data class AdminReportsReferrals(
+    @Json(name = "pending_withdrawals") val pendingWithdrawals: Int = 0,
+    @Json(name = "total_balance_usd") val totalBalanceUsd: Double = 0.0,
+)
+
+@JsonClass(generateAdapter = true)
+data class AdminReportsPromoCodes(
+    val total: Int = 0,
+    val active: Int = 0,
+)
+
+@JsonClass(generateAdapter = true)
+data class AdminReportsCloudAi(
+    @Json(name = "routing_mode") val routingMode: String = "random_free",
+    @Json(name = "total_requests_today") val totalRequestsToday: Int = 0,
+    val providers: List<AdminReportsCloudAiProvider> = emptyList(),
+)
+
+@JsonClass(generateAdapter = true)
+data class AdminReportsCloudAiProvider(
+    val id: String,
+    @Json(name = "display_name") val displayName: String,
+    val tier: String,
+    val health: String,
+    val enabled: Boolean = true,
+    @Json(name = "requests_today") val requestsToday: Int = 0,
+    @Json(name = "quota_daily_limit") val quotaDailyLimit: Int? = null,
+    @Json(name = "quota_used_percent") val quotaUsedPercent: Int = 0,
+)
+
+@JsonClass(generateAdapter = true)
 data class LearningActivityDto(
     @Json(name = "client_id") val clientId: String,
     val title: String,

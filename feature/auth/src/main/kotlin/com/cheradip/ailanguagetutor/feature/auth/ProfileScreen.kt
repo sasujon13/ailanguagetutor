@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Assessment
 import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Login
@@ -42,6 +43,8 @@ fun ProfileScreen(
     onNavigateReferral: () -> Unit,
     onNavigatePaywall: () -> Unit,
     onNavigateUserManual: () -> Unit,
+    onNavigateAdminReports: () -> Unit = {},
+    isAdmin: Boolean = false,
     onLoggedOut: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
@@ -125,6 +128,20 @@ fun ProfileScreen(
             }
             item {
                 SettingsNavRow(appString("profile_user_manual"), Icons.Default.MenuBook, onNavigateUserManual)
+            }
+            if (isAdmin) {
+                item {
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+                    SectionHeader(title = appString("section_admin"))
+                }
+                item {
+                    SettingsNavRow(
+                        appString("settings_admin_reports"),
+                        Icons.Default.Assessment,
+                        onNavigateAdminReports,
+                        subtitle = appString("settings_admin_reports_sub"),
+                    )
+                }
             }
             item {
                 IconTextButton(

@@ -1,9 +1,23 @@
+from datetime import datetime, timedelta
+
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import AiProvider, AiRoutingPolicy, PromoCode, ReferralPolicy
+from app.deps import require_admin
+from app.models import (
+    AiProvider,
+    AiRoutingPolicy,
+    DeviceTrial,
+    PromoCode,
+    ReferralBalance,
+    ReferralPolicy,
+    ReferralWithdrawal,
+    Subscription,
+    User,
+    UserLearningActivity,
+)
 from app.schemas import AdminPromoCodeDto, AdminPromoPatchDto, AiProviderToggleRequest, AiRoutingPolicyUpdateRequest, ReferralPolicyPatchDto
 from app.security import quota_used_percent
 
@@ -170,4 +184,104 @@ def toggle_ai_provider(provider_id: str, body: AiProviderToggleRequest, db: Sess
         "tier": p.tier,
         "health": p.health,
         "enabled": p.enabled,
+    }
+
+
+@router.get("/reports")
+def admin_reports(
+    db: Session = Depends(get_db),
+    _admin: User = Depends(require_admin),
+) -> dict:
+    """Aggregate platform metrics for admin dashboard (requires admin login)."""
+    now = datetime.utcnow()
+    now_ms = int(now.timestamp() * 1000)
+    cutoff_7 = now - timedelta(days=7)
+    cutoff_30 = now - timedelta(days=30)
+
+    total_users = db.scalar(select(func.count()).select_from(User)) or 0
+    admin_users = db.scalar(select(func.count()).select_from(User).where(User.role == "admin")) or 0
+    verified_users = db.scalar(
+        select(func.count()).select_from(User).where(User.email_verified.is_(True))
+    ) or 0
+    new_7d = db.scalar(select(func.count()).select_from(User).where(User.created_at >= cutoff_7)) or 0
+    new_30d = db.scalar(select(func.count()).select_from(User).where(User.created_at >= cutoff_30)) or 0
+
+    active_subs = db.scalars(
+        select(Subscription).where(
+            Subscription.active.is_(True),
+            (Subscription.expires_at_ms.is_(None)) | (Subscription.expires_at_ms > now_ms),
+        )
+    ).all()
+    active_pro = sum(1 for s in active_subs if (s.tier or "").lower() == "pro")
+    active_plus = sum(1 for s in active_subs if (s.tier or "").lower() == "plus")
+
+    learning_activities = db.scalar(select(func.count()).select_from(UserLearningActivity)) or 0
+    device_trials = db.scalar(select(func.count()).select_from(DeviceTrial)) or 0
+    guest_ai_total = db.scalar(select(func.coalesce(func.sum(DeviceTrial.guest_ai_count), 0))) or 0
+
+    promo_total = db.scalar(select(func.count()).select_from(PromoCode)) or 0
+    promo_active = db.scalar(
+        select(func.count()).select_from(PromoCode).where(PromoCode.active.is_(True))
+    ) or 0
+
+    pending_withdrawals = db.scalar(
+        select(func.count()).select_from(ReferralWithdrawal).where(ReferralWithdrawal.status == "pending")
+    ) or 0
+    referral_balance_total = db.scalar(
+        select(func.coalesce(func.sum(ReferralBalance.balance_usd), 0.0))
+    ) or 0.0
+
+    providers = db.scalars(select(AiProvider)).all()
+    cloud_ai_total = sum(p.requests_today for p in providers)
+    provider_rows = []
+    for p in providers:
+        provider_rows.append(
+            {
+                "id": p.id,
+                "display_name": p.display_name,
+                "tier": p.tier,
+                "health": _effective_health(p),
+                "enabled": p.enabled,
+                "requests_today": p.requests_today,
+                "quota_daily_limit": p.quota_daily_limit,
+                "quota_used_percent": quota_used_percent(p.requests_today, p.quota_daily_limit),
+            }
+        )
+
+    routing = db.scalar(select(AiRoutingPolicy).limit(1))
+    routing_mode = routing.mode if routing else "random_free"
+
+    return {
+        "generated_at_ms": now_ms,
+        "users": {
+            "total": total_users,
+            "regular": max(0, total_users - admin_users),
+            "admins": admin_users,
+            "email_verified": verified_users,
+            "new_last_7_days": new_7d,
+            "new_last_30_days": new_30d,
+        },
+        "subscriptions": {
+            "active_pro": active_pro,
+            "active_plus": active_plus,
+            "active_total": len(active_subs),
+        },
+        "engagement": {
+            "learning_activities": learning_activities,
+            "device_trials": device_trials,
+            "guest_ai_uses_total": int(guest_ai_total),
+        },
+        "referrals": {
+            "pending_withdrawals": pending_withdrawals,
+            "total_balance_usd": round(float(referral_balance_total), 2),
+        },
+        "promo_codes": {
+            "total": promo_total,
+            "active": promo_active,
+        },
+        "cloud_ai": {
+            "routing_mode": routing_mode,
+            "total_requests_today": cloud_ai_total,
+            "providers": provider_rows,
+        },
     }

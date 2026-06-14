@@ -1,57 +1,109 @@
-# AI Language Tutor — Administrator Manual
+# 🛡 AI Language Tutor — Administrator Guide
 
-This guide is for **admin users** operating the Cheradip backend consoles, promo codes, and AI infrastructure. Examples use the live admin UI in the Android app and the cloud API.
+This guide is for **admin users** operating promo codes, AI infrastructure, platform reports, and daily ops. Examples use the Android app admin UI and cloud API.
 
 ---
 
-## 1. Admin access
+## 1. 🔐 Admin access
 
 ### Log in as admin
 
-1. Open the app → **Profile → Login** (or Settings if already signed in elsewhere).
-2. Use your admin account email and password registered on the cloud API.
-3. **Local dev fallback:** If the server is unreachable, login with the seeded admin email and password from `local.env.properties` (`ADMIN_SEED_PASSWORD`). Role is set to `admin`.
+1. Open the app → **Profile → Login**.
+2. Use your admin email and password registered on the cloud API.
+3. **Local dev fallback:** If the server is unreachable, login with the seeded admin email and `ADMIN_SEED_PASSWORD` from `local.env.properties`. Role is set to `admin`.
 
-After login, Profile shows **Role: Admin**. Settings and the ☰ menu expose **Admin Console** and **AI API Dashboard**.
+After login, Profile shows **Role: Admin**.
 
-### Who sees which manuals
+### Where admin tools appear
 
-| User | User Manual | Admin Manual | Developer Manual |
-|------|-------------|--------------|------------------|
-| Guest / Free / Pro / Plus | Yes | No | No |
-| Admin | Yes | Yes | Yes |
+- ⚙️ **Settings → Admin** section
+- 👤 **Profile → Admin** section (Reports)
+- ☰ **Menu** → Admin Console · AI API Dashboard
 
-Open **Profile → User Manual** to reach all guides available to your role.
+### Manual access
 
----
+- 👤 **Guest / Pro / Plus** — User Guide only
+- 🛡 **Admin** — User Guide + Administrator Guide + Developer Guide
 
-## 2. Admin Console overview
-
-**Navigation:** Settings → Admin Console, or ☰ → Admin Console.
-
-The console has tabs:
-
-1. **Promo codes** — create and manage discount codes
-2. **AI providers** — cloud LLM pool health and routing (via App API)
-
-**AI API Dashboard** (separate screen): Home AI server stats, cache, GPU, rate limits.
+Open **Profile → User Manual** to pick a guide.
 
 ---
 
-## 3. Promo codes (with examples)
+## 2. 🖥 Admin screens overview
 
-Promo codes live in the cloud database table `promo_codes`. Admins manage them from the **Promo codes** tab.
+- **Admin Console** — Settings → Admin Console — Promo codes CRUD
+- **AI API Dashboard** — Settings → AI API status — Cloud providers + Home AI URL/stats
+- **Reports** — Settings or Profile → Reports — Platform metrics + live Home AI usage
+
+---
+
+## 3. 📊 Reports (platform dashboard)
+
+**Navigation:** Settings → **Reports** or Profile → **Reports** (admin only).
+
+Tap **Refresh** to reload cloud and Home AI data.
+
+### ☁️ Cloud metrics (requires admin login + cloud API)
+
+**Users**
+
+- Total registered · regular vs admin · email verified
+- New users (last 7 days · last 30 days)
+
+**Subscriptions**
+
+- Active Pro · Active Plus · total active
+
+**Engagement**
+
+- Learning activities synced
+- Device trials registered
+- Guest AI uses (total across devices)
+- Active promo codes · pending referral withdrawals · total referral balance
+
+**Cloud AI API**
+
+- API requests today · routing mode
+- Per provider: requests, tier, health, quota %
+
+### 🖥 Home AI (self-hosted PC)
+
+- Server URL · online/offline status
+- Inference backend · GPU available
+- Active model · queue depth · cache hit rate
+- Rate limit: allowed vs rejected
+- **API requests by task** (ask, translate, OCR cleanup, …)
+- **AI engine models used** — count per model (Qwen 7B, NLLB, etc.) since last server restart
+- Resident models in memory · inference fallback count
+
+**Example:** After a busy day, open Reports → Home AI → **Models used** to see whether NLLB or Qwen handled most translation requests.
+
+### API endpoint
+
+```
+GET /api/ailt/admin/reports
+Authorization: Bearer <admin session token>
+```
+
+Implemented in `server/cloud-api/app/routers/admin.py`.
+
+---
+
+## 4. 🎟 Promo codes
+
+**Navigation:** Admin Console → **Promo codes** tab.
+
+Promo codes live in cloud DB table `promo_codes`.
 
 ### Create a 50% off code
 
-1. Admin Console → Promo codes tab.
-2. Enter code: `LAUNCH50`
-3. Discount percent: `50`
-4. Paywall slot: `2` (which price card the code applies to)
-5. Optional: enable **Auto-apply** for new users
-6. Tap **Create**
+1. Enter code: `LAUNCH50`
+2. Discount percent: `50`
+3. Paywall slot: `2` (which price card the code applies to)
+4. Optional: **Auto-apply** for new users
+5. Tap **Create**
 
-**Expected result:** Message "Saved to promo_codes: LAUNCH50". Code appears in the list with Active = true.
+**Expected:** Message "Saved to promo_codes: LAUNCH50". Code appears with Active = true.
 
 ### Deactivate a code
 
@@ -59,78 +111,97 @@ Promo codes live in the cloud database table `promo_codes`. Admins manage them f
 2. Toggle **Active** off.
 3. Tap **Update**.
 
-Users entering the code at checkout will no longer receive the discount.
+### Example campaign code
 
-### Example: referral campaign code
-
-| Field | Value |
-|-------|-------|
-| Code | `FRIEND20` |
-| Discount | 20 |
-| Paywall slot | 1 |
-| Auto-apply | false |
-
-Share `FRIEND20` in marketing; track redemptions via billing logs on the server.
+- Code: `FRIEND20` · Discount: 20 · Paywall slot: 1 · Auto-apply: false
 
 ---
 
-## 4. AI providers dashboard (cloud pool)
+## 5. 🤖 Cloud AI providers
 
-**Navigation:** Admin Console → AI providers tab, or ☰ → AI API Dashboard (Home AI section on second tab).
-
-### Cloud providers (App API)
+**Navigation:** Admin Console → **AI providers** tab (or AI API Dashboard).
 
 Shows each configured LLM provider:
 
-- Name, tier (`free` / `paid`), health status
+- Name · tier (`free` / `paid`) · health status
 - Enable/disable toggle
-- Routing mode (round-robin, priority)
+- Requests today · quota used %
+- Routing mode
 
-**Example operation — disable exhausted free provider:**
+### Disable exhausted free provider
 
-1. Open AI providers tab.
-2. Find provider with health **exhausted**.
-3. Turn **Enabled** off.
-4. Paid tier providers continue serving Pro/Plus users.
+1. Find provider with health **exhausted**.
+2. Turn **Enabled** off.
+3. Paid tier providers continue serving Pro/Plus users.
 
-### When to use cloud vs home AI
+### Cloud vs Home AI
 
-| Scenario | Action |
-|----------|--------|
-| Home PC offline | Ensure cloud providers enabled; users fall back automatically |
-| Cost spike | Disable expensive paid providers temporarily |
-| Provider API key expired | Health shows error; rotate key in `server/cloud-api/.env` and restart |
+- **Home PC offline** — Ensure cloud providers enabled; app falls back automatically.
+- **Cost spike** — Disable expensive paid providers temporarily.
+- **API key expired** — Health shows error; rotate key in `server/cloud-api/.env` and restart.
 
 ---
 
-## 5. Home AI dashboard (server/v2)
+## 6. 🖥 Home AI dashboard
 
-**Navigation:** ☰ → AI API Dashboard → Home AI tab.
+**Navigation:** Admin Console → **Home AI** tab (AI API Dashboard).
 
-Requires `HOME_AI_BASE_URL` reachable (tunnel or LAN).
+Requires `HOME_AI_BASE_URL` reachable (tunnel or LAN). You can override URL for testing.
 
-### Metrics shown
+### Metrics
 
-- Routes total / by intent (translation, OCR, answer)
-- Cache hit rate (L1)
-- Rate limit allowed/rejected
-- GPU status, active LLM model, loaded models
-- Inference success/fallback counts
+- Backend · GPU · model loaded · queue depth
+- Cache hit rate (L1 / L2 / L3)
+- Routes total · rate limit allowed/rejected
+- Resident models
 
-### Example: verify Mode 5 (14B) is Plus-only
+### Verify Mode 5 (14B) is Plus-only
 
-1. Check dashboard while a Plus user uses High Accuracy mode — **active_llm** may show `qwen2.5-14b-int4` or Ollama equivalent.
-2. Pro user on mode 1–4 should never load 14B — active model stays 7B or Mistral.
+1. Plus user on **High Accuracy** — active model may show Qwen 14B or Ollama equivalent.
+2. Pro user on modes 1–4 should stay on 7B class models.
 
-If Pro users incorrectly get 14B, review `server/v2/app/services/model_selector.py` and restart Home AI.
+If Pro users get 14B, review `server/v2/app/services/model_selector.py` and restart Home AI.
+
+### Model usage tracking
+
+Home AI inference engine counts **models_used** per request (resets on server restart). Full breakdown also appears in **Reports → Home AI**.
 
 ---
 
-## 6. Daily operations checklist
+## 7. ✉️ Email & SMTP (local dev)
+
+Auth emails (OTP recovery, password update, email change) use SMTP.
+
+### Startup order (same PC)
+
+```powershell
+# 1 — Local SMTP (port 1025)
+cd server\mail
+.\run-dev-smtp.ps1
+
+# 2 — Cloud API (reads SMTP_* from .env)
+cd server\cloud-api
+.\scripts\run-dev.ps1
+```
+
+- Inbox files land in `server/mail/inbox/*.eml`
+- Sender: `admin@ailanguagetutor.com`
+- Config: `server/cloud-api/.env` → `SMTP_HOST`, `SMTP_PORT`, etc.
+
+### Trusted device OTP skip
+
+Registration stores `registered_device_id`. Recovery, email change, and password update may **skip OTP** when the request comes from that device.
+
+---
+
+## 8. 📋 Daily operations checklist
 
 ### Morning startup (self-hosted)
 
 ```powershell
+cd server\mail
+.\run-dev-smtp.ps1          # if testing auth emails locally
+
 cd server\v2
 .\scripts\run-dev.ps1
 
@@ -144,10 +215,11 @@ Run `.\scripts\verify-stack.ps1` — all health checks green.
 
 ### Monitor
 
-1. Home AI `/health` and `/admin/stats` (via dashboard)
-2. Cloud API `/api/ailt/health`
-3. Admin Console → provider health
-4. Rate limit rejected count — spike may mean increase limits in `rate_limit.py`
+1. **Reports** screen in app (users, API usage, models)
+2. Home AI `/health` and `/admin/status`
+3. Cloud API `/api/ailt/health`
+4. Admin Console → provider health
+5. Rate limit rejected count — spike → adjust `server/v2/app/services/rate_limit.py`
 
 ### Restart Home AI after model changes
 
@@ -158,72 +230,77 @@ cd server\v2
 
 ---
 
-## 7. User & billing support
+## 9. 👥 User & billing support
 
-### Verify subscription (server)
+### Verify subscription
 
-Billing verify endpoint: `POST /billing/verify` with Play purchase token.  
-Tier stored: `pro` or `plus`. App maps to `AccessState.PRO_ACTIVE` or `PLUS_ACTIVE`.
+`POST /billing/verify` with Play purchase token. Tier stored: `pro` or `plus`.
 
-**Example:** User paid Plus but app shows Pro — ask them to tap Restore purchases on Paywall; check cloud DB `subscriptions` table for their email.
+**User paid Plus but app shows Pro** — Ask them to tap **Restore purchases** on Paywall; check cloud DB `subscriptions` table.
 
 ### Trial expired
 
-`AccessState.TRIAL_EXPIRED` → paywall on launch. Offline language packs still work; AI and scanner require subscription.
+Offline language packs still work. AI and scanner require subscription.
 
 ### Guest AI limit
 
-Guests get 99 AI calls (`GuestAiUsageRepository`). After limit, login gate appears. Reset is per-install (DataStore counter).
+Guests get **99 AI calls**. After limit, login gate appears. Counter is per-install (DataStore + optional cloud sync).
 
 ---
 
-## 8. Content & language packs
+## 10. 🌍 Language packs
 
-Language packs served from cloud API (`/packs/...`). Admin scripts:
+Served from cloud API. Build/update:
 
 ```powershell
 cd server\cloud-api
 python scripts/build_language_packs.py
 ```
 
-Upload new pack versions through your deployment process; app downloads on Languages tab.
+Deploy new versions; app downloads on **Languages** tab.
 
 ---
 
-## 9. Security notes
+## 11. 🔒 Security notes
 
-- Admin APIs require `role=admin` session on the server — UI gating is not sufficient alone.
+- **Reports API** requires admin session (`require_admin` dependency).
+- Other admin routes should also enforce role on server — do not rely on UI hiding alone.
 - Never commit `.env`, `local.env.properties`, or API keys.
 - Rotate `ADMIN_SEED_PASSWORD` in production builds.
 - Cloudflare tunnel credentials stay in `%USERPROFILE%\.cloudflared\`.
 
 ---
 
-## 10. Troubleshooting
+## 12. 🔧 Troubleshooting
 
-| Issue | Admin action |
-|-------|----------------|
-| Promo code not applying | Confirm Active=true, correct paywall slot, code spelling |
-| All AI failing | Check tunnel + both servers; verify-stack.ps1 |
-| High rate-limit errors | Adjust `pro_per_hour` / `plus_per_hour` in `rate_limit.py` |
-| 14B OOM on GPU | Only one large LLM loaded; ensure 7B unloaded before 14B |
-| Admin menu missing | Confirm login role is exactly `admin` |
-
----
-
-## 11. API endpoints (reference)
-
-| Endpoint | Service | Purpose |
-|----------|---------|---------|
-| `GET /health` | both | Liveness |
-| `GET /admin/stats` | v2 | Home AI metrics |
-| `GET /admin/promo-codes` | cloud | List promos |
-| `POST /admin/promo-codes` | cloud | Create promo |
-| `PATCH /admin/promo-codes/{code}` | cloud | Update promo |
-| `GET /admin/ai/providers` | cloud | Provider list |
-
-Full API docs: run cloud-api locally → OpenAPI at `/docs`.
+- **Promo code not applying** — Confirm Active=true, correct paywall slot, spelling.
+- **All AI failing** — Check tunnel + both servers; run verify-stack.ps1.
+- **Reports empty / 403** — Log in as admin; ensure cloud API reachable with valid session.
+- **Home AI offline in Reports** — Check HOME_AI_BASE_URL; start server/v2.
+- **High rate-limit errors** — Adjust `pro_per_hour` / `plus_per_hour` in rate_limit.py.
+- **14B OOM on GPU** — Only one large LLM loaded at a time.
+- **Admin menu missing** — Login role must be exactly `admin`.
+- **OTP emails not arriving (dev)** — Start SMTP server; read `server/mail/inbox/`.
 
 ---
 
-*Cheradip AI Language Tutor · Administrator Manual · v2.0.0*
+## 13. 📡 API reference
+
+**Home AI (v2)**
+
+- GET /health — Liveness
+- GET /admin/status — Home AI metrics, models_used, routes_by_intent
+
+**Cloud API**
+
+- GET /admin/reports — Platform dashboard (admin session required)
+- GET /admin/promo-codes — List promos
+- POST /admin/promo-codes — Create promo
+- PATCH /admin/promo-codes/{code} — Update promo
+- GET /admin/ai/providers — Provider list
+
+Cloud API OpenAPI: run locally → `/docs`.
+
+---
+
+*Cheradip AI Language Tutor · Administrator Guide · v2.1.0*

@@ -232,6 +232,16 @@ data class HomeAiCacheStats(
 data class HomeAiRouterStats(
     @Json(name = "routes_total") val routesTotal: Int = 0,
     @Json(name = "routes_by_intent") val routesByIntent: Map<String, Int> = emptyMap(),
+    val inference: HomeAiInferenceStats = HomeAiInferenceStats(),
+)
+
+@JsonClass(generateAdapter = true)
+data class HomeAiInferenceStats(
+    @Json(name = "last_model_used") val lastModelUsed: String? = null,
+    @Json(name = "last_translation_backend") val lastTranslationBackend: String? = null,
+    @Json(name = "fallback_count") val fallbackCount: Int = 0,
+    @Json(name = "active_llm") val activeLlm: String? = null,
+    @Json(name = "models_used") val modelsUsed: Map<String, Int> = emptyMap(),
 )
 
 @JsonClass(generateAdapter = true)

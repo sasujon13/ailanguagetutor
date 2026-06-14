@@ -23,6 +23,7 @@ dependencies {
     implementation(project(":core:billing"))
     implementation(project(":core:auth"))
     implementation(project(":core:ai"))
+    implementation(project(":core:locale"))
     implementation(project(":core:model"))
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.ui)

@@ -1,13 +1,17 @@
 package com.cheradip.ailanguagetutor.core.ai
 
 import com.cheradip.ailanguagetutor.core.billing.CheckAppAccessUseCase
+import com.cheradip.ailanguagetutor.core.common.AppConfig
 import com.cheradip.ailanguagetutor.core.database.dao.AiCacheDao
 import com.cheradip.ailanguagetutor.core.database.entity.AiCacheEntity
+import com.cheradip.ailanguagetutor.core.model.AiBackend
+import com.cheradip.ailanguagetutor.core.model.AiEngineMode
 import com.cheradip.ailanguagetutor.core.model.GrammarBook
 import com.cheradip.ailanguagetutor.core.model.GrammarBookChapter
 import com.cheradip.ailanguagetutor.core.model.GrammarBookSection
 import com.cheradip.ailanguagetutor.core.model.GrammarSectionEnrichment
 import com.cheradip.ailanguagetutor.core.model.InputSource
+import com.cheradip.ailanguagetutor.core.model.SubscriptionTier
 import com.cheradip.ailanguagetutor.core.pack.LanguageCodeResolver
 import com.cheradip.ailanguagetutor.core.network.CHECK_INTERNET_CONNECTION
 import com.cheradip.ailanguagetutor.core.network.NetworkErrorFormatter
@@ -17,18 +21,25 @@ import com.cheradip.ailanguagetutor.core.network.HomeAiGrammarBookResponse
 import com.cheradip.ailanguagetutor.core.network.HomeAiGrammarBookSectionDto
 import com.squareup.moshi.Moshi
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import javax.inject.Inject
 import javax.inject.Singleton
 
 @Singleton
 class GrammarBookRepository @Inject constructor(
     private val homeAiService: HomeAiService,
+    private val homeAiSettings: HomeAiSettingsRepository,
+    private val cloudAiFallback: CloudAiFallbackService,
     private val aiModePrefs: AiModePreferenceRepository,
     private val checkAppAccess: CheckAppAccessUseCase,
     private val aiCacheDao: AiCacheDao,
     private val networkErrors: NetworkErrorFormatter,
+    private val aiProviderRepository: AiProviderRepository,
     private val englishPivotAi: EnglishPivotAiCoordinator,
+    private val appConfig: AppConfig,
     moshi: Moshi,
 ) {
     private val adapter = moshi.adapter(HomeAiGrammarBookResponse::class.java)
@@ -47,45 +58,34 @@ class GrammarBookRepository @Inject constructor(
                 ?.let { return@withContext Result.success(it.copy(cached = true)) }
         }
 
+        if (checkAppAccess.subscriptionTier() == SubscriptionTier.FREE) {
+            return@withContext Result.success(builtInOutlineBook(code, languageName))
+        }
+
+        if (!networkErrors.isOnline()) {
+            return@withContext Result.failure(
+                IllegalStateException(CHECK_INTERNET_CONNECTION),
+            )
+        }
+
         val tier = checkAppAccess.subscriptionTier()
         val mode = aiModePrefs.resolvedMode(
             inputSource = InputSource.TYPED,
             tier = tier,
         )
+        val generateInEnglish = !LanguageCodeResolver.isEnglish(code)
+        val aiLang = if (generateInEnglish) "en" else code
 
-        if (homeAiService.isReachable()) {
-            if (!networkErrors.isOnline()) {
-                return@withContext Result.failure(
-                    IllegalStateException(CHECK_INTERNET_CONNECTION),
-                )
-            }
-            runCatching {
-                val generateInEnglish = !LanguageCodeResolver.isEnglish(code)
-                homeAiService.fetchGrammarBook(
-                    languageCode = if (generateInEnglish) "en" else code,
-                    languageName = languageName,
-                    mode = mode,
-                    tier = tier,
-                ).let { response ->
-                    if (generateInEnglish) {
-                        pivotGrammarBookToLanguage(response.toModel(), code, languageName)
-                    } else {
-                        response.toModel()
-                    }
-                }
-            }.onSuccess { book ->
-                persistLocal(code, book)
-                return@withContext Result.success(book)
-            }.onFailure { err ->
-                return@withContext Result.failure(
-                    IllegalStateException(
-                        networkErrors.present(err, "Could not load grammar book. Check Home AI and try refresh."),
-                    ),
-                )
-            }
+        val bookFromAi = fetchBookViaHome(aiLang, languageName, mode, tier, generateInEnglish, code, languageName)
+            ?.let { true to it }
+            ?: fetchBookViaCloud(aiLang, languageName, generateInEnglish, code, languageName)
+                ?.let { true to it }
+            ?: (false to builtInOutlineBook(code, languageName))
+
+        if (bookFromAi.first) {
+            persistLocal(code, bookFromAi.second)
         }
-
-        Result.success(builtInOutlineBook(code, languageName))
+        Result.success(bookFromAi.second)
     }
 
     suspend fun enrichSection(
@@ -99,10 +99,7 @@ class GrammarBookRepository @Inject constructor(
         val cacheKey = enrichCacheKey(code, chapterNumber, section.heading)
         localEnrichment(cacheKey)?.let { return@withContext Result.success(it) }
 
-        val tier = checkAppAccess.subscriptionTier()
-        val mode = aiModePrefs.resolvedMode(inputSource = InputSource.TYPED, tier = tier)
-
-        if (!homeAiService.isReachable()) {
+        if (checkAppAccess.subscriptionTier() == SubscriptionTier.FREE) {
             return@withContext Result.success(
                 GrammarSectionEnrichment(expandedBody = section.body, loaded = true),
             )
@@ -114,23 +111,32 @@ class GrammarBookRepository @Inject constructor(
             )
         }
 
-        runCatching {
-            val enBody = englishPivotAi.toEnglish(section.body, code, InputSource.TYPED)
-            val enHeading = englishPivotAi.toEnglish(section.heading, code, InputSource.TYPED)
-            homeAiService.enrichGrammarBookSection(
-                languageCode = "en",
-                languageName = languageName,
-                chapterNumber = chapterNumber,
-                chapterTitle = chapterTitle,
-                sectionHeading = enHeading,
-                sectionBody = enBody,
-                examples = section.examples.map {
-                    englishPivotAi.toEnglish(it, code, InputSource.TYPED)
-                },
-                mode = mode,
-                tier = tier,
+        val tier = checkAppAccess.subscriptionTier()
+        val mode = aiModePrefs.resolvedMode(inputSource = InputSource.TYPED, tier = tier)
+
+        val response = enrichViaHome(
+            code = code,
+            languageName = languageName,
+            chapterNumber = chapterNumber,
+            chapterTitle = chapterTitle,
+            section = section,
+            mode = mode,
+            tier = tier,
+        ) ?: enrichViaCloud(
+            code = code,
+            languageName = languageName,
+            chapterNumber = chapterNumber,
+            chapterTitle = chapterTitle,
+            section = section,
+        )
+
+        if (response == null) {
+            return@withContext Result.success(
+                GrammarSectionEnrichment(expandedBody = section.body, loaded = true),
             )
-        }.map { response ->
+        }
+
+        runCatching {
             val enrichment = GrammarSectionEnrichment(
                 expandedBody = englishPivotAi.fromEnglish(
                     response.expandedBody.ifBlank { section.body },
@@ -152,6 +158,129 @@ class GrammarBookRepository @Inject constructor(
                 networkErrors.present(error, "Could not expand this section. Try again."),
             )
         }
+    }
+
+    private suspend fun fetchBookViaHome(
+        aiLang: String,
+        languageName: String,
+        mode: AiEngineMode,
+        tier: SubscriptionTier,
+        generateInEnglish: Boolean,
+        targetCode: String,
+        displayName: String,
+    ): GrammarBook? {
+        if (homeAiSettings.preferredBackend.first() != AiBackend.LOCAL_HOME) return null
+        return runCatching {
+            withTimeout(appConfig.homeAiTimeoutMs) {
+                homeAiService.fetchGrammarBook(
+                    languageCode = aiLang,
+                    languageName = languageName,
+                    mode = mode,
+                    tier = tier,
+                ).let { response ->
+                    val model = response.toModel()
+                    if (generateInEnglish) {
+                        pivotGrammarBookToLanguage(model, targetCode, displayName)
+                    } else {
+                        model
+                    }
+                }
+            }
+        }.fold(
+            onSuccess = { it },
+            onFailure = { e ->
+                aiProviderRepository.recordFallback(homeFailureReason(e, "grammar_book"))
+                null
+            },
+        )
+    }
+
+    private suspend fun fetchBookViaCloud(
+        aiLang: String,
+        languageName: String,
+        generateInEnglish: Boolean,
+        targetCode: String,
+        displayName: String,
+    ): GrammarBook? {
+        return cloudAiFallback.generateGrammarBook(
+            languageCode = aiLang,
+            languageName = languageName,
+            homeFailureReason = "grammar_book_cloud",
+        )?.let { response ->
+            val model = response.toModel()
+            if (generateInEnglish) {
+                pivotGrammarBookToLanguage(model, targetCode, displayName)
+            } else {
+                model
+            }
+        }
+    }
+
+    private suspend fun enrichViaHome(
+        code: String,
+        languageName: String,
+        chapterNumber: Int,
+        chapterTitle: String,
+        section: GrammarBookSection,
+        mode: AiEngineMode,
+        tier: SubscriptionTier,
+    ): HomeAiGrammarBookEnrichResponse? {
+        if (homeAiSettings.preferredBackend.first() != AiBackend.LOCAL_HOME) return null
+        return runCatching {
+            withTimeout(appConfig.homeAiTimeoutMs) {
+                val enBody = englishPivotAi.toEnglish(section.body, code, InputSource.TYPED)
+                val enHeading = englishPivotAi.toEnglish(section.heading, code, InputSource.TYPED)
+                homeAiService.enrichGrammarBookSection(
+                    languageCode = "en",
+                    languageName = languageName,
+                    chapterNumber = chapterNumber,
+                    chapterTitle = chapterTitle,
+                    sectionHeading = enHeading,
+                    sectionBody = enBody,
+                    examples = section.examples.map {
+                        englishPivotAi.toEnglish(it, code, InputSource.TYPED)
+                    },
+                    mode = mode,
+                    tier = tier,
+                )
+            }
+        }.fold(
+            onSuccess = { it },
+            onFailure = { e ->
+                aiProviderRepository.recordFallback(homeFailureReason(e, "grammar_book_enrich"))
+                null
+            },
+        )
+    }
+
+    private suspend fun enrichViaCloud(
+        code: String,
+        languageName: String,
+        chapterNumber: Int,
+        chapterTitle: String,
+        section: GrammarBookSection,
+    ): HomeAiGrammarBookEnrichResponse? {
+        val generateInEnglish = !LanguageCodeResolver.isEnglish(code)
+        val aiLang = if (generateInEnglish) "en" else code
+        val enBody = englishPivotAi.toEnglish(section.body, code, InputSource.TYPED)
+        val enHeading = englishPivotAi.toEnglish(section.heading, code, InputSource.TYPED)
+        return cloudAiFallback.enrichGrammarSection(
+            languageCode = aiLang,
+            languageName = languageName,
+            chapterNumber = chapterNumber,
+            chapterTitle = chapterTitle,
+            sectionHeading = enHeading,
+            sectionBody = enBody,
+            examples = section.examples.map {
+                englishPivotAi.toEnglish(it, code, InputSource.TYPED)
+            },
+            homeFailureReason = "grammar_book_enrich_cloud",
+        )
+    }
+
+    private fun homeFailureReason(e: Throwable, prefix: String): String = when (e) {
+        is TimeoutCancellationException -> "${prefix}_home_timeout"
+        else -> "${prefix}_home_error: ${e.message}"
     }
 
     private suspend fun localEnrichment(cacheKey: String): GrammarSectionEnrichment? {

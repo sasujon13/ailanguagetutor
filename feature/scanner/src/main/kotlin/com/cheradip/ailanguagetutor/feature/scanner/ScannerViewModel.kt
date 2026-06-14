@@ -13,6 +13,8 @@ import com.cheradip.ailanguagetutor.core.image.CropPreset
 import com.cheradip.ailanguagetutor.core.image.DocumentDetectionHints
 import com.cheradip.ailanguagetutor.core.image.EditHistoryEntry
 import com.cheradip.ailanguagetutor.core.image.EditHistorySnapshot
+import com.cheradip.ailanguagetutor.core.image.CleanFilterSelection
+import com.cheradip.ailanguagetutor.core.image.CleanAdjustmentKind
 import com.cheradip.ailanguagetutor.core.image.DocumentFilterPresets
 import com.cheradip.ailanguagetutor.core.image.EditStage
 import com.cheradip.ailanguagetutor.core.image.ExportConflictResolution
@@ -52,16 +54,11 @@ enum class PreviewCompareMode {
 data class CustomFilterSlot(
     val slotId: String,
     val displayName: String,
-    val clean: CleanParams = CleanParams(),
-    val gray: GrayParams = GrayParams(),
-    val transition: TransitionParams = TransitionParams(),
+    val savedSelection: CleanFilterSelection = CleanFilterSelection(),
     val hasSavedSettings: Boolean = false,
 )
 
-private fun defaultCustomFilterSlots() = listOf(
-    CustomFilterSlot(slotId = "custom_1", displayName = "Custom1"),
-    CustomFilterSlot(slotId = "custom_2", displayName = "Custom2"),
-)
+private fun defaultCustomFilterSlots(): List<CustomFilterSlot> = emptyList()
 
 data class ScannerPageItem(
     val id: Long,
@@ -98,6 +95,7 @@ data class ScannerUiState(
     val canUndo: Boolean = false,
     val canRedo: Boolean = false,
     val editHistory: List<Pair<Int, String>> = emptyList(),
+    val selectedHistoryIndex: Int = -1,
     val draftCrop: CropParams = CropParams(),
     val draftTransition: TransitionParams = TransitionParams(),
     val draftClean: CleanParams = CleanParams(),
@@ -114,6 +112,8 @@ data class ScannerUiState(
     val cropSourceHeight: Int = 0,
     val selectedFilterPresetId: String? = null,
     val editingCustomFilter: Boolean = false,
+    val draftFilterSelection: CleanFilterSelection = CleanFilterSelection(),
+    val expandedCleanAdjustment: CleanAdjustmentKind? = null,
     val customFilters: List<CustomFilterSlot> = defaultCustomFilterSlots(),
     val showCustomFilterRenameDialog: Boolean = false,
     val renamingCustomSlotId: String? = null,
@@ -401,6 +401,14 @@ class ScannerViewModel @Inject constructor(
         }
         persistWorkflow()
         pageId ?: return
+        if (resolved == ScanTool.CLEAN) {
+            val state = editStates[pageId] ?: return
+            editStates[pageId] = state.copy(
+                draftClean = CleanParams(),
+                draftGray = GrayParams(),
+                draftFilterSelection = CleanFilterSelection(),
+            )
+        }
         syncDraftFromState(pageId)
         if (resolved == ScanTool.ORIGINAL) {
             refreshPreview(pageId, forceOriginal = true)
@@ -494,7 +502,9 @@ class ScannerViewModel @Inject constructor(
             _uiState.update { it.copy(isProcessingPreview = true) }
             runCatching {
                 val historical = scanEditEngine.stateAtHistory(state, index)
-                val beforeBmp = withContext(Dispatchers.Default) { scanEditEngine.renderApplied(historical) }
+                val beforeBmp = withContext(Dispatchers.Default) {
+                    scanEditEngine.renderApplied(historical, customFilterPresets())
+                }
                 val tool = _uiState.value.activeTool?.takeUnless { it == ScanTool.SAVE }
                 val afterBmp = withContext(Dispatchers.Default) { scanEditEngine.renderPreview(state, tool, null) }
                 val docId = _uiState.value.documentId ?: 0
@@ -573,6 +583,12 @@ class ScannerViewModel @Inject constructor(
         val state = editStates[pageId] ?: return
         editStates[pageId] = scanEditEngine.jumpToHistory(state, index)
         syncDraftFromState(pageId)
+        _uiState.update {
+            it.copy(
+                draftFilterSelection = editStates[pageId]?.appliedFilterSelection ?: CleanFilterSelection(),
+                expandedCleanAdjustment = null,
+            )
+        }
         refreshPreview(pageId)
         persistIfApplied(pageId)
     }
@@ -637,72 +653,72 @@ class ScannerViewModel @Inject constructor(
         refreshPreview(pageId, debounceMs = 75)
     }
 
-    fun selectFilterPreset(presetId: String) {
+    fun toggleCleanFilter(presetId: String) {
         val pageId = _uiState.value.selectedPageId ?: return
         val state = editStates[pageId] ?: return
-        val custom = _uiState.value.customFilters.find { it.slotId == presetId }
-        if (custom != null) {
-            val clean = custom.clean.copy(filterPresetId = presetId)
-            val gray = if (custom.hasSavedSettings) custom.gray else GrayParams()
-            val updated = state.copy(
-                draftClean = clean,
-                draftGray = gray,
-                draftTransition = custom.transition,
-            )
-            editStates[pageId] = updated
-            _uiState.update {
-                it.copy(
-                    selectedFilterPresetId = presetId,
-                    editingCustomFilter = true,
-                    draftClean = clean,
-                    draftGray = gray,
-                    draftTransition = custom.transition,
-                )
-            }
-            refreshPreview(pageId)
-            return
+        val current = state.draftFilterSelection
+        val nextIds = if (presetId in current.presetIds) {
+            current.presetIds - presetId
+        } else {
+            current.presetIds + presetId
         }
-        val preset = DocumentFilterPresets.byId(presetId) ?: return
-        applyPresetToDrafts(pageId, state, preset, presetId, editingCustom = false)
+        updateDraftFilterSelection(state, current.copy(presetIds = nextIds))
     }
 
-    private fun applyPresetToDrafts(
-        pageId: Long,
-        state: PageEditState,
-        preset: com.cheradip.ailanguagetutor.core.image.DocumentFilterPreset,
-        presetId: String,
-        editingCustom: Boolean,
-    ) {
-        val clean = preset.clean.copy(filterPresetId = presetId)
-        val gray = preset.gray ?: GrayParams(active = false)
-        val transition = preset.transition ?: state.draftTransition
-        val updated = state.copy(draftClean = clean, draftGray = gray, draftTransition = transition)
+    fun toggleCleanAdjustment(kind: CleanAdjustmentKind, level: Int) {
+        val pageId = _uiState.value.selectedPageId ?: return
+        val state = editStates[pageId] ?: return
+        val current = state.draftFilterSelection
+        val nextAdjustments = current.adjustments.toMutableMap()
+        if (current.adjustments[kind] == level) {
+            nextAdjustments.remove(kind)
+        } else {
+            nextAdjustments[kind] = level
+        }
+        updateDraftFilterSelection(state, current.copy(adjustments = nextAdjustments))
+    }
+
+    fun setExpandedCleanAdjustment(kind: CleanAdjustmentKind?) {
+        _uiState.update { it.copy(expandedCleanAdjustment = kind) }
+    }
+
+    fun addCustomFilterFromSelection() {
+        val ui = _uiState.value
+        val selection = ui.draftFilterSelection
+        if (selection.presetIds.isEmpty() && selection.adjustments.isEmpty()) return
+        val nextIndex = ui.customFilters.size + 1
+        val slotId = "custom_$nextIndex"
+        val slot = CustomFilterSlot(
+            slotId = slotId,
+            displayName = "Custom $nextIndex",
+            savedSelection = selection,
+            hasSavedSettings = true,
+        )
+        _uiState.update { it.copy(customFilters = it.customFilters + slot) }
+        requestRenameCustomFilter(slotId)
+    }
+
+    private fun updateDraftFilterSelection(state: PageEditState, selection: CleanFilterSelection) {
+        val pageId = state.pageId
+        val updated = state.copy(draftFilterSelection = selection)
         editStates[pageId] = updated
         _uiState.update {
             it.copy(
-                selectedFilterPresetId = presetId,
-                editingCustomFilter = editingCustom,
-                draftClean = clean,
-                draftGray = gray,
-                draftTransition = transition,
+                draftFilterSelection = selection,
+                selectedFilterPresetId = null,
+                editingCustomFilter = false,
             )
         }
         refreshPreview(pageId)
     }
 
+    fun selectFilterPreset(presetId: String) = toggleCleanFilter(presetId)
+
     fun saveCustomFilter(slotId: String) {
         val ui = _uiState.value
         val updatedSlots = ui.customFilters.map { slot ->
-            if (slot.slotId != slotId) {
-                slot
-            } else {
-                slot.copy(
-                    clean = ui.draftClean.copy(filterPresetId = slotId),
-                    gray = ui.draftGray,
-                    transition = ui.draftTransition,
-                    hasSavedSettings = true,
-                )
-            }
+            if (slot.slotId != slotId) slot
+            else slot.copy(savedSelection = ui.draftFilterSelection, hasSavedSettings = true)
         }
         _uiState.update { it.copy(customFilters = updatedSlots) }
     }
@@ -804,15 +820,7 @@ class ScannerViewModel @Inject constructor(
             autoDetect = true,
             perspectiveStrength = 85,
         )
-        val cleanDraft = CleanParams(
-            autoEnhance = true,
-            paperWhitening = 55,
-            shadowRemoval = 55,
-            noiseReduction = 45,
-            brightness = 52,
-            contrast = 58,
-            sharpness = 48,
-        )
+        val cleanDraft = CleanParams()
         var updated = state.copy(
             draftCrop = cropDraft,
             draftTransition = transitionDraft,
@@ -820,8 +828,9 @@ class ScannerViewModel @Inject constructor(
         )
         updated = scanEditEngine.applyTool(updated, ScanTool.CROP)
         updated = scanEditEngine.applyTool(updated, ScanTool.TRANSITION)
-        updated = scanEditEngine.applyTool(updated, ScanTool.CLEAN)
-        val rendered = withContext(Dispatchers.Default) { scanEditEngine.renderApplied(updated) }
+        val rendered = withContext(Dispatchers.Default) {
+            scanEditEngine.renderApplied(updated, customFilterPresets())
+        }
         val docId = _uiState.value.documentId ?: return
         val outFile = imageStorage.createWorkingCopy(docId, updated.pageId)
         val saved = withContext(Dispatchers.IO) { BitmapUtils.save(rendered, outFile.absolutePath) }
@@ -890,7 +899,7 @@ class ScannerViewModel @Inject constructor(
                     else -> scanEditEngine.applyTool(state, tool)
                 }
                 val rendered = withContext(Dispatchers.Default) {
-                    scanEditEngine.renderApplied(updated)
+                    scanEditEngine.renderApplied(updated, customFilterPresets())
                 }
                 val docId = _uiState.value.documentId ?: error("No document")
                 val outFile = imageStorage.createWorkingCopy(docId, updated.pageId)
@@ -1049,7 +1058,9 @@ class ScannerViewModel @Inject constructor(
         val state = editStates[pageId] ?: return
         viewModelScope.launch {
             runCatching {
-                val rendered = withContext(Dispatchers.Default) { scanEditEngine.renderApplied(state) }
+                val rendered = withContext(Dispatchers.Default) {
+                    scanEditEngine.renderApplied(state, customFilterPresets())
+                }
                 val docId = _uiState.value.documentId ?: return@runCatching
                 val outFile = imageStorage.createWorkingCopy(docId, state.pageId)
                 val saved = withContext(Dispatchers.IO) { BitmapUtils.save(rendered, outFile.absolutePath) }
@@ -1069,12 +1080,14 @@ class ScannerViewModel @Inject constructor(
                 draftTransition = state.draftTransition,
                 draftClean = state.draftClean,
                 draftGray = state.draftGray,
+                draftFilterSelection = state.draftFilterSelection,
                 selectedPageOriginalPath = page?.originalPath ?: state.originalPath,
                 cropSourceWidth = page?.width?.takeIf { it > 0 } ?: 0,
                 cropSourceHeight = page?.height?.takeIf { it > 0 } ?: 0,
                 canUndo = state.historyIndex >= 0,
                 canRedo = state.historyIndex < state.history.lastIndex,
                 editHistory = historyChips(state),
+                selectedHistoryIndex = state.historyIndex,
                 cropSkewDegrees = scanEditEngine.detectSkew(state.draftCrop.corners),
                 appliedStages = state.appliedStages().toSet(),
             )
@@ -1096,6 +1109,7 @@ class ScannerViewModel @Inject constructor(
             if (generation != previewGeneration) return@launch
             val state = editStates[pageId] ?: return@launch
             _uiState.update { it.copy(isProcessingPreview = true) }
+            val customPresets = customFilterPresets()
             runCatching {
                 val tool = _uiState.value.activeTool?.takeUnless { it == ScanTool.SAVE || it == ScanTool.ORIGINAL }
                 val compareMode = _uiState.value.previewCompareMode
@@ -1103,8 +1117,8 @@ class ScannerViewModel @Inject constructor(
                     when {
                         compareMode == PreviewCompareMode.ORIGINAL -> scanEditEngine.renderOriginal(state)
                         compareMode == PreviewCompareMode.BEFORE -> scanEditEngine.renderBeforeCurrentTool(state)
-                        tool != null -> scanEditEngine.renderAfterCurrentTool(state, tool)
-                        else -> scanEditEngine.renderApplied(state)
+                        tool != null -> scanEditEngine.renderPreview(state, tool, customPresets = customPresets)
+                        else -> scanEditEngine.renderApplied(state, customPresets)
                     }
                 }
                 if (generation != previewGeneration) return@runCatching null
@@ -1134,4 +1148,9 @@ class ScannerViewModel @Inject constructor(
             }
         }
     }
+
+    private fun customFilterPresets(): List<com.cheradip.ailanguagetutor.core.image.DocumentFilterPreset> =
+        _uiState.value.customFilters
+            .filter { it.hasSavedSettings }
+            .map { DocumentFilterPresets.customSlot(it.slotId, it.displayName, it.savedSelection) }
 }

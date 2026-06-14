@@ -6,17 +6,23 @@ import kotlin.math.max
 import kotlin.math.min
 
 class ScanEditEngine {
-    fun renderPreview(state: PageEditState, tool: ScanTool? = null, beforeAfter: Float? = null): Bitmap {
+    fun renderPreview(
+        state: PageEditState,
+        tool: ScanTool? = null,
+        beforeAfter: Float? = null,
+        customPresets: List<DocumentFilterPreset> = emptyList(),
+    ): Bitmap {
         val source = BitmapUtils.load(state.originalPath)
-        val edited = if (tool == ScanTool.ORIGINAL) {
-            renderPipeline(source, state.appliedCrop, state.appliedTransition, state.appliedClean, state.appliedGray)
-        } else {
-            renderPipeline(
+        val edited = when {
+            tool == ScanTool.ORIGINAL -> renderApplied(state, customPresets)
+            tool == ScanTool.CLEAN -> renderCleanToolPreview(state, customPresets)
+            else -> renderPipeline(
                 source = source,
                 crop = previewCrop(state, tool),
                 transition = previewTransition(state, tool),
                 clean = previewClean(state, tool),
                 gray = previewGray(state, tool),
+                customPresets = customPresets,
             )
         }
         return if (beforeAfter != null) {
@@ -28,9 +34,30 @@ class ScanEditEngine {
 
     fun detectSkew(corners: QuadPoints): Float = DocumentEdgeDetector.detectSkewDegrees(corners)
 
-    fun renderApplied(state: PageEditState): Bitmap {
+    fun renderApplied(state: PageEditState, customPresets: List<DocumentFilterPreset> = emptyList()): Bitmap {
         val source = BitmapUtils.load(state.originalPath)
-        return renderPipeline(source, state.appliedCrop, state.appliedTransition, state.appliedClean, state.appliedGray)
+        val usesStack = state.appliedFilterSelection?.let {
+            it.presetIds.isNotEmpty() || it.adjustments.isNotEmpty()
+        } == true
+        return renderPipeline(
+            source = source,
+            crop = state.appliedCrop,
+            transition = state.appliedTransition,
+            clean = if (usesStack) null else state.appliedClean,
+            gray = if (usesStack) null else state.appliedGray,
+            filterSelection = state.appliedFilterSelection,
+            customPresets = customPresets,
+        )
+    }
+
+    private fun renderCleanToolPreview(
+        state: PageEditState,
+        customPresets: List<DocumentFilterPreset>,
+    ): Bitmap {
+        val base = renderApplied(state, customPresets)
+        val draft = state.draftFilterSelection
+        if (draft.presetIds.isEmpty() && draft.adjustments.isEmpty()) return base
+        return CleanFilterRenderer.applyStack(base, draft, customPresets)
     }
 
     /** Raw capture — no edits applied. */
@@ -42,6 +69,15 @@ class ScanEditEngine {
     /** Live preview with the active tool's draft settings. */
     fun renderAfterCurrentTool(state: PageEditState, tool: ScanTool?): Bitmap =
         renderPreview(state, tool, beforeAfter = null)
+
+    fun renderAtHistoryIndex(
+        state: PageEditState,
+        index: Int,
+        customPresets: List<DocumentFilterPreset> = emptyList(),
+    ): Bitmap {
+        val historical = stateAtHistory(state, index)
+        return renderApplied(historical, customPresets)
+    }
 
     fun autoDetectCrop(
         bitmap: Bitmap,
@@ -83,16 +119,20 @@ class ScanEditEngine {
                 state.copy(appliedTransition = params, draftTransition = params)
             }
             ScanTool.CLEAN -> {
-                val params = state.draftClean
-                val transition = state.draftTransition
-                val gray = state.draftGray.takeIf { it.active }
+                val selection = state.draftFilterSelection
+                val hasDraftFilters = selection.presetIds.isNotEmpty() || selection.adjustments.isNotEmpty()
+                val appliedSelection = if (hasDraftFilters) {
+                    mergeFilterSelection(state.appliedFilterSelection, selection)
+                } else {
+                    state.appliedFilterSelection ?: CleanFilterSelection()
+                }
                 state.copy(
-                    appliedClean = params,
-                    draftClean = params,
-                    appliedTransition = transition,
-                    draftTransition = transition,
-                    appliedGray = gray,
-                    draftGray = state.draftGray,
+                    appliedClean = null,
+                    appliedGray = null,
+                    appliedFilterSelection = appliedSelection,
+                    draftClean = CleanParams(),
+                    draftGray = GrayParams(),
+                    draftFilterSelection = CleanFilterSelection(),
                 )
             }
             ScanTool.GRAY -> {
@@ -108,7 +148,25 @@ class ScanEditEngine {
             ScanTool.GRAY -> EditStage.GRAY
             else -> EditStage.ORIGINAL
         }
-        return appendHistory(next, stage, "${tool.name.lowercase().replaceFirstChar { it.uppercase() }} applied")
+        return appendHistory(next, stage, historyLabel(next, tool, state))
+    }
+
+    private fun historyLabel(next: PageEditState, tool: ScanTool, previous: PageEditState): String = when (tool) {
+        ScanTool.CLEAN -> {
+            val added = previous.draftFilterSelection
+            val desc = CleanFilterRenderer.describeSelection(added, emptyList())
+            if (desc.isBlank()) "Clean applied" else "Clean: $desc"
+        }
+        else -> "${tool.name.lowercase().replaceFirstChar { it.uppercase() }} applied"
+    }
+
+    private fun mergeFilterSelection(
+        base: CleanFilterSelection?,
+        draft: CleanFilterSelection,
+    ): CleanFilterSelection {
+        val presets = (base?.presetIds.orEmpty() + draft.presetIds).distinct()
+        val adjustments = base?.adjustments.orEmpty() + draft.adjustments
+        return CleanFilterSelection(presetIds = presets, adjustments = adjustments)
     }
 
     fun revertAll(state: PageEditState): PageEditState {
@@ -129,9 +187,9 @@ class ScanEditEngine {
         ScanTool.CROP -> state.copy(draftCrop = state.appliedCrop ?: CropParams(corners = QuadPoints.fullFrame()))
         ScanTool.TRANSITION -> state.copy(draftTransition = state.appliedTransition ?: TransitionParams())
         ScanTool.CLEAN -> state.copy(
-            draftClean = state.appliedClean ?: CleanParams(),
-            draftGray = state.appliedGray ?: GrayParams(),
-            draftTransition = state.appliedTransition ?: TransitionParams(),
+            draftClean = CleanParams(),
+            draftGray = GrayParams(),
+            draftFilterSelection = CleanFilterSelection(),
         )
         ScanTool.GRAY -> state.copy(draftGray = state.appliedGray ?: GrayParams())
         else -> state
@@ -146,9 +204,10 @@ class ScanEditEngine {
         ScanTool.CLEAN -> state.copy(
             appliedClean = null,
             appliedGray = null,
-            appliedTransition = null,
+            appliedFilterSelection = null,
             draftClean = CleanParams(),
             draftGray = GrayParams(),
+            draftFilterSelection = CleanFilterSelection(),
             draftTransition = TransitionParams(),
         )
         ScanTool.GRAY -> state.copy(appliedGray = null, draftGray = GrayParams())
@@ -178,10 +237,12 @@ class ScanEditEngine {
             appliedTransition = snap.appliedTransition,
             appliedClean = snap.appliedClean,
             appliedGray = snap.appliedGray,
+            appliedFilterSelection = snap.appliedFilterSelection,
             draftCrop = snap.appliedCrop ?: CropParams(corners = QuadPoints.fullFrame()),
             draftTransition = snap.appliedTransition ?: TransitionParams(),
             draftClean = snap.appliedClean ?: CleanParams(),
             draftGray = snap.appliedGray ?: GrayParams(),
+            draftFilterSelection = snap.appliedFilterSelection ?: CleanFilterSelection(),
             historyIndex = index,
         )
     }
@@ -210,6 +271,7 @@ class ScanEditEngine {
                 appliedTransition = state.appliedTransition,
                 appliedClean = state.appliedClean,
                 appliedGray = state.appliedGray,
+                appliedFilterSelection = state.appliedFilterSelection,
             ),
         )
         val newHistory = trimmed + entry
@@ -227,13 +289,14 @@ class ScanEditEngine {
 
     private fun previewClean(state: PageEditState, tool: ScanTool?) =
         when (tool) {
-            ScanTool.CLEAN -> state.draftClean
+            ScanTool.CLEAN -> null
             else -> state.appliedClean
         }
 
     private fun previewGray(state: PageEditState, tool: ScanTool?) =
         when (tool) {
-            ScanTool.CLEAN, ScanTool.GRAY -> state.draftGray.takeIf { it.active } ?: state.appliedGray
+            ScanTool.CLEAN -> null
+            ScanTool.GRAY -> state.draftGray.takeIf { it.active } ?: state.appliedGray
             ScanTool.CROP -> state.appliedGray
             else -> state.appliedGray
         }
@@ -244,13 +307,20 @@ class ScanEditEngine {
         transition: TransitionParams?,
         clean: CleanParams?,
         gray: GrayParams?,
+        filterSelection: CleanFilterSelection? = null,
+        customPresets: List<DocumentFilterPreset> = emptyList(),
     ): Bitmap {
         var bmp = source
         crop?.let { bmp = applyCrop(bmp, it) }
         transition?.let { bmp = applyTransition(bmp, it) }
-        clean?.let { bmp = ImageCleanProcessor.apply(bmp, it) }
-        if (gray?.active == true) {
-            bmp = ImageGrayProcessor.apply(bmp, gray)
+        val selection = filterSelection?.takeIf { it.presetIds.isNotEmpty() || it.adjustments.isNotEmpty() }
+        if (selection != null) {
+            bmp = CleanFilterRenderer.applyStack(bmp, selection, customPresets)
+        } else {
+            clean?.let { bmp = ImageCleanProcessor.apply(bmp, it) }
+            if (gray?.active == true) {
+                bmp = ImageGrayProcessor.apply(bmp, gray)
+            }
         }
         return bmp
     }

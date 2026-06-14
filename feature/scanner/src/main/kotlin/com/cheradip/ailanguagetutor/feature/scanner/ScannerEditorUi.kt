@@ -77,6 +77,8 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
+import androidx.compose.material.icons.filled.Add
+import com.cheradip.ailanguagetutor.core.image.CleanAdjustmentKind
 import com.cheradip.ailanguagetutor.core.image.DocumentFilterPresets
 import com.cheradip.ailanguagetutor.core.image.EditStage
 import java.io.File
@@ -300,6 +302,9 @@ fun ScannerEditingControls(
     onUpdateClean: ((CleanParams) -> CleanParams) -> Unit,
     onUpdateGray: ((GrayParams) -> GrayParams) -> Unit,
     onSelectFilterPreset: (String) -> Unit,
+    onToggleCleanAdjustment: (CleanAdjustmentKind, Int) -> Unit,
+    onSetExpandedCleanAdjustment: (CleanAdjustmentKind?) -> Unit,
+    onAddCustomFilter: () -> Unit,
     onSaveCustomFilter: (String) -> Unit,
     onRenameCustomFilter: (String) -> Unit,
     modifier: Modifier = Modifier,
@@ -340,48 +345,29 @@ fun ScannerEditingControls(
                 onUpdateClean = onUpdateClean,
                 onUpdateGray = onUpdateGray,
                 onSelectFilterPreset = onSelectFilterPreset,
+                onToggleCleanAdjustment = onToggleCleanAdjustment,
+                onSetExpandedCleanAdjustment = onSetExpandedCleanAdjustment,
+                onAddCustomFilter = onAddCustomFilter,
                 onSaveCustomFilter = onSaveCustomFilter,
                 onRenameCustomFilter = onRenameCustomFilter,
             )
         }
 
-        if (uiState.editHistory.isNotEmpty() || uiState.appliedStages.isNotEmpty()) {
+        if (uiState.editHistory.isNotEmpty()) {
             Text("Version history", style = MaterialTheme.typography.labelMedium)
-            Row(
-                modifier = Modifier.horizontalScroll(rememberScrollState()).padding(bottom = 4.dp),
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
-                EditStage.entries.filter { it != EditStage.TRANSITION }.forEach { stage ->
-                    FilterChip(
-                        selected = uiState.appliedStages.contains(stage) || (stage == EditStage.ORIGINAL && uiState.appliedStages.isEmpty()),
-                        onClick = { onJumpToStage(stage) },
-                        label = { Text(stage.name.lowercase().replaceFirstChar { it.uppercase() }) },
-                    )
-                }
-            }
             Row(
                 modifier = Modifier.horizontalScroll(rememberScrollState()).padding(top = 4.dp, bottom = 4.dp),
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Icon(Icons.Default.History, contentDescription = null, modifier = Modifier.size(16.dp))
-                uiState.editHistory.takeLast(8).forEach { (index, label) ->
-                    Box(
-                        modifier = Modifier.pointerInput(index) {
-                            detectTapGestures(
-                                onTap = { onJumpToHistory(index) },
-                                onLongPress = { onCompareHistory(index) },
-                            )
-                        },
-                    ) {
-                        FilterChip(
-                            selected = false,
-                            onClick = { onJumpToHistory(index) },
-                            label = { Text(label, style = MaterialTheme.typography.labelSmall) },
-                        )
-                    }
+                uiState.editHistory.takeLast(10).forEach { (index, label) ->
+                    FilterChip(
+                        selected = uiState.selectedHistoryIndex == index,
+                        onClick = { onJumpToHistory(index) },
+                        label = { Text(label, style = MaterialTheme.typography.labelSmall) },
+                    )
                 }
-                Text("Long-press history to compare", style = MaterialTheme.typography.labelSmall)
             }
         }
     }
@@ -433,6 +419,9 @@ private fun ScannerToolPanel(
     onUpdateClean: ((CleanParams) -> CleanParams) -> Unit,
     onUpdateGray: ((GrayParams) -> GrayParams) -> Unit,
     onSelectFilterPreset: (String) -> Unit,
+    onToggleCleanAdjustment: (CleanAdjustmentKind, Int) -> Unit,
+    onSetExpandedCleanAdjustment: (CleanAdjustmentKind?) -> Unit,
+    onAddCustomFilter: () -> Unit,
     onSaveCustomFilter: (String) -> Unit,
     onRenameCustomFilter: (String) -> Unit,
 ) {
@@ -533,47 +522,13 @@ private fun ScannerToolPanel(
                 )
             }
             ScanTool.CLEAN, ScanTool.GRAY -> {
-                Text("Filters", style = MaterialTheme.typography.labelMedium)
-                FilterPresetChipGrid(
-                    presets = DocumentFilterPresets.builtIn,
-                    selectedId = uiState.selectedFilterPresetId,
-                    onSelect = onSelectFilterPreset,
+                CleanFiltersPanel(
+                    uiState = uiState,
+                    onTogglePreset = onSelectFilterPreset,
+                    onToggleAdjustment = onToggleCleanAdjustment,
+                    onSetExpandedAdjustment = onSetExpandedCleanAdjustment,
+                    onAddCustomFilter = onAddCustomFilter,
                 )
-                Text("Custom", style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(top = 8.dp))
-                Row(
-                    modifier = Modifier.horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    uiState.customFilters.forEach { slot ->
-                        FilterChip(
-                            selected = uiState.selectedFilterPresetId == slot.slotId,
-                            onClick = { onSelectFilterPreset(slot.slotId) },
-                            label = { Text(slot.displayName, style = MaterialTheme.typography.labelSmall) },
-                        )
-                    }
-                }
-                if (uiState.editingCustomFilter) {
-                    val activeSlot = uiState.customFilters.find { it.slotId == uiState.selectedFilterPresetId }
-                    if (activeSlot != null) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        ) {
-                            TextButton(onClick = { onSaveCustomFilter(activeSlot.slotId) }) {
-                                Text("Save ${activeSlot.displayName}")
-                            }
-                            TextButton(onClick = { onRenameCustomFilter(activeSlot.slotId) }) {
-                                Text("Rename")
-                            }
-                        }
-                    }
-                    CustomManualAdjustments(
-                        uiState = uiState,
-                        onUpdateTransition = onUpdateTransition,
-                        onUpdateClean = onUpdateClean,
-                        onUpdateGray = onUpdateGray,
-                    )
-                }
                 EditPreviewActions(
                     selected = uiState.previewCompareMode,
                     showBeforeAfter = true,
@@ -599,6 +554,103 @@ private fun ScannerToolPanel(
 @Composable
 private fun ToggleChip(label: String, selected: Boolean, onToggle: () -> Unit) {
     FilterChip(selected = selected, onClick = onToggle, label = { Text(label, style = MaterialTheme.typography.labelSmall) })
+}
+
+@Composable
+private fun CleanFiltersPanel(
+    uiState: ScannerUiState,
+    onTogglePreset: (String) -> Unit,
+    onToggleAdjustment: (CleanAdjustmentKind, Int) -> Unit,
+    onSetExpandedAdjustment: (CleanAdjustmentKind?) -> Unit,
+    onAddCustomFilter: () -> Unit,
+) {
+    val selected = uiState.draftFilterSelection
+    FilterPresetRow(
+        presetIds = DocumentFilterPresets.colorRowIds,
+        selectedIds = selected.presetIds,
+        onToggle = onTogglePreset,
+    )
+    FilterPresetRow(
+        presetIds = DocumentFilterPresets.documentRowIds,
+        selectedIds = selected.presetIds,
+        onToggle = onTogglePreset,
+    )
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState())
+            .padding(vertical = 4.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        uiState.customFilters.filter { it.hasSavedSettings }.forEach { slot ->
+            FilterChip(
+                selected = slot.slotId in selected.presetIds,
+                onClick = { onTogglePreset(slot.slotId) },
+                label = { Text(slot.displayName, style = MaterialTheme.typography.labelSmall) },
+            )
+        }
+        IconButton(onClick = onAddCustomFilter) {
+            Icon(Icons.Default.Add, contentDescription = "Save current filters")
+        }
+    }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState())
+            .padding(vertical = 4.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        DocumentFilterPresets.adjustmentKinds.forEach { kind ->
+            FilterChip(
+                selected = uiState.expandedCleanAdjustment == kind || kind in selected.adjustments,
+                onClick = {
+                    onSetExpandedAdjustment(if (uiState.expandedCleanAdjustment == kind) null else kind)
+                },
+                label = { Text(kind.label, style = MaterialTheme.typography.labelSmall) },
+            )
+        }
+    }
+    uiState.expandedCleanAdjustment?.let { kind ->
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState())
+                .padding(bottom = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            (0..9).forEach { level ->
+                FilterChip(
+                    selected = selected.adjustments[kind] == level,
+                    onClick = { onToggleAdjustment(kind, level) },
+                    label = { Text(level.toString(), style = MaterialTheme.typography.labelSmall) },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun FilterPresetRow(
+    presetIds: List<String>,
+    selectedIds: List<String>,
+    onToggle: (String) -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState())
+            .padding(vertical = 4.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        presetIds.forEach { id ->
+            val name = DocumentFilterPresets.presetName(id)
+            FilterChip(
+                selected = id in selectedIds,
+                onClick = { onToggle(id) },
+                label = { Text(name, style = MaterialTheme.typography.labelSmall) },
+            )
+        }
+    }
 }
 
 @Composable

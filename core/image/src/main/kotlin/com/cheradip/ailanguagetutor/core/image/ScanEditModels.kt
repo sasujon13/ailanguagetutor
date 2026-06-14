@@ -190,6 +190,7 @@ data class EditHistorySnapshot(
     val appliedTransition: TransitionParams? = null,
     val appliedClean: CleanParams? = null,
     val appliedGray: GrayParams? = null,
+    val appliedFilterSelection: CleanFilterSelection? = null,
 )
 
 data class EditHistoryEntry(
@@ -207,17 +208,21 @@ data class PageEditState(
     val appliedTransition: TransitionParams? = null,
     val appliedClean: CleanParams? = null,
     val appliedGray: GrayParams? = null,
+    val appliedFilterSelection: CleanFilterSelection? = null,
     val history: List<EditHistoryEntry> = emptyList(),
     val historyIndex: Int = -1,
     val draftCrop: CropParams = CropParams(),
     val draftTransition: TransitionParams = TransitionParams(),
     val draftClean: CleanParams = CleanParams(),
     val draftGray: GrayParams = GrayParams(),
+    val draftFilterSelection: CleanFilterSelection = CleanFilterSelection(),
 ) {
     fun appliedStages(): List<EditStage> = buildList {
         if (appliedCrop != null) add(EditStage.CROP)
         if (appliedTransition != null) add(EditStage.TRANSITION)
-        if (appliedClean != null) add(EditStage.CLEAN)
+        if (appliedClean != null || appliedFilterSelection?.let { it.presetIds.isNotEmpty() || it.adjustments.isNotEmpty() } == true) {
+            add(EditStage.CLEAN)
+        }
         if (appliedGray != null) add(EditStage.GRAY)
     }
 }

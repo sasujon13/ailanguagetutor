@@ -121,7 +121,30 @@ private fun snapshotFromJson(obj: JSONObject?) = obj?.let {
         appliedTransition = it.optJSONObject("appliedTransition")?.let { t -> transitionParamsFromJson(t) },
         appliedClean = it.optJSONObject("appliedClean")?.let { c -> cleanParamsFromJson(c) },
         appliedGray = it.optJSONObject("appliedGray")?.let { g -> grayParamsFromJson(g, defaultActive = true) },
+        appliedFilterSelection = it.optJSONObject("appliedFilterSelection")?.let { f -> filterSelectionFromJson(f) },
     )
+}
+
+private fun filterSelectionFromJson(obj: JSONObject): CleanFilterSelection {
+    val presets = obj.optJSONArray("presetIds")?.let { arr ->
+        (0 until arr.length()).mapNotNull { i -> arr.optString(i).takeIf { it.isNotBlank() } }
+    }.orEmpty()
+    val adjustments = mutableMapOf<CleanAdjustmentKind, Int>()
+    obj.optJSONObject("adjustments")?.let { adj ->
+        CleanAdjustmentKind.entries.forEach { kind ->
+            if (adj.has(kind.name)) {
+                adjustments[kind] = adj.getInt(kind.name)
+            }
+        }
+    }
+    return CleanFilterSelection(presetIds = presets, adjustments = adjustments)
+}
+
+private fun CleanFilterSelection.toJson(): JSONObject = JSONObject().apply {
+    put("presetIds", JSONArray().apply { presetIds.forEach { put(it) } })
+    put("adjustments", JSONObject().apply {
+        adjustments.forEach { (kind, level) -> put(kind.name, level) }
+    })
 }
 
 private fun EditHistorySnapshot.toJson(): JSONObject = JSONObject().apply {
@@ -129,6 +152,7 @@ private fun EditHistorySnapshot.toJson(): JSONObject = JSONObject().apply {
     appliedTransition?.let { put("appliedTransition", it.toJson()) }
     appliedClean?.let { put("appliedClean", it.toJson()) }
     appliedGray?.let { put("appliedGray", it.toJson()) }
+    appliedFilterSelection?.let { put("appliedFilterSelection", it.toJson()) }
 }
 
 private fun editHistoryFromJson(obj: JSONObject) = EditHistoryEntry(
@@ -150,6 +174,7 @@ fun PageEditState.toJson(): String = JSONObject().apply {
     appliedTransition?.let { put("appliedTransition", it.toJson()) }
     appliedClean?.let { put("appliedClean", it.toJson()) }
     appliedGray?.let { put("appliedGray", it.toJson()) }
+    appliedFilterSelection?.let { put("appliedFilterSelection", it.toJson()) }
     put("historyIndex", historyIndex)
     put("history", JSONArray().apply { history.forEach { put(it.toJson()) } })
 }.toString()
@@ -168,6 +193,7 @@ fun parsePageEditStateJson(pageId: Long, json: String?, originalPath: String, wo
             appliedTransition = obj.optJSONObject("appliedTransition")?.let { transitionParamsFromJson(it) },
             appliedClean = obj.optJSONObject("appliedClean")?.let { cleanParamsFromJson(it) },
             appliedGray = obj.optJSONObject("appliedGray")?.let { grayParamsFromJson(it, defaultActive = true) },
+            appliedFilterSelection = obj.optJSONObject("appliedFilterSelection")?.let { filterSelectionFromJson(it) },
             historyIndex = obj.optInt("historyIndex", -1),
             history = obj.optJSONArray("history")?.let { arr ->
                 (0 until arr.length()).mapNotNull { i ->

@@ -42,8 +42,6 @@ import com.cheradip.ailanguagetutor.ui.components.SubscriptionPlanPrice
 @Composable
 fun PaywallScreen(
     referralRepository: ReferralRepository,
-    userEmail: String?,
-    userWhatsapp: String?,
     isLoggedIn: Boolean,
     onRequireLogin: () -> Unit,
     onSubscribed: () -> Unit,
@@ -183,15 +181,6 @@ fun PaywallScreen(
             }
         }
 
-        OutlinedTextField(
-            value = referralRepository.shareText(userEmail, userWhatsapp),
-            onValueChange = {},
-            readOnly = true,
-            label = { Text("Your referral share text") },
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = 12.dp),
-        )
         Text(
             text = policy.noticeText,
             style = MaterialTheme.typography.bodySmall,

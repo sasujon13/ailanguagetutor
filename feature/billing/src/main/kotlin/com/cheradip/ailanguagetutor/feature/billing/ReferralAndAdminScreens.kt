@@ -1,5 +1,6 @@
 package com.cheradip.ailanguagetutor.feature.billing
 
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -17,6 +18,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -25,6 +27,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.cheradip.ailanguagetutor.core.auth.AuthUser
@@ -46,7 +49,6 @@ fun ReferralScreen(
     referralRepository: ReferralRepository,
     currentUser: AuthUser?,
     userEmail: String?,
-    userWhatsapp: String?,
     onNavigateLogin: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
@@ -64,7 +66,15 @@ fun ReferralScreen(
     val defaultShareMessage = remember(userEmail) {
         referralRepository.defaultShareMessage(userEmail)
     }
-    var shareDraft by remember(userEmail) { mutableStateOf(defaultShareMessage) }
+    var shareDraft by remember { mutableStateOf(defaultShareMessage) }
+    LaunchedEffect(defaultShareMessage) {
+        if (shareDraft.isBlank() ||
+            shareDraft.contains("[your email here]", ignoreCase = true) ||
+            shareDraft == referralRepository.defaultShareMessage(null)
+        ) {
+            shareDraft = defaultShareMessage
+        }
+    }
 
     CheradipScrollScreen(
         modifier = modifier,
@@ -209,27 +219,30 @@ fun ReferralScreen(
             HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
         }
         item {
-            Text(
-                "Share with friends",
-                style = MaterialTheme.typography.titleMedium,
-                modifier = Modifier.padding(bottom = 8.dp),
-            )
-        }
-        item {
-            OutlinedTextField(
-                value = shareDraft,
-                onValueChange = { shareDraft = it },
-                modifier = Modifier.fillMaxWidth(),
-                minLines = 6,
-                maxLines = 12,
-                placeholder = { Text(defaultShareMessage) },
-            )
+            Column(modifier = Modifier.fillMaxWidth()) {
+                OutlinedTextField(
+                    value = shareDraft,
+                    onValueChange = { shareDraft = it },
+                    label = { Text("Your Referral Share Text") },
+                    modifier = Modifier.fillMaxWidth(),
+                    minLines = 6,
+                    maxLines = 12,
+                )
+                if (!isLoggedIn) {
+                    Text(
+                        "Sign in to replace [your email here] with your referral email.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 6.dp),
+                    )
+                }
+            }
         }
         item {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(top = 16.dp, bottom = 8.dp),
+                    .padding(top = 20.dp, bottom = 8.dp),
                 contentAlignment = Alignment.Center,
             ) {
                 FilledIconButton(
@@ -240,12 +253,12 @@ fun ReferralScreen(
                             chooserTitle = "Share referral message",
                         )
                     },
-                    modifier = Modifier.size(72.dp),
+                    modifier = Modifier.size(80.dp),
                 ) {
                     Icon(
                         imageVector = Icons.Default.Share,
                         contentDescription = "Share referral message",
-                        modifier = Modifier.size(36.dp),
+                        modifier = Modifier.size(40.dp),
                     )
                 }
             }
@@ -255,7 +268,10 @@ fun ReferralScreen(
                 "Tap to share via Facebook, Messenger, WhatsApp, SMS, LinkedIn, X, email, and other apps.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(bottom = 16.dp),
+                textAlign = TextAlign.Center,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 16.dp),
             )
         }
     }

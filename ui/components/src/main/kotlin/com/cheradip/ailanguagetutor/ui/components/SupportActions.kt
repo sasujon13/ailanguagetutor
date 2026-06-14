@@ -15,11 +15,17 @@ object SupportActions {
     }
 
     /** Opens the system share sheet (Messages, Facebook, Messenger, LinkedIn, X, etc.). */
-    fun sharePlainText(context: Context, text: String, chooserTitle: String = "Share via") {
+    fun sharePlainText(
+        context: Context,
+        text: String,
+        chooserTitle: String = "Share via",
+        subject: String = "Cheradip AI Language Tutor",
+    ) {
         if (text.isBlank()) return
         val intent = Intent(Intent.ACTION_SEND).apply {
             type = "text/plain"
             putExtra(Intent.EXTRA_TEXT, text)
+            putExtra(Intent.EXTRA_SUBJECT, subject)
         }
         context.startActivity(Intent.createChooser(intent, chooserTitle))
     }

@@ -120,15 +120,13 @@ class ReferralRepository @Inject constructor(
         }
     }
 
-    fun defaultShareMessage(email: String?, buyerBonusPercent: Int = 30): String {
+    fun defaultShareMessage(email: String?, buyerBonusPercent: Int = 20): String {
         val emailRef = email?.takeIf { it.isNotBlank() } ?: "[your email here]"
         return "Dear friends, I'm using Cheradip's AI Language Tutor to learn and practice languages, " +
             "and I highly recommend it. Subscribe using my email, $emailRef, to get an extra " +
             "$buyerBonusPercent% bonus. After signing up, you can also share your email to refer " +
             "your friends and earn rewards."
     }
-
-    fun shareText(email: String?, whatsapp: String?): String = defaultShareMessage(email)
 }
 
 @Singleton

@@ -609,8 +609,6 @@ fun AppNavHost(
             composable(Routes.PAYWALL) {
                 PaywallScreen(
                     referralRepository = referralRepository,
-                    userEmail = currentUser?.email,
-                    userWhatsapp = currentUser?.whatsapp,
                     isLoggedIn = currentUser != null,
                     onRequireLogin = {
                         navController.navigate(Routes.login("paywall"))
@@ -627,7 +625,6 @@ fun AppNavHost(
                     referralRepository = referralRepository,
                     currentUser = currentUser,
                     userEmail = currentUser?.email,
-                    userWhatsapp = currentUser?.whatsapp,
                     onNavigateLogin = { navController.navigate(Routes.login()) },
                 )
             }

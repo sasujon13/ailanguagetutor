@@ -30,12 +30,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
+import androidx.compose.runtime.remember
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.cheradip.ailanguagetutor.core.billing.BillingPeriod
 import com.cheradip.ailanguagetutor.core.billing.ReferralRepository
 import com.cheradip.ailanguagetutor.ui.components.CheradipTopBar
+import com.cheradip.ailanguagetutor.ui.components.SubscriptionPlanPrice
 
 @Composable
 fun PaywallScreen(
@@ -105,30 +107,25 @@ fun PaywallScreen(
             )
         }
 
-        val period = uiState.billingPeriod
+        val proPrice = remember(uiState.billingPeriod, uiState.slot1Result, uiState.slot2Result) {
+            viewModel.priceDisplay(PaywallPlan.PRO, uiState)
+        }
+        val plusPrice = remember(uiState.billingPeriod, uiState.slot1Result, uiState.slot2Result) {
+            viewModel.priceDisplay(PaywallPlan.PLUS, uiState)
+        }
         PlanOption(
             title = "Pro",
             subtitle = "Modes 1–4 · Home AI · Cloud fallback",
-            playPrice = viewModel.displayPrice(PaywallPlan.PRO, period),
-            fallbackActual = if (period == BillingPeriod.MONTHLY) "$2.00/mo" else "$20.00/yr",
-            effectivePrice = if (period == BillingPeriod.MONTHLY) {
-                "$${viewModel.effectiveMonthlyPrice(PaywallPlan.PRO)}/mo"
-            } else {
-                "$${viewModel.effectiveYearlyPrice(PaywallPlan.PRO)}/yr"
-            },
+            payablePrice = proPrice.payable,
+            compareAtPrice = proPrice.compareAt,
             selected = uiState.selectedPlan == PaywallPlan.PRO,
             onSelect = { viewModel.selectPlan(PaywallPlan.PRO) },
         )
         PlanOption(
             title = "Plus",
             subtitle = "All modes including Mode 5 · Priority features",
-            playPrice = viewModel.displayPrice(PaywallPlan.PLUS, period),
-            fallbackActual = if (period == BillingPeriod.MONTHLY) "$5.00/mo" else "$50.00/yr",
-            effectivePrice = if (period == BillingPeriod.MONTHLY) {
-                "$${viewModel.effectiveMonthlyPrice(PaywallPlan.PLUS)}/mo"
-            } else {
-                "$${viewModel.effectiveYearlyPrice(PaywallPlan.PLUS)}/yr"
-            },
+            payablePrice = plusPrice.payable,
+            compareAtPrice = plusPrice.compareAt,
             selected = uiState.selectedPlan == PaywallPlan.PLUS,
             onSelect = { viewModel.selectPlan(PaywallPlan.PLUS) },
         )
@@ -247,14 +244,11 @@ private tailrec fun Context.findActivity(): Activity? = when (this) {
 private fun PlanOption(
     title: String,
     subtitle: String,
-    playPrice: String?,
-    fallbackActual: String,
-    effectivePrice: String,
+    payablePrice: String,
+    compareAtPrice: String?,
     selected: Boolean,
     onSelect: () -> Unit,
 ) {
-    val priceLine = playPrice?.let { "$it (Play Store)" }
-        ?: "$effectivePrice (est. · was $fallbackActual)"
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -269,14 +263,11 @@ private fun PlanOption(
             Column(modifier = Modifier.padding(start = 8.dp)) {
                 Text(title, style = MaterialTheme.typography.titleMedium)
                 Text(subtitle, style = MaterialTheme.typography.bodySmall)
-                Text(priceLine, style = MaterialTheme.typography.bodyMedium)
-                if (playPrice != null) {
-                    Text(
-                        "After promos: $effectivePrice",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.primary,
-                    )
-                }
+                SubscriptionPlanPrice(
+                    payablePrice = payablePrice,
+                    compareAtPrice = compareAtPrice,
+                    modifier = Modifier.padding(top = 4.dp),
+                )
             }
         }
     }

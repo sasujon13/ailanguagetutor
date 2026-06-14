@@ -11,6 +11,9 @@ import com.cheradip.ailanguagetutor.core.billing.PlayProductIds
 import com.cheradip.ailanguagetutor.core.billing.PromoCodes
 import com.cheradip.ailanguagetutor.core.billing.PromoRepository
 import com.cheradip.ailanguagetutor.core.billing.PromoValidation
+import com.cheradip.ailanguagetutor.core.billing.SubscriptionPlan
+import com.cheradip.ailanguagetutor.core.billing.SubscriptionPriceDisplay
+import com.cheradip.ailanguagetutor.core.billing.SubscriptionPricing
 import com.cheradip.ailanguagetutor.core.billing.PurchaseCancelledException
 import com.cheradip.ailanguagetutor.core.model.SubscriptionTier
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -23,6 +26,11 @@ import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 enum class PaywallPlan { PRO, PLUS }
+
+fun PaywallPlan.toSubscriptionPlan(): SubscriptionPlan = when (this) {
+    PaywallPlan.PRO -> SubscriptionPlan.PRO
+    PaywallPlan.PLUS -> SubscriptionPlan.PLUS
+}
 
 data class PaywallUiState(
     val config: PaywallConfig? = null,
@@ -93,6 +101,10 @@ class PaywallViewModel @Inject constructor(
 
     fun selectBillingPeriod(period: BillingPeriod) {
         _uiState.update { it.copy(billingPeriod = period, purchaseError = null) }
+        val autoCode = _uiState.value.config?.let { PromoCodes.resolveAutoApplyCode(it.slot1) }.orEmpty()
+        if (autoCode.isNotBlank()) applySlot1(autoCode)
+        val slot2 = _uiState.value.slot2Code.trim()
+        if (slot2.isNotBlank()) applySlot2Internal(slot2)
     }
 
     fun updateSlot2(code: String) {
@@ -174,22 +186,17 @@ class PaywallViewModel @Inject constructor(
         return _uiState.value.storePrices[productId]
     }
 
-    fun effectiveMonthlyPrice(plan: PaywallPlan): String =
-        "%.2f".format(discountedPrice(basePriceForPlan(plan, BillingPeriod.MONTHLY)))
+    fun priceDisplay(plan: PaywallPlan, state: PaywallUiState = _uiState.value): SubscriptionPriceDisplay =
+        SubscriptionPricing.display(
+            plan = plan.toSubscriptionPlan(),
+            period = state.billingPeriod,
+            discountPercents = activeDiscountPercents(state),
+        )
 
-    fun effectiveYearlyPrice(plan: PaywallPlan): String =
-        "%.2f".format(discountedPrice(basePriceForPlan(plan, BillingPeriod.YEARLY)))
-
-    private fun discountedPrice(base: Double): Double {
-        var price = base
-        listOfNotNull(
-            _uiState.value.slot1Result?.discountPercent,
-            _uiState.value.slot2Result?.discountPercent,
-        ).forEach { pct ->
-            if (pct > 0) price *= (100 - pct) / 100.0
-        }
-        return price
-    }
+    private fun activeDiscountPercents(state: PaywallUiState): List<Int> = listOfNotNull(
+        state.slot1Result?.discountPercent,
+        state.slot2Result?.discountPercent,
+    )
 
     private fun applySlot1(code: String) {
         val base = basePriceForPlan(_uiState.value.selectedPlan, _uiState.value.billingPeriod)
@@ -201,8 +208,6 @@ class PaywallViewModel @Inject constructor(
         }
     }
 
-    private fun basePriceForPlan(plan: PaywallPlan, period: BillingPeriod) = when (plan) {
-        PaywallPlan.PRO -> if (period == BillingPeriod.YEARLY) 20.0 else 2.0
-        PaywallPlan.PLUS -> if (period == BillingPeriod.YEARLY) 50.0 else 5.0
-    }
+    private fun basePriceForPlan(plan: PaywallPlan, period: BillingPeriod) =
+        SubscriptionPricing.basePrice(plan.toSubscriptionPlan(), period)
 }

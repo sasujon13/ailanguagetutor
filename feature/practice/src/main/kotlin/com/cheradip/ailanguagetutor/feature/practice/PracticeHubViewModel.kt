@@ -931,7 +931,7 @@ class PracticeHubViewModel @Inject constructor(
     }
 
     companion object {
-        const val AI_INTERNET_REQUIRED = "You must be connected to Internet to process with AI."
+        const val AI_INTERNET_REQUIRED = "Check Internet Connection"
         const val AI_PROCESS_FAILED = "Could not process with AI. Try again."
         const val TRANSLATION_LANG_MISMATCH =
             "Translation mode requires different input and output languages. Change languages in AI Mode settings."

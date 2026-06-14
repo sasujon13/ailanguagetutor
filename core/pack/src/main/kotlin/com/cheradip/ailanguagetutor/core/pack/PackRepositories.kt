@@ -8,6 +8,7 @@ import com.cheradip.ailanguagetutor.core.model.LanguageCatalogEntry
 import com.cheradip.ailanguagetutor.core.model.WordDefinition
 import com.cheradip.ailanguagetutor.core.model.WorldLanguageCatalog
 import com.cheradip.ailanguagetutor.core.network.AiltLanguageService
+import com.cheradip.ailanguagetutor.core.network.NetworkErrorFormatter
 import com.squareup.moshi.JsonClass
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
@@ -229,6 +230,7 @@ class LanguagePackRepository @Inject constructor(
     private val packConnector: PackDatabaseConnector,
     private val okHttpClient: OkHttpClient,
     private val appConfig: AppConfig,
+    private val networkErrors: NetworkErrorFormatter,
 ) {
     companion object {
         const val MAX_ACTIVE_PACKS = 3
@@ -298,6 +300,8 @@ class LanguagePackRepository @Inject constructor(
             }
             packConnector.loadPack(languageCode)
             Unit
+        }.recoverCatching { error ->
+            throw IllegalStateException(networkErrors.present(error, "Download failed"))
         }
     }
 

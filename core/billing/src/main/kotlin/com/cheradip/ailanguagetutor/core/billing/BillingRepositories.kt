@@ -8,6 +8,8 @@ import com.cheradip.ailanguagetutor.core.network.AiltBillingService
 import com.cheradip.ailanguagetutor.core.network.AiltPromoService
 import com.cheradip.ailanguagetutor.core.network.AiltReferralService
 import com.cheradip.ailanguagetutor.core.network.BillingVerifyRequest
+import com.cheradip.ailanguagetutor.core.network.CHECK_INTERNET_CONNECTION
+import com.cheradip.ailanguagetutor.core.network.NetworkErrorFormatter
 import com.cheradip.ailanguagetutor.core.network.PromoValidateRequest
 import com.cheradip.ailanguagetutor.core.network.ReferralWithdrawRequest
 import com.android.billingclient.api.Purchase
@@ -55,6 +57,7 @@ data class PaywallConfig(
 @Singleton
 class ReferralRepository @Inject constructor(
     private val referralService: AiltReferralService,
+    private val networkErrors: NetworkErrorFormatter,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val _policy = MutableStateFlow(
@@ -92,17 +95,24 @@ class ReferralRepository @Inject constructor(
         }
     }
 
-    suspend fun withdraw(method: String, payoutDetails: String): Result<String> = runCatching {
-        val resp = referralService.withdraw(
-            ReferralWithdrawRequest(method = method, payoutDetails = payoutDetails),
-        )
-        _balance.value = ReferralBalance(
-            resp.balanceUsd,
-            _balance.value.lifetimeEarnedUsd,
-            _policy.value.minWithdrawalUsd,
-            resp.balanceUsd >= _policy.value.minWithdrawalUsd,
-        )
-        resp.message
+    suspend fun withdraw(method: String, payoutDetails: String): Result<String> {
+        if (!networkErrors.isOnline()) {
+            return Result.failure(IllegalStateException(CHECK_INTERNET_CONNECTION))
+        }
+        return runCatching {
+            val resp = referralService.withdraw(
+                ReferralWithdrawRequest(method = method, payoutDetails = payoutDetails),
+            )
+            _balance.value = ReferralBalance(
+                resp.balanceUsd,
+                _balance.value.lifetimeEarnedUsd,
+                _policy.value.minWithdrawalUsd,
+                resp.balanceUsd >= _policy.value.minWithdrawalUsd,
+            )
+            resp.message
+        }.recoverCatching { error ->
+            throw IllegalStateException(networkErrors.present(error, "Withdrawal failed"))
+        }
     }
 
     fun defaultShareMessage(email: String?, buyerBonusPercent: Int = 30): String {
@@ -119,6 +129,7 @@ class ReferralRepository @Inject constructor(
 @Singleton
 class PromoRepository @Inject constructor(
     private val promoService: AiltPromoService,
+    private val networkErrors: NetworkErrorFormatter,
 ) {
     suspend fun fetchPaywallConfig(productId: String? = null): PaywallConfig =
         runCatching { promoService.paywallConfig(productId) }.map { resp ->
@@ -144,12 +155,18 @@ class PromoRepository @Inject constructor(
             PaywallConfig(showPromoSection = false)
         }
 
-    suspend fun validate(code: String, basePrice: Double = 1.0, slot1Code: String? = null): Result<PromoValidation> =
-        runCatching {
+    suspend fun validate(code: String, basePrice: Double = 1.0, slot1Code: String? = null): Result<PromoValidation> {
+        if (!networkErrors.isOnline()) {
+            return Result.failure(IllegalStateException(CHECK_INTERNET_CONNECTION))
+        }
+        return runCatching {
             promoService.validate(PromoValidateRequest(code, basePrice, slot1Code))
         }.map { resp ->
             PromoValidation(resp.code, resp.discountPercent, resp.discountedPrice)
+        }.recoverCatching { error ->
+            throw IllegalStateException(networkErrors.present(error, "Promo code could not be validated"))
         }
+    }
 }
 
 enum class AccessState { TRIAL_ACTIVE, TRIAL_EXPIRED, SUBSCRIBED, PRO_ACTIVE, PLUS_ACTIVE }
@@ -159,6 +176,7 @@ class BillingRepository @Inject constructor(
     private val trialRepository: TrialRepository,
     private val playBillingManager: PlayBillingManager,
     private val billingService: AiltBillingService,
+    private val networkErrors: NetworkErrorFormatter,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val _accessState = MutableStateFlow(AccessState.TRIAL_ACTIVE)
@@ -202,6 +220,10 @@ class BillingRepository @Inject constructor(
         val productId = PlayProductIds.productId(tier, period)
         return playBillingManager.launchSubscription(activity, productId)
             .mapCatching { purchase -> verifyAndApply(purchase, slot1Code, slot2Code) }
+            .recoverCatching { error ->
+                if (error is PurchaseCancelledException) throw error
+                throw IllegalStateException(networkErrors.present(error, "Purchase failed"))
+            }
     }
 
     suspend fun restorePurchases() {
@@ -215,6 +237,9 @@ class BillingRepository @Inject constructor(
         slot1Code: String? = null,
         slot2Code: String? = null,
     ) {
+        if (!networkErrors.isOnline()) {
+            error(CHECK_INTERNET_CONNECTION)
+        }
         val productId = purchase.products.firstOrNull()
             ?: error("Purchase missing product id")
         val response = billingService.verifyPurchase(
@@ -282,6 +307,7 @@ class CheckAppAccessUseCase @Inject constructor(
 @Singleton
 class AdminPromoRepository @Inject constructor(
     private val adminService: AiltAdminService,
+    private val networkErrors: NetworkErrorFormatter,
 ) {
     data class PromoRow(
         val code: String,
@@ -291,15 +317,22 @@ class AdminPromoRepository @Inject constructor(
         val paywallSlot: Int = 2,
     )
 
-    suspend fun listCodes(): Result<List<PromoRow>> = runCatching {
-        adminService.listPromoCodes().codes.map {
-            PromoRow(
-                code = it.code,
-                discountPercent = it.discountPercent,
-                active = it.active,
-                autoApply = it.autoApply,
-                paywallSlot = it.paywallSlot,
-            )
+    suspend fun listCodes(): Result<List<PromoRow>> {
+        if (!networkErrors.isOnline()) {
+            return Result.failure(IllegalStateException(CHECK_INTERNET_CONNECTION))
+        }
+        return runCatching {
+            adminService.listPromoCodes().codes.map {
+                PromoRow(
+                    code = it.code,
+                    discountPercent = it.discountPercent,
+                    active = it.active,
+                    autoApply = it.autoApply,
+                    paywallSlot = it.paywallSlot,
+                )
+            }
+        }.recoverCatching { error ->
+            throw IllegalStateException(networkErrors.present(error, "Could not load promo codes from server"))
         }
     }
 
@@ -309,16 +342,24 @@ class AdminPromoRepository @Inject constructor(
         active: Boolean = true,
         autoApply: Boolean = false,
         paywallSlot: Int = 2,
-    ) = runCatching {
-        adminService.createPromoCode(
-            com.cheradip.ailanguagetutor.core.network.AdminPromoCodeDto(
-                code = code,
-                discountPercent = discountPercent,
-                active = active,
-                autoApply = autoApply,
-                paywallSlot = paywallSlot,
-            ),
-        )
+    ): Result<Unit> {
+        if (!networkErrors.isOnline()) {
+            return Result.failure(IllegalStateException(CHECK_INTERNET_CONNECTION))
+        }
+        return runCatching {
+            adminService.createPromoCode(
+                com.cheradip.ailanguagetutor.core.network.AdminPromoCodeDto(
+                    code = code,
+                    discountPercent = discountPercent,
+                    active = active,
+                    autoApply = autoApply,
+                    paywallSlot = paywallSlot,
+                ),
+            )
+            Unit
+        }.recoverCatching { error ->
+            throw IllegalStateException(networkErrors.present(error, "Could not save promo code"))
+        }
     }
 
     suspend fun updateCode(
@@ -327,16 +368,24 @@ class AdminPromoRepository @Inject constructor(
         active: Boolean,
         autoApply: Boolean,
         paywallSlot: Int,
-    ) = runCatching {
-        adminService.patchPromoCode(
-            code,
-            com.cheradip.ailanguagetutor.core.network.AdminPromoPatchDto(
-                discountPercent = discountPercent,
-                active = active,
-                autoApply = autoApply,
-                paywallSlot = paywallSlot,
-            ),
-        )
+    ): Result<Unit> {
+        if (!networkErrors.isOnline()) {
+            return Result.failure(IllegalStateException(CHECK_INTERNET_CONNECTION))
+        }
+        return runCatching {
+            adminService.patchPromoCode(
+                code,
+                com.cheradip.ailanguagetutor.core.network.AdminPromoPatchDto(
+                    discountPercent = discountPercent,
+                    active = active,
+                    autoApply = autoApply,
+                    paywallSlot = paywallSlot,
+                ),
+            )
+            Unit
+        }.recoverCatching { error ->
+            throw IllegalStateException(networkErrors.present(error, "Could not update promo code"))
+        }
     }
 }
 
@@ -377,41 +426,49 @@ data class AdminReportsCloudProviderRow(
 @Singleton
 class AdminReportsRepository @Inject constructor(
     private val adminService: AiltAdminService,
+    private val networkErrors: NetworkErrorFormatter,
 ) {
-    suspend fun fetchReports(): Result<AdminReportsSnapshot> = runCatching {
-        val resp = adminService.reports()
-        AdminReportsSnapshot(
-            generatedAtMs = resp.generatedAtMs,
-            totalUsers = resp.users.total,
-            regularUsers = resp.users.regular,
-            adminUsers = resp.users.admins,
-            emailVerifiedUsers = resp.users.emailVerified,
-            newUsers7Days = resp.users.newLast7Days,
-            newUsers30Days = resp.users.newLast30Days,
-            activePro = resp.subscriptions.activePro,
-            activePlus = resp.subscriptions.activePlus,
-            activeSubscriptions = resp.subscriptions.activeTotal,
-            learningActivities = resp.engagement.learningActivities,
-            deviceTrials = resp.engagement.deviceTrials,
-            guestAiUsesTotal = resp.engagement.guestAiUsesTotal,
-            pendingWithdrawals = resp.referrals.pendingWithdrawals,
-            referralBalanceUsd = resp.referrals.totalBalanceUsd,
-            promoCodesTotal = resp.promoCodes.total,
-            promoCodesActive = resp.promoCodes.active,
-            cloudAiRequestsToday = resp.cloudAi.totalRequestsToday,
-            cloudAiRoutingMode = resp.cloudAi.routingMode,
-            cloudAiProviders = resp.cloudAi.providers.map {
-                AdminReportsCloudProviderRow(
-                    id = it.id,
-                    displayName = it.displayName,
-                    tier = it.tier,
-                    health = it.health,
-                    enabled = it.enabled,
-                    requestsToday = it.requestsToday,
-                    quotaDailyLimit = it.quotaDailyLimit,
-                    quotaUsedPercent = it.quotaUsedPercent,
-                )
-            },
-        )
+    suspend fun fetchReports(): Result<AdminReportsSnapshot> {
+        if (!networkErrors.isOnline()) {
+            return Result.failure(IllegalStateException(CHECK_INTERNET_CONNECTION))
+        }
+        return runCatching {
+            val resp = adminService.reports()
+            AdminReportsSnapshot(
+                generatedAtMs = resp.generatedAtMs,
+                totalUsers = resp.users.total,
+                regularUsers = resp.users.regular,
+                adminUsers = resp.users.admins,
+                emailVerifiedUsers = resp.users.emailVerified,
+                newUsers7Days = resp.users.newLast7Days,
+                newUsers30Days = resp.users.newLast30Days,
+                activePro = resp.subscriptions.activePro,
+                activePlus = resp.subscriptions.activePlus,
+                activeSubscriptions = resp.subscriptions.activeTotal,
+                learningActivities = resp.engagement.learningActivities,
+                deviceTrials = resp.engagement.deviceTrials,
+                guestAiUsesTotal = resp.engagement.guestAiUsesTotal,
+                pendingWithdrawals = resp.referrals.pendingWithdrawals,
+                referralBalanceUsd = resp.referrals.totalBalanceUsd,
+                promoCodesTotal = resp.promoCodes.total,
+                promoCodesActive = resp.promoCodes.active,
+                cloudAiRequestsToday = resp.cloudAi.totalRequestsToday,
+                cloudAiRoutingMode = resp.cloudAi.routingMode,
+                cloudAiProviders = resp.cloudAi.providers.map {
+                    AdminReportsCloudProviderRow(
+                        id = it.id,
+                        displayName = it.displayName,
+                        tier = it.tier,
+                        health = it.health,
+                        enabled = it.enabled,
+                        requestsToday = it.requestsToday,
+                        quotaDailyLimit = it.quotaDailyLimit,
+                        quotaUsedPercent = it.quotaUsedPercent,
+                    )
+                },
+            )
+        }.recoverCatching { error ->
+            throw IllegalStateException(networkErrors.present(error, "Could not load reports"))
+        }
     }
 }

@@ -8,6 +8,8 @@ import com.cheradip.ailanguagetutor.core.model.GrammarBookChapter
 import com.cheradip.ailanguagetutor.core.model.GrammarBookSection
 import com.cheradip.ailanguagetutor.core.model.GrammarSectionEnrichment
 import com.cheradip.ailanguagetutor.core.model.InputSource
+import com.cheradip.ailanguagetutor.core.network.CHECK_INTERNET_CONNECTION
+import com.cheradip.ailanguagetutor.core.network.NetworkErrorFormatter
 import com.cheradip.ailanguagetutor.core.network.HomeAiGrammarBookChapterDto
 import com.cheradip.ailanguagetutor.core.network.HomeAiGrammarBookEnrichResponse
 import com.cheradip.ailanguagetutor.core.network.HomeAiGrammarBookResponse
@@ -24,6 +26,7 @@ class GrammarBookRepository @Inject constructor(
     private val aiModePrefs: AiModePreferenceRepository,
     private val checkAppAccess: CheckAppAccessUseCase,
     private val aiCacheDao: AiCacheDao,
+    private val networkErrors: NetworkErrorFormatter,
     moshi: Moshi,
 ) {
     private val adapter = moshi.adapter(HomeAiGrammarBookResponse::class.java)
@@ -49,6 +52,11 @@ class GrammarBookRepository @Inject constructor(
         )
 
         if (homeAiService.isReachable()) {
+            if (!networkErrors.isOnline()) {
+                return@withContext Result.failure(
+                    IllegalStateException(CHECK_INTERNET_CONNECTION),
+                )
+            }
             runCatching {
                 homeAiService.fetchGrammarBook(
                     languageCode = code,
@@ -62,8 +70,9 @@ class GrammarBookRepository @Inject constructor(
                 return@withContext Result.success(book.copy(cached = response.cached))
             }.onFailure { err ->
                 return@withContext Result.failure(
-                    err.takeIf { it.message?.isNotBlank() == true }
-                        ?: Exception("Could not load grammar book. Check Home AI and try refresh."),
+                    IllegalStateException(
+                        networkErrors.present(err, "Could not load grammar book. Check Home AI and try refresh."),
+                    ),
                 )
             }
         }
@@ -91,6 +100,12 @@ class GrammarBookRepository @Inject constructor(
             )
         }
 
+        if (!networkErrors.isOnline()) {
+            return@withContext Result.failure(
+                IllegalStateException(CHECK_INTERNET_CONNECTION),
+            )
+        }
+
         runCatching {
             homeAiService.enrichGrammarBookSection(
                 languageCode = code,
@@ -112,6 +127,10 @@ class GrammarBookRepository @Inject constructor(
             )
             persistEnrichment(cacheKey, response)
             enrichment
+        }.recoverCatching { error ->
+            throw IllegalStateException(
+                networkErrors.present(error, "Could not expand this section. Try again."),
+            )
         }
     }
 

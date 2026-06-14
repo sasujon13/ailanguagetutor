@@ -5,6 +5,8 @@ import com.cheradip.ailanguagetutor.core.network.AiProvidersStatusResponse
 import com.cheradip.ailanguagetutor.core.network.AiRoutingPolicyDto
 import com.cheradip.ailanguagetutor.core.network.AiRoutingPolicyUpdateRequest
 import com.cheradip.ailanguagetutor.core.network.AiltAdminService
+import com.cheradip.ailanguagetutor.core.network.CHECK_INTERNET_CONNECTION
+import com.cheradip.ailanguagetutor.core.network.NetworkErrorFormatter
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -65,6 +67,7 @@ data class AiProvidersDashboard(
 @Singleton
 class AiProviderRepository @Inject constructor(
     private val adminService: AiltAdminService,
+    private val networkErrors: NetworkErrorFormatter,
 ) {
     private val _lastProviderUsed = MutableStateFlow<String?>(null)
     val lastProviderUsed: StateFlow<String?> = _lastProviderUsed.asStateFlow()
@@ -88,10 +91,19 @@ class AiProviderRepository @Inject constructor(
                 mode
             }
 
-    suspend fun toggleProvider(providerId: String, enabled: Boolean): Result<Unit> =
-        runCatching {
-            adminService.toggleAiProvider(providerId, com.cheradip.ailanguagetutor.core.network.AiProviderToggleRequest(enabled))
-        }.map { }
+    suspend fun toggleProvider(providerId: String, enabled: Boolean): Result<Unit> {
+        if (!networkErrors.isOnline()) {
+            return Result.failure(IllegalStateException(CHECK_INTERNET_CONNECTION))
+        }
+        return runCatching {
+            adminService.toggleAiProvider(
+                providerId,
+                com.cheradip.ailanguagetutor.core.network.AiProviderToggleRequest(enabled),
+            )
+        }.map { }.recoverCatching { error ->
+            throw IllegalStateException(networkErrors.present(error, "Could not update provider"))
+        }
+    }
 
     fun recordProviderUsed(providerId: String?) {
         if (!providerId.isNullOrBlank()) _lastProviderUsed.value = providerId

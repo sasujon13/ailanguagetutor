@@ -11,14 +11,15 @@ import com.cheradip.ailanguagetutor.core.common.DeviceIdProvider
 import com.cheradip.ailanguagetutor.core.common.SessionTokenHolder
 import com.cheradip.ailanguagetutor.core.network.AiltAuthService
 import com.cheradip.ailanguagetutor.core.network.AuthLoginRequest
+import com.cheradip.ailanguagetutor.core.network.CHECK_INTERNET_CONNECTION
 import com.cheradip.ailanguagetutor.core.network.EmailChangeConfirmRequest
 import com.cheradip.ailanguagetutor.core.network.EmailChangeSendRequest
+import com.cheradip.ailanguagetutor.core.network.NetworkErrorFormatter
 import com.cheradip.ailanguagetutor.core.network.PasswordUpdateConfirmRequest
 import com.cheradip.ailanguagetutor.core.network.PasswordUpdateSendRequest
 import com.cheradip.ailanguagetutor.core.network.RecoveryResetRequest
 import com.cheradip.ailanguagetutor.core.network.RecoverySendRequest
 import com.cheradip.ailanguagetutor.core.network.SignupInitRequest
-import com.cheradip.ailanguagetutor.core.network.userFacingMessage
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
@@ -54,6 +55,7 @@ class AuthRepository @Inject constructor(
     private val authService: AiltAuthService,
     private val sessionTokenHolder: SessionTokenHolder,
     private val deviceIdProvider: DeviceIdProvider,
+    private val networkErrors: NetworkErrorFormatter,
 ) {
     private val keyEmail = stringPreferencesKey("email")
     private val keyRole = stringPreferencesKey("role")
@@ -77,22 +79,35 @@ class AuthRepository @Inject constructor(
         sessionTokenHolder.setToken(prefs[keySession])
     }
 
-    suspend fun login(username: String, password: String): Result<AuthUser> = try {
-        val resp = authService.login(AuthLoginRequest(username.trim(), password, deviceId()))
-        val user = AuthUser(resp.email, resp.role, resp.whatsapp, resp.sessionToken)
-        persistUser(user)
-        Result.success(user)
-    } catch (e: Exception) {
-        val local = localLogin(username, password)
-        if (local != null) {
-            persistUser(local)
-            Result.success(local)
-        } else {
-            Result.failure(IllegalArgumentException(e.userFacingMessage("Login failed")))
+    suspend fun login(username: String, password: String): Result<AuthUser> {
+        if (!networkErrors.isOnline()) {
+            localLogin(username, password)?.let { user ->
+                persistUser(user)
+                return Result.success(user)
+            }
+            return Result.failure(IllegalArgumentException(CHECK_INTERNET_CONNECTION))
+        }
+        return try {
+            val resp = authService.login(AuthLoginRequest(username.trim(), password, deviceId()))
+            val user = AuthUser(resp.email, resp.role, resp.whatsapp, resp.sessionToken)
+            persistUser(user)
+            Result.success(user)
+        } catch (e: Exception) {
+            val local = localLogin(username, password)
+            if (local != null) {
+                persistUser(local)
+                Result.success(local)
+            } else {
+                Result.failure(IllegalArgumentException(networkErrors.present(e, "Login failed")))
+            }
         }
     }
 
-    suspend fun signupInit(details: SignupDetails): Result<AuthUser> = try {
+    suspend fun signupInit(details: SignupDetails): Result<AuthUser> {
+        if (!networkErrors.isOnline()) {
+            return Result.failure(IllegalArgumentException(CHECK_INTERNET_CONNECTION))
+        }
+        return try {
         val resp = authService.signupInit(
             SignupInitRequest(
                 fullName = details.fullName,
@@ -106,22 +121,32 @@ class AuthRepository @Inject constructor(
         val user = AuthUser(resp.email, resp.role, whatsapp = null, sessionToken = token)
         persistUser(user)
         Result.success(user)
-    } catch (e: Exception) {
-        Result.failure(IllegalArgumentException(e.userFacingMessage("Signup failed")))
+        } catch (e: Exception) {
+            Result.failure(IllegalArgumentException(networkErrors.present(e, "Signup failed")))
+        }
     }
 
-    suspend fun recoverySend(username: String): Result<PasswordSendResult> = try {
+    suspend fun recoverySend(username: String): Result<PasswordSendResult> {
+        if (!networkErrors.isOnline()) {
+            return Result.failure(IllegalArgumentException(CHECK_INTERNET_CONNECTION))
+        }
+        return try {
         val resp = authService.recoverySend(RecoverySendRequest(username.trim(), deviceId()))
         Result.success(PasswordSendResult(resp.message, resp.requiresOtp))
-    } catch (e: Exception) {
-        Result.failure(IllegalArgumentException(e.userFacingMessage("Could not start password reset")))
+        } catch (e: Exception) {
+            Result.failure(IllegalArgumentException(networkErrors.present(e, "Could not start password reset")))
+        }
     }
 
     suspend fun recoveryReset(
         username: String,
         newPassword: String,
         otp: String?,
-    ): Result<String> = try {
+    ): Result<String> {
+        if (!networkErrors.isOnline()) {
+            return Result.failure(IllegalArgumentException(CHECK_INTERNET_CONNECTION))
+        }
+        return try {
         val resp = authService.recoveryReset(
             RecoveryResetRequest(
                 username = username.trim(),
@@ -131,24 +156,34 @@ class AuthRepository @Inject constructor(
             ),
         )
         Result.success(resp.message)
-    } catch (e: Exception) {
-        Result.failure(IllegalArgumentException(e.userFacingMessage("Password reset failed")))
+        } catch (e: Exception) {
+            Result.failure(IllegalArgumentException(networkErrors.present(e, "Password reset failed")))
+        }
     }
 
-    suspend fun passwordUpdateSend(currentPassword: String): Result<PasswordSendResult> = try {
+    suspend fun passwordUpdateSend(currentPassword: String): Result<PasswordSendResult> {
+        if (!networkErrors.isOnline()) {
+            return Result.failure(IllegalArgumentException(CHECK_INTERNET_CONNECTION))
+        }
+        return try {
         val resp = authService.passwordUpdateSend(
             PasswordUpdateSendRequest(currentPassword, deviceId()),
         )
         Result.success(PasswordSendResult(resp.message, resp.requiresOtp))
-    } catch (e: Exception) {
-        Result.failure(IllegalArgumentException(e.userFacingMessage("Could not start password update")))
+        } catch (e: Exception) {
+            Result.failure(IllegalArgumentException(networkErrors.present(e, "Could not start password update")))
+        }
     }
 
     suspend fun passwordUpdateConfirm(
         currentPassword: String,
         newPassword: String,
         otp: String?,
-    ): Result<String> = try {
+    ): Result<String> {
+        if (!networkErrors.isOnline()) {
+            return Result.failure(IllegalArgumentException(CHECK_INTERNET_CONNECTION))
+        }
+        return try {
         val resp = authService.passwordUpdateConfirm(
             PasswordUpdateConfirmRequest(
                 newPassword = newPassword,
@@ -158,18 +193,28 @@ class AuthRepository @Inject constructor(
             ),
         )
         Result.success(resp.message)
-    } catch (e: Exception) {
-        Result.failure(IllegalArgumentException(e.userFacingMessage("Password update failed")))
+        } catch (e: Exception) {
+            Result.failure(IllegalArgumentException(networkErrors.present(e, "Password update failed")))
+        }
     }
 
-    suspend fun emailChangeSend(): Result<PasswordSendResult> = try {
+    suspend fun emailChangeSend(): Result<PasswordSendResult> {
+        if (!networkErrors.isOnline()) {
+            return Result.failure(IllegalArgumentException(CHECK_INTERNET_CONNECTION))
+        }
+        return try {
         val resp = authService.emailChangeSend(EmailChangeSendRequest(deviceId()))
         Result.success(PasswordSendResult(resp.message, resp.requiresOtp))
-    } catch (e: Exception) {
-        Result.failure(IllegalArgumentException(e.userFacingMessage("Could not start email change")))
+        } catch (e: Exception) {
+            Result.failure(IllegalArgumentException(networkErrors.present(e, "Could not start email change")))
+        }
     }
 
-    suspend fun emailChangeConfirm(otp: String?, newEmail: String): Result<AuthUser> = try {
+    suspend fun emailChangeConfirm(otp: String?, newEmail: String): Result<AuthUser> {
+        if (!networkErrors.isOnline()) {
+            return Result.failure(IllegalArgumentException(CHECK_INTERNET_CONNECTION))
+        }
+        return try {
         val resp = authService.emailChangeConfirm(
             EmailChangeConfirmRequest(
                 newEmail = newEmail.trim().lowercase(),
@@ -186,8 +231,9 @@ class AuthRepository @Inject constructor(
         )
         persistUser(updated)
         Result.success(updated)
-    } catch (e: Exception) {
-        Result.failure(IllegalArgumentException(e.userFacingMessage("Email change failed")))
+        } catch (e: Exception) {
+            Result.failure(IllegalArgumentException(networkErrors.present(e, "Email change failed")))
+        }
     }
 
     suspend fun logout() {

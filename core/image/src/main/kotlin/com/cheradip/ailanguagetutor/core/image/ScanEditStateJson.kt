@@ -68,11 +68,12 @@ private fun TransitionParams.toJson(): JSONObject = JSONObject().apply {
 private fun cleanParamsFromJson(obj: JSONObject) = CleanParams(
     brightness = obj.optInt("brightness", 50),
     contrast = obj.optInt("contrast", 50),
-    sharpness = obj.optInt("sharpness", 50),
-    noiseReduction = obj.optInt("noiseReduction", 30),
-    shadowRemoval = obj.optInt("shadowRemoval", 40),
-    paperWhitening = obj.optInt("paperWhitening", 35),
-    inkEnhancement = obj.optInt("inkEnhancement", 45),
+    sharpness = obj.optInt("sharpness", 0),
+    noiseReduction = obj.optInt("noiseReduction", 0),
+    shadowRemoval = obj.optInt("shadowRemoval", 0),
+    paperWhitening = obj.optInt("paperWhitening", 0),
+    inkEnhancement = obj.optInt("inkEnhancement", 0),
+    gamma = obj.optInt("gamma", 50),
     autoEnhance = obj.optBoolean("autoEnhance"),
     adaptiveThreshold = obj.optBoolean("adaptiveThreshold"),
     preserveSignatures = obj.optBoolean("preserveSignatures", true),
@@ -85,6 +86,7 @@ private fun CleanParams.toJson(): JSONObject = JSONObject().apply {
     put("brightness", brightness); put("contrast", contrast); put("sharpness", sharpness)
     put("noiseReduction", noiseReduction); put("shadowRemoval", shadowRemoval)
     put("paperWhitening", paperWhitening); put("inkEnhancement", inkEnhancement)
+    put("gamma", gamma)
     put("autoEnhance", autoEnhance); put("adaptiveThreshold", adaptiveThreshold)
     put("preserveSignatures", preserveSignatures)
     put("preserveStamps", preserveStamps)
@@ -147,6 +149,26 @@ private fun CleanFilterSelection.toJson(): JSONObject = JSONObject().apply {
     })
 }
 
+private fun savedCustomFilterFromJson(obj: JSONObject) = SavedCustomFilterSlot(
+    slotId = obj.getString("slotId"),
+    displayName = obj.optString("displayName", obj.getString("slotId")),
+    savedSelection = obj.optJSONObject("savedSelection")?.let { filterSelectionFromJson(it) }
+        ?: CleanFilterSelection(),
+)
+
+private fun SavedCustomFilterSlot.toJson(): JSONObject = JSONObject().apply {
+    put("slotId", slotId)
+    put("displayName", displayName)
+    put("savedSelection", savedSelection.toJson())
+}
+
+private fun customFilterSlotsFromJson(arr: JSONArray?): List<SavedCustomFilterSlot> =
+    arr?.let { json ->
+        (0 until json.length()).mapNotNull { i ->
+            json.optJSONObject(i)?.let { savedCustomFilterFromJson(it) }
+        }
+    }.orEmpty()
+
 private fun EditHistorySnapshot.toJson(): JSONObject = JSONObject().apply {
     appliedCrop?.let { put("appliedCrop", it.toJson()) }
     appliedTransition?.let { put("appliedTransition", it.toJson()) }
@@ -175,6 +197,9 @@ fun PageEditState.toJson(): String = JSONObject().apply {
     appliedClean?.let { put("appliedClean", it.toJson()) }
     appliedGray?.let { put("appliedGray", it.toJson()) }
     appliedFilterSelection?.let { put("appliedFilterSelection", it.toJson()) }
+    if (customFilterSlots.isNotEmpty()) {
+        put("customFilterSlots", JSONArray().apply { customFilterSlots.forEach { put(it.toJson()) } })
+    }
     put("historyIndex", historyIndex)
     put("history", JSONArray().apply { history.forEach { put(it.toJson()) } })
 }.toString()
@@ -194,6 +219,7 @@ fun parsePageEditStateJson(pageId: Long, json: String?, originalPath: String, wo
             appliedClean = obj.optJSONObject("appliedClean")?.let { cleanParamsFromJson(it) },
             appliedGray = obj.optJSONObject("appliedGray")?.let { grayParamsFromJson(it, defaultActive = true) },
             appliedFilterSelection = obj.optJSONObject("appliedFilterSelection")?.let { filterSelectionFromJson(it) },
+            customFilterSlots = customFilterSlotsFromJson(obj.optJSONArray("customFilterSlots")),
             historyIndex = obj.optInt("historyIndex", -1),
             history = obj.optJSONArray("history")?.let { arr ->
                 (0 until arr.length()).mapNotNull { i ->

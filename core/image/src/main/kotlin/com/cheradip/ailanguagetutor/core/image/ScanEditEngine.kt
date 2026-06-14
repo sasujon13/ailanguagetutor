@@ -54,21 +54,46 @@ class ScanEditEngine {
         state: PageEditState,
         customPresets: List<DocumentFilterPreset>,
     ): Bitmap {
-        val base = renderApplied(state, customPresets)
-        val draft = state.draftFilterSelection
-        if (draft.presetIds.isEmpty() && draft.adjustments.isEmpty()) return base
-        return CleanFilterRenderer.applyStack(base, draft, customPresets)
+        val selection = state.draftFilterSelection
+        val source = BitmapUtils.load(state.originalPath)
+        val geometryBase = renderPipeline(
+            source = source,
+            crop = state.appliedCrop,
+            transition = state.appliedTransition,
+            clean = null,
+            gray = null,
+            filterSelection = null,
+            customPresets = customPresets,
+        )
+        return if (selection.presetIds.isNotEmpty() || selection.adjustments.isNotEmpty()) {
+            CleanFilterRenderer.applyStack(geometryBase, selection, customPresets)
+        } else if (state.appliedClean != null || state.appliedGray?.active == true) {
+            var bmp = geometryBase
+            state.appliedClean?.let { bmp = ImageCleanProcessor.apply(bmp, it) }
+            if (state.appliedGray?.active == true) {
+                bmp = ImageGrayProcessor.apply(bmp, state.appliedGray)
+            }
+            bmp
+        } else {
+            geometryBase
+        }
     }
 
     /** Raw capture — no edits applied. */
     fun renderOriginal(state: PageEditState): Bitmap = BitmapUtils.load(state.originalPath)
 
     /** Committed pipeline (before current tool draft changes). */
-    fun renderBeforeCurrentTool(state: PageEditState): Bitmap = renderApplied(state)
+    fun renderBeforeCurrentTool(
+        state: PageEditState,
+        customPresets: List<DocumentFilterPreset> = emptyList(),
+    ): Bitmap = renderApplied(state, customPresets)
 
     /** Live preview with the active tool's draft settings. */
-    fun renderAfterCurrentTool(state: PageEditState, tool: ScanTool?): Bitmap =
-        renderPreview(state, tool, beforeAfter = null)
+    fun renderAfterCurrentTool(
+        state: PageEditState,
+        tool: ScanTool?,
+        customPresets: List<DocumentFilterPreset> = emptyList(),
+    ): Bitmap = renderPreview(state, tool, beforeAfter = null, customPresets = customPresets)
 
     fun renderAtHistoryIndex(
         state: PageEditState,
@@ -108,7 +133,19 @@ class ScanEditEngine {
         }
     }
 
-    fun applyTool(state: PageEditState, tool: ScanTool): PageEditState {
+    fun cleanDraftFromApplied(state: PageEditState): CleanFilterSelection {
+        state.appliedFilterSelection?.let { return it }
+        state.appliedClean?.filterPresetId?.takeIf { it.isNotBlank() }?.let { id ->
+            return CleanFilterSelection(presetIds = listOf(id))
+        }
+        return CleanFilterSelection()
+    }
+
+    fun applyTool(
+        state: PageEditState,
+        tool: ScanTool,
+        customPresets: List<DocumentFilterPreset> = emptyList(),
+    ): PageEditState {
         val next = when (tool) {
             ScanTool.CROP -> {
                 val params = state.draftCrop
@@ -120,19 +157,15 @@ class ScanEditEngine {
             }
             ScanTool.CLEAN -> {
                 val selection = state.draftFilterSelection
-                val hasDraftFilters = selection.presetIds.isNotEmpty() || selection.adjustments.isNotEmpty()
-                val appliedSelection = if (hasDraftFilters) {
-                    mergeFilterSelection(state.appliedFilterSelection, selection)
-                } else {
-                    state.appliedFilterSelection ?: CleanFilterSelection()
-                }
+                val hasFilters = selection.presetIds.isNotEmpty() || selection.adjustments.isNotEmpty()
+                val applied = if (hasFilters) selection else null
                 state.copy(
                     appliedClean = null,
                     appliedGray = null,
-                    appliedFilterSelection = appliedSelection,
+                    appliedFilterSelection = applied,
                     draftClean = CleanParams(),
                     draftGray = GrayParams(),
-                    draftFilterSelection = CleanFilterSelection(),
+                    draftFilterSelection = applied ?: CleanFilterSelection(),
                 )
             }
             ScanTool.GRAY -> {
@@ -148,25 +181,32 @@ class ScanEditEngine {
             ScanTool.GRAY -> EditStage.GRAY
             else -> EditStage.ORIGINAL
         }
-        return appendHistory(next, stage, historyLabel(next, tool, state))
+        if (tool == ScanTool.CLEAN &&
+            next.appliedFilterSelection == state.appliedFilterSelection &&
+            state.appliedClean == null &&
+            state.appliedGray?.active != true
+        ) {
+            return next
+        }
+        return appendHistory(next, stage, historyLabel(next, tool, state, customPresets))
     }
 
-    private fun historyLabel(next: PageEditState, tool: ScanTool, previous: PageEditState): String = when (tool) {
+    private fun historyLabel(
+        next: PageEditState,
+        tool: ScanTool,
+        previous: PageEditState,
+        customPresets: List<DocumentFilterPreset>,
+    ): String = when (tool) {
         ScanTool.CLEAN -> {
             val added = previous.draftFilterSelection
-            val desc = CleanFilterRenderer.describeSelection(added, emptyList())
-            if (desc.isBlank()) "Clean applied" else "Clean: $desc"
+            val desc = CleanFilterRenderer.describeSelection(added, customPresets)
+            when {
+                desc.isBlank() && previous.appliedFilterSelection != null -> "Clean cleared"
+                desc.isBlank() -> "Clean applied"
+                else -> "Clean: $desc"
+            }
         }
         else -> "${tool.name.lowercase().replaceFirstChar { it.uppercase() }} applied"
-    }
-
-    private fun mergeFilterSelection(
-        base: CleanFilterSelection?,
-        draft: CleanFilterSelection,
-    ): CleanFilterSelection {
-        val presets = (base?.presetIds.orEmpty() + draft.presetIds).distinct()
-        val adjustments = base?.adjustments.orEmpty() + draft.adjustments
-        return CleanFilterSelection(presetIds = presets, adjustments = adjustments)
     }
 
     fun revertAll(state: PageEditState): PageEditState {
@@ -175,10 +215,12 @@ class ScanEditEngine {
             appliedTransition = null,
             appliedClean = null,
             appliedGray = null,
+            appliedFilterSelection = null,
             draftCrop = CropParams(corners = QuadPoints.fullFrame()),
             draftTransition = TransitionParams(),
             draftClean = CleanParams(),
             draftGray = GrayParams(),
+            draftFilterSelection = CleanFilterSelection(),
         )
         return appendHistory(cleared, EditStage.ORIGINAL, "Reverted to original")
     }
@@ -189,7 +231,7 @@ class ScanEditEngine {
         ScanTool.CLEAN -> state.copy(
             draftClean = CleanParams(),
             draftGray = GrayParams(),
-            draftFilterSelection = CleanFilterSelection(),
+            draftFilterSelection = cleanDraftFromApplied(state),
         )
         ScanTool.GRAY -> state.copy(draftGray = state.appliedGray ?: GrayParams())
         else -> state
@@ -208,7 +250,6 @@ class ScanEditEngine {
             draftClean = CleanParams(),
             draftGray = GrayParams(),
             draftFilterSelection = CleanFilterSelection(),
-            draftTransition = TransitionParams(),
         )
         ScanTool.GRAY -> state.copy(appliedGray = null, draftGray = GrayParams())
         else -> state
@@ -220,13 +261,21 @@ class ScanEditEngine {
     fun restoreCropBoundaries(state: PageEditState): PageEditState =
         state.copy(draftCrop = state.draftCrop.copy(corners = QuadPoints.fullFrame()))
 
-    fun restoreOriginalColors(state: PageEditState): PageEditState =
-        state.copy(
+    fun restoreOriginalColors(state: PageEditState): PageEditState {
+        val hadFilters = state.appliedFilterSelection != null ||
+            state.appliedClean != null ||
+            state.appliedGray?.active == true
+        if (!hadFilters) return state
+        val cleared = state.copy(
             appliedClean = null,
             appliedGray = null,
+            appliedFilterSelection = null,
             draftClean = CleanParams(),
             draftGray = GrayParams(),
+            draftFilterSelection = CleanFilterSelection(),
         )
+        return appendHistory(cleared, EditStage.CLEAN, "Original colors restored")
+    }
 
     fun jumpToHistory(state: PageEditState, index: Int): PageEditState {
         if (index < 0) return revertAll(state.copy(history = state.history, historyIndex = state.historyIndex))
@@ -242,7 +291,13 @@ class ScanEditEngine {
             draftTransition = snap.appliedTransition ?: TransitionParams(),
             draftClean = snap.appliedClean ?: CleanParams(),
             draftGray = snap.appliedGray ?: GrayParams(),
-            draftFilterSelection = snap.appliedFilterSelection ?: CleanFilterSelection(),
+            draftFilterSelection = snap.appliedFilterSelection ?: cleanDraftFromApplied(
+                state.copy(
+                    appliedFilterSelection = snap.appliedFilterSelection,
+                    appliedClean = snap.appliedClean,
+                    appliedGray = snap.appliedGray,
+                ),
+            ),
             historyIndex = index,
         )
     }
@@ -347,37 +402,8 @@ class ScanEditEngine {
         }
     }
 
-    private fun applyTransition(bitmap: Bitmap, params: TransitionParams): Bitmap {
-        var corners = if (params.autoDetect) {
-            DocumentEdgeDetector.detectCorners(
-                bitmap,
-                DocumentDetectionHints(scanType = params.scanType),
-            )
-        } else {
-            params.corners
-        }
-        corners = PerspectiveTransform.applyKeystoneCorrection(
-            corners,
-            params.verticalCorrection,
-            params.horizontalCorrection,
-        )
-        if (params.curvedPageCorrection) {
-            val curve = params.pageFlattening / 200f
-            corners = corners.copy(
-                bottomLeft = corners.bottomLeft.copy(x = corners.bottomLeft.x + curve),
-                bottomRight = corners.bottomRight.copy(x = corners.bottomRight.x - curve),
-            )
-        }
-        var result = bitmap
-        var rotation = params.rotationDegrees
-        if (params.autoStraightenText) {
-            rotation += computeStraightenDegrees(corners)
-        }
-        if (rotation != 0f) result = BitmapUtils.rotate(result, rotation)
-        val px = PerspectiveTransform.cornersToPixels(corners, result.width, result.height)
-        val strength = params.perspectiveStrength / 100f * (params.pageFlattening / 100f + 0.5f)
-        return PerspectiveTransform.warp(result, px, strength.coerceIn(0.1f, 1f))
-    }
+    private fun applyTransition(bitmap: Bitmap, params: TransitionParams): Bitmap =
+        ImageTransitionProcessor.apply(bitmap, params)
 
     private fun alignCorners(quad: QuadPoints, horizontal: Boolean, vertical: Boolean): QuadPoints {
         if (horizontal) {

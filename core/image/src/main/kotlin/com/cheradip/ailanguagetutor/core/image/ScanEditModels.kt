@@ -135,11 +135,12 @@ data class TransitionParams(
 data class CleanParams(
     val brightness: Int = 50,
     val contrast: Int = 50,
-    val sharpness: Int = 50,
-    val noiseReduction: Int = 30,
-    val shadowRemoval: Int = 40,
-    val paperWhitening: Int = 35,
-    val inkEnhancement: Int = 45,
+    val sharpness: Int = 0,
+    val noiseReduction: Int = 0,
+    val shadowRemoval: Int = 0,
+    val paperWhitening: Int = 0,
+    val inkEnhancement: Int = 0,
+    val gamma: Int = 50,
     val autoEnhance: Boolean = false,
     val adaptiveThreshold: Boolean = false,
     val preserveSignatures: Boolean = true,
@@ -216,6 +217,7 @@ data class PageEditState(
     val draftClean: CleanParams = CleanParams(),
     val draftGray: GrayParams = GrayParams(),
     val draftFilterSelection: CleanFilterSelection = CleanFilterSelection(),
+    val customFilterSlots: List<SavedCustomFilterSlot> = emptyList(),
 ) {
     fun appliedStages(): List<EditStage> = buildList {
         if (appliedCrop != null) add(EditStage.CROP)

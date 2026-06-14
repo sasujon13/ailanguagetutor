@@ -106,6 +106,12 @@ class DocumentRepository @Inject constructor(
         }
     }
 
+    suspend fun updatePageEditState(pageId: Long, editStateJson: String?) = withContext(Dispatchers.IO) {
+        documentPageDao.getById(pageId)?.let { page ->
+            documentPageDao.update(page.copy(editStateJson = editStateJson))
+        }
+    }
+
     suspend fun updatePageOcr(
         pageId: Long,
         ocrText: String,

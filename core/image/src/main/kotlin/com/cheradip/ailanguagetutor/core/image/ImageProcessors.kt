@@ -19,8 +19,18 @@ object ImageCleanProcessor {
         if (effective.noiseReduction > 0) result = reduceNoise(result, effective.noiseReduction)
         if (effective.sharpness > 0) result = sharpen(result, effective.sharpness)
         if (effective.inkEnhancement > 0) result = enhanceInk(result, effective.inkEnhancement)
-        if (effective.adaptiveThreshold && !params.preserveSignatures) result = adaptiveThreshold(result)
-        if (params.preserveSignatures || params.preserveStamps || params.preserveLogos) {
+        if (effective.gamma != 50) {
+            val gamma = (effective.gamma / 50f).coerceIn(0.3f, 2.5f)
+            result = applyGamma(result, gamma)
+        }
+        if (effective.adaptiveThreshold) {
+            val thresholded = adaptiveThreshold(result)
+            result = if (params.preserveSignatures || params.preserveStamps || params.preserveLogos) {
+                preserveMarkedRegions(original, thresholded, params)
+            } else {
+                thresholded
+            }
+        } else if (params.preserveSignatures || params.preserveStamps || params.preserveLogos) {
             result = preserveMarkedRegions(original, result, params)
         }
         return result
@@ -55,26 +65,20 @@ object ImageCleanProcessor {
     }
 
     private fun adaptiveThreshold(src: Bitmap): Bitmap {
-        val w = src.width; val h = src.height
+        val w = src.width
+        val h = src.height
         val pixels = IntArray(w * h)
         src.getPixels(pixels, 0, w, 0, 0, w, h)
         val gray = IntArray(pixels.size) { i ->
             val p = pixels[i]
             ((p shr 16 and 0xFF) * 299 + (p shr 8 and 0xFF) * 587 + (p and 0xFF) * 114) / 1000
         }
-        val block = 15
+        val radius = 12
+        val localMean = localMeanGray(gray, w, h, radius)
         val out = pixels.copyOf()
         for (y in 0 until h) {
             for (x in 0 until w) {
-                var sum = 0; var count = 0
-                for (dy in -block..block step block) {
-                    for (dx in -block..block step block) {
-                        val ny = (y + dy).coerceIn(0, h - 1)
-                        val nx = (x + dx).coerceIn(0, w - 1)
-                        sum += gray[ny * w + nx]; count++
-                    }
-                }
-                val threshold = sum / count - 10
+                val threshold = localMean[y * w + x] - 8
                 val v = if (gray[y * w + x] < threshold) 0 else 255
                 out[y * w + x] = (0xFF shl 24) or (v shl 16) or (v shl 8) or v
             }
@@ -84,16 +88,41 @@ object ImageCleanProcessor {
         return dst
     }
 
+    private fun localMeanGray(gray: IntArray, width: Int, height: Int, radius: Int): IntArray {
+        val out = IntArray(gray.size)
+        for (y in 0 until height) {
+            for (x in 0 until width) {
+                var sum = 0
+                var count = 0
+                val y0 = (y - radius).coerceAtLeast(0)
+                val y1 = (y + radius).coerceAtMost(height - 1)
+                val x0 = (x - radius).coerceAtLeast(0)
+                val x1 = (x + radius).coerceAtMost(width - 1)
+                for (ny in y0..y1) {
+                    for (nx in x0..x1) {
+                        sum += gray[ny * width + nx]
+                        count++
+                    }
+                }
+                out[y * width + x] = sum / count
+            }
+        }
+        return out
+    }
+
     private fun CleanParams.autoOptimized() = copy(
-        brightness = 55,
-        contrast = 62,
-        sharpness = 58,
-        noiseReduction = 35,
-        shadowRemoval = 55,
-        paperWhitening = 48,
-        inkEnhancement = 52,
-        adaptiveThreshold = true,
+        brightness = blendToward(brightness, 55),
+        contrast = blendToward(contrast, 62),
+        sharpness = blendToward(sharpness, 58),
+        noiseReduction = blendToward(noiseReduction, 35),
+        shadowRemoval = blendToward(shadowRemoval, 55),
+        paperWhitening = blendToward(paperWhitening, 48),
+        inkEnhancement = blendToward(inkEnhancement, 52),
+        gamma = blendToward(gamma, 50),
     )
+
+    private fun blendToward(current: Int, target: Int, weight: Float = 0.55f): Int =
+        (current + (target - current) * weight).roundToInt().coerceIn(0, 100)
 
     private fun adjustBrightnessContrast(src: Bitmap, brightness: Int, contrast: Int): Bitmap {
         val b = (brightness - 50) / 50f * 40f
@@ -205,6 +234,25 @@ object ImageCleanProcessor {
         return applyColorMatrix(src, matrix)
     }
 
+    private fun applyGamma(src: Bitmap, gamma: Float): Bitmap {
+        val w = src.width
+        val h = src.height
+        val pixels = IntArray(w * h)
+        src.getPixels(pixels, 0, w, 0, 0, w, h)
+        val invGamma = 1.0 / gamma
+        for (i in pixels.indices) {
+            val p = pixels[i]
+            val r = (((p shr 16) and 0xFF) / 255.0).pow(invGamma) * 255
+            val g = (((p shr 8) and 0xFF) / 255.0).pow(invGamma) * 255
+            val b = ((p and 0xFF) / 255.0).pow(invGamma) * 255
+            pixels[i] = (0xFF shl 24) or (r.roundToInt().coerceIn(0, 255) shl 16) or
+                (g.roundToInt().coerceIn(0, 255) shl 8) or b.roundToInt().coerceIn(0, 255)
+        }
+        val dst = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+        dst.setPixels(pixels, 0, w, 0, 0, w, h)
+        return dst
+    }
+
     private fun applyColorMatrix(src: Bitmap, matrix: ColorMatrix): Bitmap {
         val dst = Bitmap.createBitmap(src.width, src.height, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(dst)
@@ -228,7 +276,7 @@ object ImageGrayProcessor {
             GrayMode.HISTORICAL -> sepiaMatrix()
         }
         var result = applyColorMatrix(bitmap, modeMatrix)
-        if (params.improveOcrAccuracy || params.mode == GrayMode.OCR_OPTIMIZED) {
+        if (params.improveOcrAccuracy && params.mode != GrayMode.OCR_OPTIMIZED) {
             result = applyColorMatrix(result, ocrMatrix())
         }
         val b = (params.brightness - 50) / 50f * 40f
@@ -247,7 +295,9 @@ object ImageGrayProcessor {
             ),
         )
         if (gamma != 1f) result = applyGamma(result, gamma)
-        result = applyLevels(result, params.blackPoint, params.whitePoint)
+        if (params.blackPoint != 5 || params.whitePoint != 95) {
+            result = applyLevels(result, params.blackPoint, params.whitePoint)
+        }
         if (params.darkenText) {
             result = applyColorMatrix(
                 result,
@@ -263,8 +313,8 @@ object ImageGrayProcessor {
         return result
     }
 
-    private fun grayscaleMatrix(@Suppress("UNUSED_PARAMETER") scale: Float): ColorMatrix {
-        return ColorMatrix().apply { setSaturation(0f) }
+    private fun grayscaleMatrix(scale: Float): ColorMatrix {
+        return ColorMatrix().apply { setSaturation(scale.coerceIn(0f, 1f)) }
     }
 
     private fun highContrastMatrix(threshold: Float = 0.5f): ColorMatrix {

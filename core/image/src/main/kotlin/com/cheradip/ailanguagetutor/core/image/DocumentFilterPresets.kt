@@ -15,11 +15,12 @@ object DocumentFilterPresets {
     private fun clean(
         brightness: Int = 50,
         contrast: Int = 50,
-        sharpness: Int = 50,
-        noise: Int = 30,
-        shadow: Int = 40,
-        paper: Int = 35,
-        ink: Int = 45,
+        sharpness: Int = 0,
+        noise: Int = 0,
+        shadow: Int = 0,
+        paper: Int = 0,
+        ink: Int = 0,
+        gamma: Int = 50,
         autoEnhance: Boolean = false,
         adaptive: Boolean = false,
     ) = CleanParams(
@@ -30,6 +31,7 @@ object DocumentFilterPresets {
         shadowRemoval = shadow,
         paperWhitening = paper,
         inkEnhancement = ink,
+        gamma = gamma,
         autoEnhance = autoEnhance,
         adaptiveThreshold = adaptive,
     )
@@ -60,10 +62,11 @@ object DocumentFilterPresets {
     )
 
     private fun straighten(level: Int) = TransitionParams(
+        autoDetect = true,
         autoStraightenText = true,
-        perspectiveStrength = 55 + level * 5,
-        pageFlattening = 35 + level * 7,
-        curvedPageCorrection = level >= 6,
+        perspectiveStrength = if (level <= 3) 12 + level * 6 else 35 + level * 7,
+        pageFlattening = 12 + level * 9,
+        curvedPageCorrection = level >= 7,
     )
 
     val colorRowIds = listOf(
@@ -109,35 +112,44 @@ object DocumentFilterPresets {
             CleanAdjustmentKind.BRIGHTNESS -> DocumentFilterPreset(
                 id = "adj_brightness_$clamped",
                 name = "Brightness $clamped",
-                clean = clean(brightness = lerp(42, 78, t), contrast = lerp(48, 54, t)),
+                clean = clean(brightness = lerp(50, 78, t), contrast = lerp(50, 54, t)),
             )
             CleanAdjustmentKind.DARK -> DocumentFilterPreset(
                 id = "adj_dark_$clamped",
                 name = "Dark $clamped",
-                clean = clean(brightness = lerp(58, 24, t), contrast = lerp(52, 62, t), shadow = lerp(40, 65, t)),
+                clean = clean(
+                    brightness = lerp(50, 24, t),
+                    contrast = lerp(50, 62, t),
+                    shadow = lerp(0, 65, t),
+                ),
             )
             CleanAdjustmentKind.CONTRAST -> DocumentFilterPreset(
                 id = "adj_contrast_$clamped",
                 name = "Contrast $clamped",
-                clean = clean(contrast = lerp(44, 82, t), brightness = lerp(52, 48, t)),
+                clean = clean(contrast = lerp(50, 82, t), brightness = lerp(50, 48, t)),
             )
             CleanAdjustmentKind.EXPOSURE -> DocumentFilterPreset(
                 id = "adj_exposure_$clamped",
                 name = "Exposure $clamped",
-                clean = clean(brightness = lerp(44, 72, t), shadow = lerp(38, 68, t)),
-                gray = gray(exposure = lerp(40, 78, t)),
+                clean = clean(
+                    brightness = lerp(50, 72, t),
+                    shadow = lerp(0, 68, t),
+                    contrast = lerp(50, 56, t),
+                ),
             )
             CleanAdjustmentKind.GAMMA -> DocumentFilterPreset(
                 id = "adj_gamma_$clamped",
                 name = "Gamma $clamped",
-                clean = clean(contrast = lerp(48, 58, t)),
-                gray = gray(gamma = lerp(38, 74, t), contrast = lerp(48, 62, t)),
+                clean = clean(
+                    gamma = lerp(50, 74, t),
+                    contrast = lerp(50, 62, t),
+                ),
             )
             CleanAdjustmentKind.STRAIGHTEN -> DocumentFilterPreset(
                 id = "adj_straighten_$clamped",
                 name = "Straighten $clamped",
-                clean = clean(sharpness = lerp(48, 62, t)),
-                transition = straighten(clamped),
+                clean = clean(sharpness = if (clamped == 0) 0 else lerp(48, 62, t)),
+                transition = if (clamped == 0) null else straighten(clamped),
             )
         }
     }

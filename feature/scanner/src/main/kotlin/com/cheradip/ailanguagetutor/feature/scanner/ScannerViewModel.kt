@@ -15,6 +15,7 @@ import com.cheradip.ailanguagetutor.core.image.EditHistoryEntry
 import com.cheradip.ailanguagetutor.core.image.EditHistorySnapshot
 import com.cheradip.ailanguagetutor.core.image.CleanFilterSelection
 import com.cheradip.ailanguagetutor.core.image.CleanAdjustmentKind
+import com.cheradip.ailanguagetutor.core.image.SavedCustomFilterSlot
 import com.cheradip.ailanguagetutor.core.image.DocumentFilterPresets
 import com.cheradip.ailanguagetutor.core.image.EditStage
 import com.cheradip.ailanguagetutor.core.image.ExportConflictResolution
@@ -253,6 +254,7 @@ class ScannerViewModel @Inject constructor(
             syncDraftFromState(pageId)
             refreshPreview(pageId)
         }
+        restoreCustomFiltersFromEditStates()
         persistWorkflow(stage = ScanWorkflowStage.SCANNER)
     }
 
@@ -297,7 +299,10 @@ class ScannerViewModel @Inject constructor(
         val state = editStates[page.id]
         val hasApplied = state?.let {
             it.appliedCrop != null || it.appliedTransition != null ||
-                it.appliedClean != null || it.appliedGray != null
+                it.appliedClean != null || it.appliedGray != null ||
+                it.appliedFilterSelection?.let { sel ->
+                    sel.presetIds.isNotEmpty() || sel.adjustments.isNotEmpty()
+                } == true
         } ?: false
         return page.thumbnailPath(hasApplied)
     }
@@ -326,6 +331,7 @@ class ScannerViewModel @Inject constructor(
                 pageId = pageId,
                 originalPath = saved.originalPath,
                 workingPath = saved.path,
+                customFilterSlots = _uiState.value.customFilters.map { it.toSaved() },
                 history = listOf(
                     EditHistoryEntry(
                         stage = EditStage.ORIGINAL,
@@ -402,7 +408,7 @@ class ScannerViewModel @Inject constructor(
             editStates[pageId] = state.copy(
                 draftClean = CleanParams(),
                 draftGray = GrayParams(),
-                draftFilterSelection = CleanFilterSelection(),
+                draftFilterSelection = scanEditEngine.cleanDraftFromApplied(state),
             )
         }
         syncDraftFromState(pageId)
@@ -414,8 +420,20 @@ class ScannerViewModel @Inject constructor(
     }
 
     fun closeToolPanel() {
+        val pageId = _uiState.value.selectedPageId
+        if (_uiState.value.activeTool == ScanTool.CLEAN && pageId != null) {
+            val state = editStates[pageId]
+            if (state != null) {
+                editStates[pageId] = state.copy(
+                    draftClean = CleanParams(),
+                    draftGray = GrayParams(),
+                    draftFilterSelection = scanEditEngine.cleanDraftFromApplied(state),
+                )
+                syncDraftFromState(pageId)
+            }
+        }
         _uiState.update { it.copy(activeTool = null, previewCompareMode = PreviewCompareMode.AFTER) }
-        _uiState.value.selectedPageId?.let { refreshPreview(it) }
+        pageId?.let { refreshPreview(it) }
         persistWorkflow()
     }
 
@@ -502,7 +520,9 @@ class ScannerViewModel @Inject constructor(
                     scanEditEngine.renderApplied(historical, customFilterPresets())
                 }
                 val tool = _uiState.value.activeTool?.takeUnless { it == ScanTool.SAVE }
-                val afterBmp = withContext(Dispatchers.Default) { scanEditEngine.renderPreview(state, tool, null) }
+                val afterBmp = withContext(Dispatchers.Default) {
+                    scanEditEngine.renderPreview(state, tool, customPresets = customFilterPresets())
+                }
                 val docId = _uiState.value.documentId ?: 0
                 val dir = imageStorage.createWorkingCopy(docId, pageId).parentFile!!
                 val beforeFile = File(dir, "compare_before_$pageId.jpg")
@@ -553,6 +573,7 @@ class ScannerViewModel @Inject constructor(
         editStates[pageId] = scanEditEngine.restoreOriginalColors(state)
         syncDraftFromState(pageId)
         refreshPreview(pageId)
+        persistIfApplied(pageId)
     }
 
     fun jumpToStage(stage: EditStage) {
@@ -581,7 +602,8 @@ class ScannerViewModel @Inject constructor(
         syncDraftFromState(pageId)
         _uiState.update {
             it.copy(
-                draftFilterSelection = editStates[pageId]?.appliedFilterSelection ?: CleanFilterSelection(),
+                draftFilterSelection = editStates[pageId]?.let { scanEditEngine.cleanDraftFromApplied(it) }
+                    ?: CleanFilterSelection(),
                 expandedCleanAdjustment = null,
             )
         }
@@ -658,7 +680,14 @@ class ScannerViewModel @Inject constructor(
         val nextIds = if (presetId in current.presetIds) {
             current.presetIds - presetId
         } else {
-            current.presetIds + presetId
+            var base = current.presetIds
+            if (presetId in DocumentFilterPresets.colorRowIds) {
+                base = base.filterNot { it in DocumentFilterPresets.colorRowIds }
+            }
+            if (presetId.startsWith("custom_")) {
+                base = base.filterNot { it.startsWith("custom_") }
+            }
+            base + presetId
         }
         updateDraftFilterSelection(state, current.copy(presetIds = nextIds))
     }
@@ -668,10 +697,9 @@ class ScannerViewModel @Inject constructor(
         val state = editStates[pageId] ?: return
         val current = state.draftFilterSelection
         val nextAdjustments = current.adjustments.toMutableMap()
-        if (current.adjustments[kind] == level) {
-            nextAdjustments.remove(kind)
-        } else {
-            nextAdjustments[kind] = level
+        when {
+            level == 0 || current.adjustments[kind] == level -> nextAdjustments.remove(kind)
+            else -> nextAdjustments[kind] = level
         }
         updateDraftFilterSelection(state, current.copy(adjustments = nextAdjustments))
     }
@@ -693,6 +721,8 @@ class ScannerViewModel @Inject constructor(
             hasSavedSettings = true,
         )
         _uiState.update { it.copy(customFilters = it.customFilters + slot) }
+        syncCustomFiltersToEditStates()
+        persistCustomFiltersJson()
         requestRenameCustomFilter(slotId)
     }
 
@@ -719,6 +749,8 @@ class ScannerViewModel @Inject constructor(
             else slot.copy(savedSelection = ui.draftFilterSelection, hasSavedSettings = true)
         }
         _uiState.update { it.copy(customFilters = updatedSlots) }
+        syncCustomFiltersToEditStates()
+        persistCustomFiltersJson()
     }
 
     fun requestRenameCustomFilter(slotId: String) {
@@ -743,6 +775,8 @@ class ScannerViewModel @Inject constructor(
                 renamingCustomSlotId = null,
             )
         }
+        syncCustomFiltersToEditStates()
+        persistCustomFiltersJson()
     }
 
     fun updateExportOptions(block: (ExportOptions) -> ExportOptions) {
@@ -826,6 +860,10 @@ class ScannerViewModel @Inject constructor(
         )
         updated = scanEditEngine.applyTool(updated, ScanTool.CROP)
         updated = scanEditEngine.applyTool(updated, ScanTool.TRANSITION)
+        updated = updated.copy(
+            draftFilterSelection = CleanFilterSelection(presetIds = listOf("document")),
+        )
+        updated = scanEditEngine.applyTool(updated, ScanTool.CLEAN, customFilterPresets())
         val rendered = withContext(Dispatchers.Default) {
             scanEditEngine.renderApplied(updated, customFilterPresets())
         }
@@ -894,7 +932,7 @@ class ScannerViewModel @Inject constructor(
             runCatching {
                 val updated = when (tool) {
                     ScanTool.ORIGINAL -> scanEditEngine.revertAll(state)
-                    else -> scanEditEngine.applyTool(state, tool)
+                    else -> scanEditEngine.applyTool(state, tool, customFilterPresets())
                 }
                 val rendered = withContext(Dispatchers.Default) {
                     scanEditEngine.renderApplied(updated, customFilterPresets())
@@ -1114,7 +1152,7 @@ class ScannerViewModel @Inject constructor(
                 val bitmap = withContext(Dispatchers.Default) {
                     when {
                         compareMode == PreviewCompareMode.ORIGINAL -> scanEditEngine.renderOriginal(state)
-                        compareMode == PreviewCompareMode.BEFORE -> scanEditEngine.renderBeforeCurrentTool(state)
+                        compareMode == PreviewCompareMode.BEFORE -> scanEditEngine.renderBeforeCurrentTool(state, customPresets)
                         tool != null -> scanEditEngine.renderPreview(state, tool, customPresets = customPresets)
                         else -> scanEditEngine.renderApplied(state, customPresets)
                     }
@@ -1151,4 +1189,44 @@ class ScannerViewModel @Inject constructor(
         _uiState.value.customFilters
             .filter { it.hasSavedSettings }
             .map { DocumentFilterPresets.customSlot(it.slotId, it.displayName, it.savedSelection) }
+
+    private fun CustomFilterSlot.toSaved(): SavedCustomFilterSlot =
+        SavedCustomFilterSlot(slotId = slotId, displayName = displayName, savedSelection = savedSelection)
+
+    private fun SavedCustomFilterSlot.toUi(): CustomFilterSlot =
+        CustomFilterSlot(
+            slotId = slotId,
+            displayName = displayName,
+            savedSelection = savedSelection,
+            hasSavedSettings = true,
+        )
+
+    private fun syncCustomFiltersToEditStates() {
+        val saved = _uiState.value.customFilters.map { it.toSaved() }
+        editStates.keys.toList().forEach { id ->
+            editStates[id]?.let { state ->
+                editStates[id] = state.copy(customFilterSlots = saved)
+            }
+        }
+    }
+
+    private fun restoreCustomFiltersFromEditStates() {
+        val restored = editStates.values
+            .flatMap { it.customFilterSlots }
+            .distinctBy { it.slotId }
+        if (restored.isNotEmpty()) {
+            _uiState.update { it.copy(customFilters = restored.map { slot -> slot.toUi() }) }
+        }
+    }
+
+    private fun persistCustomFiltersJson() {
+        syncCustomFiltersToEditStates()
+        val pageId = _uiState.value.pages.firstOrNull()?.id ?: return
+        val state = editStates[pageId] ?: return
+        viewModelScope.launch {
+            runCatching {
+                documentRepository.updatePageEditState(pageId, state.toJson())
+            }
+        }
+    }
 }

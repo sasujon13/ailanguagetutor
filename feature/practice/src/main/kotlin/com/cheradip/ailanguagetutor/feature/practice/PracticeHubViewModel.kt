@@ -33,6 +33,7 @@ import com.cheradip.ailanguagetutor.core.pack.LanguagePackRepository
 import com.cheradip.ailanguagetutor.core.speech.CalibrationTier
 import com.cheradip.ailanguagetutor.core.speech.LanguageCalibrationStatus
 import com.cheradip.ailanguagetutor.core.speech.ListeningState
+import com.cheradip.ailanguagetutor.core.speech.SpeechListenConfig
 import com.cheradip.ailanguagetutor.core.speech.SpeechToTextEngine
 import com.cheradip.ailanguagetutor.core.speech.VoiceCalibrationRepository
 import com.cheradip.ailanguagetutor.core.translation.OfflinePracticeProcessor
@@ -300,6 +301,9 @@ class PracticeHubViewModel @Inject constructor(
     fun updateTypedInput(text: String) {
         val langs = practiceLanguages.value
         cancelVoiceAutoAiTimer()
+        if (_uiState.value.isListening) {
+            stopVoiceInput()
+        }
         _uiState.update {
             it.copy(
                 typedInput = text,
@@ -325,6 +329,28 @@ class PracticeHubViewModel @Inject constructor(
             runIncrementalOffline(text)
         }
         lastTypedInput = text
+    }
+
+    fun clearTypedInput() {
+        cancelVoiceAutoAiTimer()
+        offlineTypingJob?.cancel()
+        lastTypedInput = ""
+        if (_uiState.value.isListening || _uiState.value.speechMode == SpeechCaptureMode.VOICE_INPUT) {
+            speechEngine.stopListening()
+        }
+        _uiState.update {
+            it.copy(
+                typedInput = "",
+                partialSpeech = "",
+                isListening = false,
+                speechMode = SpeechCaptureMode.NONE,
+                resultSaved = false,
+                saveMessage = null,
+                processError = null,
+                inputWords = emptyList(),
+                wordSheet = null,
+            )
+        }
     }
 
     /** For scan/OCR text injected into Practice — processes immediately (AI first, offline fallback). */
@@ -627,6 +653,10 @@ class PracticeHubViewModel @Inject constructor(
     }
 
     fun startVoiceInput() {
+        if (_uiState.value.isListening && _uiState.value.speechMode == SpeechCaptureMode.VOICE_INPUT) {
+            stopVoiceInput()
+            return
+        }
         cancelVoiceAutoAiTimer()
         val inputLang = practiceLanguages.value.inputLanguage.lowercase()
         val allowed = _uiState.value.calibrationStatuses
@@ -658,7 +688,13 @@ class PracticeHubViewModel @Inject constructor(
                 partialSpeech = "",
             )
         }
-        speechEngine.startListening(inputLang)
+        speechEngine.startListening(
+            inputLang,
+            SpeechListenConfig(
+                continuous = true,
+                silenceTimeoutMs = VOICE_SESSION_SILENCE_MS,
+            ),
+        )
     }
 
     fun stopVoiceInput() {
@@ -668,7 +704,11 @@ class PracticeHubViewModel @Inject constructor(
             it.copy(
                 isListening = false,
                 speechMode = SpeechCaptureMode.NONE,
+                partialSpeech = "",
             )
+        }
+        if (_uiState.value.typedInput.isNotBlank()) {
+            scheduleVoiceAutoAi()
         }
     }
 
@@ -874,7 +914,18 @@ class PracticeHubViewModel @Inject constructor(
     private fun handleListeningState(state: ListeningState) {
         when (state) {
             ListeningState.Idle -> {
-                _uiState.update { it.copy(isListening = false) }
+                if (_uiState.value.speechMode == SpeechCaptureMode.VOICE_INPUT) {
+                    _uiState.update {
+                        it.copy(
+                            isListening = false,
+                            speechMode = SpeechCaptureMode.NONE,
+                            partialSpeech = "",
+                        )
+                    }
+                    if (_uiState.value.typedInput.isNotBlank()) {
+                        scheduleVoiceAutoAi()
+                    }
+                }
             }
             ListeningState.Listening -> {
                 if (_uiState.value.speechMode == SpeechCaptureMode.VOICE_INPUT) {
@@ -894,27 +945,27 @@ class PracticeHubViewModel @Inject constructor(
             }
             is ListeningState.Final -> {
                 if (_uiState.value.speechMode == SpeechCaptureMode.VOICE_INPUT) {
+                    val merged = appendVoiceSegment(_uiState.value.typedInput, state.text)
                     _uiState.update {
                         it.copy(
-                            typedInput = state.text,
+                            typedInput = merged,
                             partialSpeech = "",
-                            isListening = false,
-                            speechMode = SpeechCaptureMode.NONE,
+                            isListening = true,
+                            speechMode = SpeechCaptureMode.VOICE_INPUT,
                             processError = null,
-                            inputWords = wordMapBuilder.buildFromPlainText(state.text),
+                            inputWords = wordMapBuilder.buildFromPlainText(merged),
                             lastInputSource = InputSource.VOICE,
                             wordSheet = null,
                         )
                     }
                     val langs = practiceLanguages.value
                     aiPrefetchCoordinator.schedulePracticeWarm(
-                        text = state.text,
+                        text = merged,
                         languageCode = langs.inputLanguage,
                         targetLang = langs.outputLanguage,
                         grammarDepth = grammarDepth.value,
                     )
-                    lastTypedInput = state.text
-                    scheduleVoiceAutoAi()
+                    lastTypedInput = merged
                 }
             }
             is ListeningState.Error -> {
@@ -924,6 +975,7 @@ class PracticeHubViewModel @Inject constructor(
                         speechErrorLinksCalibration = false,
                         isListening = false,
                         speechMode = SpeechCaptureMode.NONE,
+                        partialSpeech = "",
                     )
                 }
             }
@@ -938,6 +990,14 @@ class PracticeHubViewModel @Inject constructor(
         const val GUEST_AI_LOGIN_REQUIRED =
             "You've used your 99 free AI requests. Sign in or create an account to continue."
         private const val VOICE_AUTO_AI_DELAY_MS = 7_000L
+        private const val VOICE_SESSION_SILENCE_MS = 7_000L
+
+        internal fun appendVoiceSegment(base: String, segment: String): String {
+            val spoken = segment.trim()
+            if (spoken.isBlank()) return base
+            if (base.isBlank()) return spoken
+            return if (base.last().isWhitespace()) base + spoken else "$base $spoken"
+        }
 
         fun micCalibrationRequiredMessage(languageCode: String): String =
             "Mic not calibrated for ${languageCode.uppercase()}. Click for Calibration."

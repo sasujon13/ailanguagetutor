@@ -306,6 +306,8 @@ fun PracticeHubScreen(
 
                 onStopVoice = viewModel::stopVoiceInput,
 
+                onClearInput = viewModel::clearTypedInput,
+
                 onSpeakOutput = viewModel::speak,
                 onTogglePlayback = viewModel::togglePlayback,
                 playbackState = playbackState,

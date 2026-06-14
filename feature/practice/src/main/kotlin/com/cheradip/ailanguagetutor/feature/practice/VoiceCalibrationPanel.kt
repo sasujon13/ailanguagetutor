@@ -17,6 +17,7 @@ import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.BookmarkBorder
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MicOff
 import androidx.compose.material.icons.filled.QrCodeScanner
@@ -32,12 +33,15 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.cheradip.ailanguagetutor.core.locale.appString
@@ -223,6 +227,7 @@ fun PracticeInputCard(
     onProcessWithAi: () -> Unit,
     onStartVoice: () -> Unit,
     onStopVoice: () -> Unit,
+    onClearInput: () -> Unit,
     onSpeakOutput: (String) -> Unit,
     onTogglePlayback: (String) -> Unit = onSpeakOutput,
     playbackState: TtsPlaybackState = TtsPlaybackState.IDLE,
@@ -234,16 +239,46 @@ fun PracticeInputCard(
     modifier: Modifier = Modifier,
 ) {
     var syncedLine by remember { mutableStateOf("") }
-    val displayInput = when {
-        hubState.isListening && hubState.partialSpeech.isNotBlank() -> hubState.partialSpeech
+    val composedInput = when {
+        hubState.isListening && hubState.partialSpeech.isNotBlank() ->
+            PracticeHubViewModel.appendVoiceSegment(hubState.typedInput, hubState.partialSpeech)
         else -> hubState.typedInput
+    }
+    var textFieldValue by remember { mutableStateOf(TextFieldValue()) }
+
+    LaunchedEffect(composedInput) {
+        textFieldValue = TextFieldValue(
+            text = composedInput,
+            selection = TextRange(composedInput.length),
+        )
     }
 
     Card(modifier = modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
+            ) {
+                if (composedInput.isNotBlank() || hubState.isListening) {
+                    IconButton(onClick = onClearInput) {
+                        Icon(
+                            Icons.Default.Close,
+                            contentDescription = "Clear input",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
             OutlinedTextField(
-                value = displayInput,
-                onValueChange = onInputChange,
+                value = textFieldValue,
+                onValueChange = { updated ->
+                    val text = updated.text
+                    textFieldValue = TextFieldValue(
+                        text = text,
+                        selection = TextRange(text.length),
+                    )
+                    onInputChange(text)
+                },
                 label = {
                     Text(
                         if (hubState.isListening) "Listening… speak now" else "Type or use the mic button",

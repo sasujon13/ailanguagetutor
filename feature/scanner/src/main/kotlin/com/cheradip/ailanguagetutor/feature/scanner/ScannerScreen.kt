@@ -3,6 +3,7 @@ package com.cheradip.ailanguagetutor.feature.scanner
 import android.Manifest
 import android.app.Activity
 import android.content.pm.PackageManager
+import android.content.ContextWrapper
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -47,8 +48,9 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.cheradip.ailanguagetutor.core.image.ScanTool
 import com.cheradip.ailanguagetutor.ui.components.CheradipTopBar
-import com.google.mlkit.vision.documentscanner.GmsDocumentScanningResult
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 enum class ScannerLaunchMode {
     CAMERA,
@@ -67,6 +69,7 @@ fun ScannerScreen(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
     var hasCameraPermission by remember {
         mutableStateOf(
@@ -89,27 +92,35 @@ fun ScannerScreen(
     val mlKitScannerLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartIntentSenderForResult(),
     ) { result ->
-        if (result.resultCode != Activity.RESULT_OK) return@rememberLauncherForActivityResult
-        val scanResult = GmsDocumentScanningResult.fromActivityResultIntent(result.data)
-        val pages = MlKitDocumentScannerHelper.extractPageBytes(scanResult) { uri ->
-            context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
-                ?: ByteArray(0)
-        }.filter { it.isNotEmpty() }
-        viewModel.onPhotosCaptured(pages)
+        scope.launch {
+            val outcome = withContext(Dispatchers.IO) {
+                MlKitDocumentScannerHelper.handleActivityResult(result.resultCode, result.data) { uri ->
+                    runCatching {
+                        context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                    }.getOrNull()
+                }
+            }
+            when (outcome) {
+                is MlKitDocumentScannerHelper.ScanActivityOutcome.Success ->
+                    viewModel.onPhotosCaptured(outcome.pages)
+                is MlKitDocumentScannerHelper.ScanActivityOutcome.Cancelled -> Unit
+                is MlKitDocumentScannerHelper.ScanActivityOutcome.Failed ->
+                    snackbarHostState.showSnackbar(outcome.message)
+            }
+        }
     }
-    val scope = rememberCoroutineScope()
     var importGalleryOpened by remember { mutableStateOf(false) }
     var initialScanLaunched by remember { mutableStateOf(false) }
 
     val launchMlKitScan: () -> Unit = {
-        val activity = context as? Activity
+        val activity = context.findHostActivity()
         if (activity != null) {
             scope.launch {
                 runCatching {
                     val sender = MlKitDocumentScannerHelper.getScanIntentSender(activity)
                     mlKitScannerLauncher.launch(IntentSenderRequest.Builder(sender).build())
                 }.onFailure {
-                    snackbarHostState.showSnackbar("Document scanner unavailable")
+                    snackbarHostState.showSnackbar("Document scanner unavailable — opening gallery")
                     galleryLauncher.launch("image/*")
                 }
             }
@@ -351,6 +362,12 @@ fun ScannerScreen(
             }
         }
     }
+}
+
+private tailrec fun android.content.Context.findHostActivity(): Activity? = when (this) {
+    is Activity -> this
+    is ContextWrapper -> baseContext.findHostActivity()
+    else -> null
 }
 
 @Composable

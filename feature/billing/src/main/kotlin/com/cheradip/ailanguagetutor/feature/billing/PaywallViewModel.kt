@@ -4,13 +4,15 @@ import android.app.Activity
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.cheradip.ailanguagetutor.core.auth.AuthRepository
-import com.cheradip.ailanguagetutor.core.billing.BillingPeriod
+import com.cheradip.ailanguagetutor.core.billing.hasPaidSubscription
 import com.cheradip.ailanguagetutor.core.billing.BillingRepository
+import com.cheradip.ailanguagetutor.core.billing.BillingPeriod
 import com.cheradip.ailanguagetutor.core.billing.PaywallConfig
 import com.cheradip.ailanguagetutor.core.billing.PlayProductIds
 import com.cheradip.ailanguagetutor.core.billing.PromoCodes
 import com.cheradip.ailanguagetutor.core.billing.PromoRepository
 import com.cheradip.ailanguagetutor.core.billing.PromoValidation
+import com.cheradip.ailanguagetutor.core.billing.ReferralRepository
 import com.cheradip.ailanguagetutor.core.billing.SubscriptionPlan
 import com.cheradip.ailanguagetutor.core.billing.SubscriptionPriceDisplay
 import com.cheradip.ailanguagetutor.core.billing.SubscriptionPricing
@@ -46,6 +48,7 @@ data class PaywallUiState(
     val purchaseError: String? = null,
     val storePrices: Map<String, String> = emptyMap(),
     val billingReady: Boolean = false,
+    val useReferralBalance: Boolean = false,
 )
 
 @HiltViewModel
@@ -53,6 +56,7 @@ class PaywallViewModel @Inject constructor(
     private val promoRepository: PromoRepository,
     private val billingRepository: BillingRepository,
     private val authRepository: AuthRepository,
+    private val referralRepository: ReferralRepository,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(PaywallUiState())
@@ -61,6 +65,7 @@ class PaywallViewModel @Inject constructor(
     init {
         viewModelScope.launch {
             authRepository.currentUser.first()
+            referralRepository.refresh()
             val config = promoRepository.fetchPaywallConfig(
                 PlayProductIds.productId(SubscriptionTier.PRO, BillingPeriod.MONTHLY),
             )
@@ -131,9 +136,28 @@ class PaywallViewModel @Inject constructor(
         }
     }
 
+    fun setUseReferralBalance(enabled: Boolean) {
+        _uiState.update { it.copy(useReferralBalance = enabled) }
+    }
+
+    fun referralCreditToApply(state: PaywallUiState = _uiState.value): Double {
+        if (!state.useReferralBalance) return 0.0
+        val available = referralRepository.balance.value.availableUsd
+        if (available <= 0.0) return 0.0
+        val price = SubscriptionPricing.basePrice(
+            state.selectedPlan.toSubscriptionPlan(),
+            state.billingPeriod,
+        )
+        val discounted = activeDiscountPercents(state).fold(price) { acc, pct ->
+            acc * (1 - pct / 100.0)
+        }
+        return minOf(available, discounted).let { kotlin.math.round(it * 100) / 100.0 }
+    }
+
     fun subscribe(activity: Activity, onDone: () -> Unit) {
         val state = _uiState.value
         val tier = if (state.selectedPlan == PaywallPlan.PLUS) SubscriptionTier.PLUS else SubscriptionTier.PRO
+        val referralCredit = referralCreditToApply(state)
         viewModelScope.launch {
             _uiState.update { it.copy(purchaseInProgress = true, purchaseError = null) }
             billingRepository.purchaseSubscription(
@@ -142,11 +166,13 @@ class PaywallViewModel @Inject constructor(
                 period = state.billingPeriod,
                 slot1Code = state.slot1Code.takeIf { it.isNotBlank() },
                 slot2Code = state.slot2Code.takeIf { it.isNotBlank() },
+                referralBalanceUsd = referralCredit.takeIf { it > 0.0 },
             )
                 .onSuccess {
-                    _uiState.update { it.copy(purchaseInProgress = false) }
+                    _uiState.update { it.copy(purchaseInProgress = false, useReferralBalance = false) }
+                    referralRepository.refresh()
                     billingRepository.refreshAccess()
-                    if (billingRepository.accessState.value != com.cheradip.ailanguagetutor.core.billing.AccessState.TRIAL_EXPIRED) {
+                    if (billingRepository.accessState.value.hasPaidSubscription()) {
                         onDone()
                     }
                 }
@@ -168,12 +194,10 @@ class PaywallViewModel @Inject constructor(
             billingRepository.restorePurchases()
             billingRepository.refreshAccess()
             _uiState.update { it.copy(purchaseInProgress = false) }
-            when (billingRepository.accessState.value) {
-                com.cheradip.ailanguagetutor.core.billing.AccessState.PRO_ACTIVE,
-                com.cheradip.ailanguagetutor.core.billing.AccessState.PLUS_ACTIVE,
-                com.cheradip.ailanguagetutor.core.billing.AccessState.SUBSCRIBED,
-                -> onRestored()
-                else -> _uiState.update {
+            if (billingRepository.accessState.value.hasPaidSubscription()) {
+                onRestored()
+            } else {
+                _uiState.update {
                     it.copy(purchaseError = "No active subscription found on this Google account")
                 }
             }

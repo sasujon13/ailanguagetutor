@@ -16,7 +16,6 @@ import com.cheradip.ailanguagetutor.core.audio.VoicePreferenceRepository
 import com.cheradip.ailanguagetutor.core.auth.AuthRepository
 import com.cheradip.ailanguagetutor.core.billing.BillingRepository
 import com.cheradip.ailanguagetutor.core.billing.CheckAppAccessUseCase
-import com.cheradip.ailanguagetutor.core.billing.PromoRepository
 import com.cheradip.ailanguagetutor.core.billing.ReferralRepository
 import com.cheradip.ailanguagetutor.core.locale.AppLocaleManager
 import com.cheradip.ailanguagetutor.core.ai.PlusTierAiModeSync
@@ -35,7 +34,6 @@ class MainActivity : ComponentActivity() {
     @Inject lateinit var authRepository: AuthRepository
     @Inject lateinit var billingRepository: BillingRepository
     @Inject lateinit var checkAppAccessUseCase: CheckAppAccessUseCase
-    @Inject lateinit var promoRepository: PromoRepository
     @Inject lateinit var referralRepository: ReferralRepository
     @Inject lateinit var pronunciationEngine: PronunciationEngine
     @Inject lateinit var voicePreferenceRepository: VoicePreferenceRepository
@@ -77,9 +75,7 @@ class MainActivity : ComponentActivity() {
                     showOnboarding = showOnboarding,
                     onOnboardingComplete = { showOnboarding = false },
                     authRepository = authRepository,
-                    billingRepository = billingRepository,
                     checkAppAccessUseCase = checkAppAccessUseCase,
-                    promoRepository = promoRepository,
                     referralRepository = referralRepository,
                     learningActivitySyncRepository = learningActivitySyncRepository,
                     guestAiGateNotifier = guestAiGateNotifier,
@@ -92,5 +88,10 @@ class MainActivity : ComponentActivity() {
                 )
             }
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        lifecycleScope.launch { billingRepository.refreshAccess() }
     }
 }

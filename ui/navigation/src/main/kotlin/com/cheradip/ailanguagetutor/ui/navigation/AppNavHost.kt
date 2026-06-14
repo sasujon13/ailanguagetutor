@@ -29,7 +29,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import com.cheradip.ailanguagetutor.core.locale.AppLocaleManager
@@ -45,10 +44,8 @@ import androidx.navigation.navArgument
 import com.cheradip.ailanguagetutor.core.audio.PronunciationEngine
 import com.cheradip.ailanguagetutor.core.auth.AuthRepository
 import com.cheradip.ailanguagetutor.core.auth.AuthUser
-import com.cheradip.ailanguagetutor.core.billing.AccessState
-import com.cheradip.ailanguagetutor.core.billing.BillingRepository
+import com.cheradip.ailanguagetutor.core.billing.grantsLearningAccess
 import com.cheradip.ailanguagetutor.core.billing.CheckAppAccessUseCase
-import com.cheradip.ailanguagetutor.core.billing.PromoRepository
 import com.cheradip.ailanguagetutor.core.billing.ReferralRepository
 import com.cheradip.ailanguagetutor.core.device.GuestAiGateNotifier
 import com.cheradip.ailanguagetutor.core.device.ScanWorkflowRepository
@@ -91,9 +88,7 @@ fun AppNavHost(
     showOnboarding: Boolean,
     onOnboardingComplete: () -> Unit,
     authRepository: AuthRepository,
-    billingRepository: BillingRepository,
     checkAppAccessUseCase: CheckAppAccessUseCase,
-    promoRepository: PromoRepository,
     referralRepository: ReferralRepository,
     learningActivitySyncRepository: LearningActivitySyncRepository,
     guestAiGateNotifier: GuestAiGateNotifier,
@@ -110,6 +105,7 @@ fun AppNavHost(
     val backStack by navController.currentBackStackEntryAsState()
     val currentRoute = backStack?.destination?.route
     val accessState by checkAppAccessUseCase.accessState.collectAsStateWithLifecycle()
+    val hasLearningAccess = accessState.grantsLearningAccess()
     val localeUi by appLocaleManager.uiState.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
 
@@ -139,10 +135,24 @@ fun AppNavHost(
 
     var scanResumeHandled by rememberSaveable { mutableStateOf(false) }
 
-    LaunchedEffect(showOnboarding, scanResumeHandled) {
+    LaunchedEffect(showOnboarding, scanResumeHandled, hasLearningAccess) {
         if (showOnboarding || scanResumeHandled) return@LaunchedEffect
         scanResumeHandled = true
         val session = scanWorkflowRepository.currentSession() ?: return@LaunchedEffect
+        if (session.scanOnly) {
+            if (documentRepository.getDocument(session.documentId) == null) {
+                scanWorkflowRepository.clear()
+            } else if (session.stage == ScanWorkflowStage.SCANNER) {
+                navController.navigate(Routes.scanner(session.mode, scanOnly = true)) {
+                    launchSingleTop = true
+                }
+            }
+            return@LaunchedEffect
+        }
+        if (!hasLearningAccess) {
+            scanWorkflowRepository.clear()
+            return@LaunchedEffect
+        }
         if (documentRepository.getDocument(session.documentId) == null) {
             scanWorkflowRepository.clear()
             return@LaunchedEffect
@@ -174,7 +184,7 @@ fun AppNavHost(
     }
 
     val routeBase = currentRoute?.substringBefore('?')
-    val showBottomBar = routeBase != null
+    val showBottomBar = Routes.showsBottomNavigation(routeBase)
     val nestedNavBack: (() -> Unit)? = remember(routeBase, navController) {
         if (
             routeBase != null &&
@@ -190,19 +200,22 @@ fun AppNavHost(
 
     var selectedTab by rememberSaveable { mutableIntStateOf(0) }
 
-    LaunchedEffect(accessState, currentRoute) {
-        if (accessState == AccessState.TRIAL_EXPIRED &&
-            routeBase !in setOf(
-                Routes.PAYWALL,
-                "login",
-                "register",
-                Routes.FORGOT_PASSWORD,
-                Routes.UPDATE_PASSWORD,
-                Routes.CHANGE_EMAIL,
-                Routes.ONBOARDING,
-            )
-        ) {
-            navController.navigate(Routes.PAYWALL) { launchSingleTop = true }
+    fun navigateToPaywallForLearning() {
+        navController.navigate(Routes.PAYWALL) { launchSingleTop = true }
+    }
+
+    fun requireLearningAccess(onAllowed: () -> Unit) {
+        if (hasLearningAccess) onAllowed() else navigateToPaywallForLearning()
+    }
+
+    LaunchedEffect(currentRoute, hasLearningAccess) {
+        if (hasLearningAccess) return@LaunchedEffect
+        val route = currentRoute ?: return@LaunchedEffect
+        if (route == Routes.PAYWALL) return@LaunchedEffect
+        if (!Routes.requiresLearningSubscription(route)) return@LaunchedEffect
+        navController.navigate(Routes.PAYWALL) {
+            popUpTo(Routes.HOME) { saveState = true }
+            launchSingleTop = true
         }
     }
 
@@ -218,6 +231,11 @@ fun AppNavHost(
     }
 
     fun navigateMainTab(index: Int, route: String) {
+        val isLearningTab = route.startsWith("practice") || route == Routes.LIBRARY
+        if (isLearningTab && !hasLearningAccess) {
+            navigateToPaywallForLearning()
+            return
+        }
         selectedTab = index
         val destination = when (route) {
             Routes.HOME -> Routes.HOME
@@ -236,10 +254,12 @@ fun AppNavHost(
     }
 
     fun openPracticeActivity(activityId: Long) {
-        selectedTab = 1
-        navController.navigate(Routes.practiceHub(activityId = activityId)) {
-            popUpTo(Routes.HOME) { saveState = true }
-            launchSingleTop = true
+        requireLearningAccess {
+            selectedTab = 1
+            navController.navigate(Routes.practiceHub(activityId = activityId)) {
+                popUpTo(Routes.HOME) { saveState = true }
+                launchSingleTop = true
+            }
         }
     }
 
@@ -250,11 +270,17 @@ fun AppNavHost(
                 AppMenuDestination.HOME -> navigateMainTab(0, Routes.HOME)
                 AppMenuDestination.PRACTICE -> navigateMainTab(1, Routes.PRACTICE_HUB)
                 AppMenuDestination.LEARNING -> navigateMainTab(2, Routes.LIBRARY)
-                AppMenuDestination.LANGUAGES -> navController.navigate(Routes.LANGUAGES) { launchSingleTop = true }
-                AppMenuDestination.GRAMMAR -> navController.navigate(Routes.GRAMMAR) { launchSingleTop = true }
+                AppMenuDestination.LANGUAGES -> requireLearningAccess {
+                    navController.navigate(Routes.LANGUAGES) { launchSingleTop = true }
+                }
+                AppMenuDestination.GRAMMAR -> requireLearningAccess {
+                    navController.navigate(Routes.GRAMMAR) { launchSingleTop = true }
+                }
                 AppMenuDestination.REFERRAL -> navController.navigate(Routes.REFERRAL) { launchSingleTop = true }
                 AppMenuDestination.PAYWALL -> navController.navigate(Routes.PAYWALL) { launchSingleTop = true }
-                AppMenuDestination.MODE_SELECTION -> navController.navigate(Routes.MODE_SELECTION) { launchSingleTop = true }
+                AppMenuDestination.MODE_SELECTION -> requireLearningAccess {
+                    navController.navigate(Routes.MODE_SELECTION) { launchSingleTop = true }
+                }
                 AppMenuDestination.PROFILE -> navigateMainTab(3, Routes.PROFILE)
                 AppMenuDestination.SETTINGS -> navigateMainTab(4, Routes.SETTINGS)
                 AppMenuDestination.ADMIN -> navController.navigate(Routes.ADMIN) { launchSingleTop = true }
@@ -262,10 +288,6 @@ fun AppNavHost(
             }
         },
     )
-
-    if (accessState == AccessState.TRIAL_EXPIRED && currentRoute == Routes.PAYWALL) {
-        // Paywall is shown via navigation
-    }
 
     Scaffold(
         modifier = modifier,
@@ -326,33 +348,55 @@ fun AppNavHost(
             }
             composable(Routes.HOME) {
                 HomeScreen(
+                    hasLearningAccess = hasLearningAccess,
+                    onRequireLearningSubscription = ::navigateToPaywallForLearning,
                     onScanClick = { scanOnly ->
-                        navController.navigate(Routes.scanner("camera", scanOnly))
+                        if (scanOnly) {
+                            navController.navigate(Routes.scanner("camera", true))
+                        } else {
+                            requireLearningAccess {
+                                navController.navigate(Routes.scanner("camera", false))
+                            }
+                        }
                     },
-                    onCameraClick = { navController.navigate(Routes.scanner("camera")) },
-                    onImportClick = { navController.navigate(Routes.scanner("import")) },
+                    onCameraClick = {
+                        requireLearningAccess { navController.navigate(Routes.scanner("camera")) }
+                    },
+                    onImportClick = {
+                        requireLearningAccess { navController.navigate(Routes.scanner("import")) }
+                    },
                     onPracticeClick = {
-                        selectedTab = 1
-                        navController.navigate(Routes.practiceHub())
+                        requireLearningAccess {
+                            selectedTab = 1
+                            navController.navigate(Routes.practiceHub())
+                        }
                     },
                     onTypeClick = {
-                        selectedTab = 1
-                        navController.navigate(Routes.practiceHub())
+                        requireLearningAccess {
+                            selectedTab = 1
+                            navController.navigate(Routes.practiceHub())
+                        }
                     },
                     onVoiceClick = {
-                        selectedTab = 1
-                        navController.navigate(Routes.practiceHub(startVoice = true))
+                        requireLearningAccess {
+                            selectedTab = 1
+                            navController.navigate(Routes.practiceHub(startVoice = true))
+                        }
                     },
                     onListenClick = {
-                        selectedTab = 1
-                        navController.navigate(Routes.practiceHub())
+                        requireLearningAccess {
+                            selectedTab = 1
+                            navController.navigate(Routes.practiceHub())
+                        }
                     },
                     onLearningClick = {
-                        selectedTab = 2
-                        navController.navigate(Routes.LIBRARY)
+                        requireLearningAccess {
+                            selectedTab = 2
+                            navController.navigate(Routes.LIBRARY)
+                        }
                     },
                     onGrammarClick = {
-                        navController.navigate(Routes.GRAMMAR)
+                        requireLearningAccess { navController.navigate(Routes.GRAMMAR) }
                     },
                 )
             }
@@ -430,7 +474,9 @@ fun AppNavHost(
                     onNavigateAdminReports = {
                         navController.navigate(Routes.ADMIN_REPORTS) { launchSingleTop = true }
                     },
-                    onNavigateModeSelection = { navController.navigate(Routes.MODE_SELECTION) },
+                    onNavigateModeSelection = {
+                        requireLearningAccess { navController.navigate(Routes.MODE_SELECTION) { launchSingleTop = true } }
+                    },
                     onOpenSupport = openSupport,
                     isAdmin = currentUser?.role == "admin",
                     pronunciationEngine = pronunciationEngine,
@@ -614,9 +660,7 @@ fun AppNavHost(
                         navController.navigate(Routes.login("paywall"))
                     },
                     onSubscribed = {
-                        if (accessState != AccessState.TRIAL_EXPIRED) {
-                            navController.popBackStack()
-                        }
+                        navController.popBackStack()
                     },
                 )
             }

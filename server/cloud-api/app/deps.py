@@ -35,3 +35,18 @@ def require_admin(user: User = Depends(get_current_user)) -> User:
     if user.role != "admin":
         raise HTTPException(403, "Admin access required")
     return user
+
+
+def get_optional_user(
+    authorization: str | None = Header(default=None, alias="Authorization"),
+    db: Session = Depends(get_db),
+) -> User | None:
+    if not authorization or not authorization.startswith("Bearer "):
+        return None
+    token = authorization.removeprefix("Bearer ").strip()
+    if not token:
+        return None
+    row = db.scalar(select(SessionToken).where(SessionToken.token == token))
+    if not row or row.expires_at < datetime.utcnow():
+        return None
+    return db.get(User, row.user_id)

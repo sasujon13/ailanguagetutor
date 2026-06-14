@@ -78,6 +78,9 @@ interface AiltReferralService {
 
     @POST("referral/withdraw")
     suspend fun withdraw(@Body body: ReferralWithdrawRequest): ReferralWithdrawResponse
+
+    @POST("referral/gift")
+    suspend fun gift(@Body body: ReferralGiftRequest): ReferralGiftResponse
 }
 
 interface AiltLanguageService {
@@ -126,6 +129,13 @@ interface AiltAdminService {
 
     @GET("admin/reports/debug")
     suspend fun reportsDebug(): AdminReportsDebugResponse
+
+    @GET("admin/reports/earnings")
+    suspend fun reportsEarnings(
+        @Query("period") period: String,
+        @Query("from_date") fromDate: String? = null,
+        @Query("to_date") toDate: String? = null,
+    ): AdminEarningsReportResponse
 }
 
 interface AiltAiService {

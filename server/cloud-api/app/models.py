@@ -70,12 +70,22 @@ class Subscription(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), index=True)
+    buyer_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), index=True)
+    referrer_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), index=True)
     device_id: Mapped[str | None] = mapped_column(String(128), index=True)
     product_id: Mapped[str] = mapped_column(String(64))
     purchase_token: Mapped[str] = mapped_column(String(512))
     tier: Mapped[str] = mapped_column(String(16), default="pro")
     active: Mapped[bool] = mapped_column(Boolean, default=True)
     expires_at_ms: Mapped[int | None] = mapped_column(BigInteger)
+    gross_amount_usd: Mapped[float] = mapped_column(Float, default=0.0)
+    net_amount_usd: Mapped[float] = mapped_column(Float, default=0.0)
+    play_amount_usd: Mapped[float] = mapped_column(Float, default=0.0)
+    referral_balance_used_usd: Mapped[float] = mapped_column(Float, default=0.0)
+    referral_commission_usd: Mapped[float] = mapped_column(Float, default=0.0)
+    paid_at_ms: Mapped[int | None] = mapped_column(BigInteger, index=True)
+    slot1_code: Mapped[str | None] = mapped_column(String(64))
+    slot2_code: Mapped[str | None] = mapped_column(String(64))
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
 
@@ -107,9 +117,36 @@ class ReferralBalance(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), unique=True, index=True)
     balance_usd: Mapped[float] = mapped_column(Float, default=0.0)
+    pending_usd: Mapped[float] = mapped_column(Float, default=0.0)
+    available_usd: Mapped[float] = mapped_column(Float, default=0.0)
     lifetime_earned_usd: Mapped[float] = mapped_column(Float, default=0.0)
 
     user: Mapped[User] = relationship(back_populates="referral_balance")
+
+
+class ReferralEarning(Base):
+    __tablename__ = "referral_earnings"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    subscription_id: Mapped[int] = mapped_column(ForeignKey("subscriptions.id"), index=True)
+    referrer_user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    amount_usd: Mapped[float] = mapped_column(Float)
+    status: Mapped[str] = mapped_column(String(16), default="pending")
+    clears_at_ms: Mapped[int] = mapped_column(BigInteger)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
+class ReferralBalanceUsage(Base):
+    __tablename__ = "referral_balance_usages"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    usage_type: Mapped[str] = mapped_column(String(16))
+    amount_usd: Mapped[float] = mapped_column(Float)
+    recipient_email: Mapped[str | None] = mapped_column(String(255))
+    subscription_id: Mapped[int | None] = mapped_column(ForeignKey("subscriptions.id"), index=True)
+    withdrawal_id: Mapped[int | None] = mapped_column(ForeignKey("referral_withdrawals.id"), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
 
 class ReferralWithdrawal(Base):

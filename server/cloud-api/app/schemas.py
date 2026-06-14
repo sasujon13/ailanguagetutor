@@ -114,7 +114,7 @@ class DeviceRegisterRequest(BaseModel):
 
 class DeviceRegisterResponse(BaseModel):
     trialEndsAt: int | None = None
-    trialDaysRemaining: int = 7
+    trialDaysRemaining: int = 30
 
 
 class GuestAiSyncRequest(BaseModel):
@@ -137,6 +137,12 @@ class BillingVerifyRequest(BaseModel):
     productId: str
     slot1Code: str | None = None
     slot2Code: str | None = None
+    referralBalanceUsd: float | None = Field(None, ge=0)
+
+
+class ReferralGiftRequest(BaseModel):
+    recipientEmail: str = Field(min_length=3)
+    amountUsd: float = Field(gt=0)
 
 
 class BillingVerifyResponse(BaseModel):

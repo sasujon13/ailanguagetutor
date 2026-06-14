@@ -32,6 +32,7 @@ import androidx.lifecycle.viewModelScope
 import com.cheradip.ailanguagetutor.core.ai.HomeAiAdminDashboard
 import com.cheradip.ailanguagetutor.core.ai.HomeAiService
 import com.cheradip.ailanguagetutor.core.ai.HomeAiSettingsRepository
+import com.cheradip.ailanguagetutor.core.billing.AdminEarningsSnapshot
 import com.cheradip.ailanguagetutor.core.billing.AdminReportsRepository
 import com.cheradip.ailanguagetutor.core.billing.AdminReportsSnapshot
 import com.cheradip.ailanguagetutor.core.locale.appString
@@ -81,6 +82,24 @@ class AdminReportsViewModel @Inject constructor(
 
     private val _debugReports = MutableStateFlow<AdminReportsDebugResponse?>(null)
     val debugReports: StateFlow<AdminReportsDebugResponse?> = _debugReports.asStateFlow()
+
+    private val _earningsPeriod = MutableStateFlow(EarningsReportPeriod.MONTHLY)
+    val earningsPeriod: StateFlow<EarningsReportPeriod> = _earningsPeriod.asStateFlow()
+
+    private val _earningsFromMs = MutableStateFlow<Long?>(null)
+    val earningsFromMs: StateFlow<Long?> = _earningsFromMs.asStateFlow()
+
+    private val _earningsToMs = MutableStateFlow<Long?>(null)
+    val earningsToMs: StateFlow<Long?> = _earningsToMs.asStateFlow()
+
+    private val _earningsReport = MutableStateFlow<AdminEarningsSnapshot?>(null)
+    val earningsReport: StateFlow<AdminEarningsSnapshot?> = _earningsReport.asStateFlow()
+
+    private val _earningsLoading = MutableStateFlow(false)
+    val earningsLoading: StateFlow<Boolean> = _earningsLoading.asStateFlow()
+
+    private val _earningsError = MutableStateFlow<String?>(null)
+    val earningsError: StateFlow<String?> = _earningsError.asStateFlow()
 
     val clientPackUsage = packUsageTracker.recentEvents
 
@@ -133,6 +152,59 @@ class AdminReportsViewModel @Inject constructor(
             }
 
             _loading.value = false
+            if (settings.cloudReportsEnabled) {
+                loadEarningsReport()
+            }
+        }
+    }
+
+    fun selectEarningsPeriod(period: EarningsReportPeriod) {
+        _earningsPeriod.value = period
+        if (period == EarningsReportPeriod.CUSTOM && _earningsFromMs.value == null) {
+            val now = System.currentTimeMillis()
+            _earningsToMs.value = now
+            _earningsFromMs.value = now - 30L * 24 * 60 * 60 * 1000
+        }
+        if (period != EarningsReportPeriod.CUSTOM) {
+            loadEarningsReport()
+        }
+    }
+
+    fun setEarningsFrom(ms: Long) {
+        _earningsFromMs.value = ms
+    }
+
+    fun setEarningsTo(ms: Long) {
+        _earningsToMs.value = ms
+    }
+
+    fun loadEarningsReport() {
+        viewModelScope.launch {
+            _earningsLoading.value = true
+            _earningsError.value = null
+            val period = _earningsPeriod.value
+            if (period == EarningsReportPeriod.CUSTOM) {
+                val fromMs = _earningsFromMs.value
+                val toMs = _earningsToMs.value
+                if (fromMs == null || toMs == null) {
+                    _earningsError.value = "Select both From and To dates for custom range"
+                    _earningsLoading.value = false
+                    return@launch
+                }
+                if (fromMs > toMs) {
+                    _earningsError.value = "From date must be on or before To date"
+                    _earningsLoading.value = false
+                    return@launch
+                }
+            }
+            val from = _earningsFromMs.value?.let { formatEarningsApiDate(it) }
+                .takeIf { period == EarningsReportPeriod.CUSTOM }
+            val to = _earningsToMs.value?.let { formatEarningsApiDate(it) }
+                .takeIf { period == EarningsReportPeriod.CUSTOM }
+            adminReportsRepository.fetchEarningsReport(period.apiValue, from, to)
+                .onSuccess { _earningsReport.value = it }
+                .onFailure { _earningsError.value = it.message ?: "Could not load earnings" }
+            _earningsLoading.value = false
         }
     }
 
@@ -183,6 +255,12 @@ fun AdminReportsScreen(
     val reportSettings by viewModel.reportSettings.collectAsStateWithLifecycle()
     val debugReports by viewModel.debugReports.collectAsStateWithLifecycle()
     val clientPackUsage by viewModel.clientPackUsage.collectAsStateWithLifecycle()
+    val earningsPeriod by viewModel.earningsPeriod.collectAsStateWithLifecycle()
+    val earningsFromMs by viewModel.earningsFromMs.collectAsStateWithLifecycle()
+    val earningsToMs by viewModel.earningsToMs.collectAsStateWithLifecycle()
+    val earningsReport by viewModel.earningsReport.collectAsStateWithLifecycle()
+    val earningsLoading by viewModel.earningsLoading.collectAsStateWithLifecycle()
+    val earningsError by viewModel.earningsError.collectAsStateWithLifecycle()
 
     Scaffold(
         modifier = modifier,
@@ -257,6 +335,21 @@ fun AdminReportsScreen(
 
             cloud?.let { report ->
                 cloudGeneratedLabel(report.generatedAtMs)
+                SectionHeader(title = "Earnings")
+                ReportCard {
+                    AdminEarningsReportSection(
+                        loading = earningsLoading,
+                        error = earningsError,
+                        report = earningsReport,
+                        selectedPeriod = earningsPeriod,
+                        customFromMs = earningsFromMs,
+                        customToMs = earningsToMs,
+                        onPeriodSelected = viewModel::selectEarningsPeriod,
+                        onCustomFromSelected = viewModel::setEarningsFrom,
+                        onCustomToSelected = viewModel::setEarningsTo,
+                        onLoad = viewModel::loadEarningsReport,
+                    )
+                }
                 SectionHeader(title = appString("admin_reports_users"))
                 ReportCard {
                     MetricRow(appString("admin_reports_total_users"), report.totalUsers.toString())
@@ -280,6 +373,7 @@ fun AdminReportsScreen(
                     MetricRow(appString("admin_reports_promo_active"), "${report.promoCodesActive} / ${report.promoCodesTotal}")
                     MetricRow(appString("admin_reports_pending_withdrawals"), report.pendingWithdrawals.toString())
                     MetricRow(appString("admin_reports_referral_balance"), "$${"%.2f".format(report.referralBalanceUsd)}")
+                    MetricRow("Referral pending (uncleared)", "$${"%.2f".format(report.referralPendingCommissionUsd)}")
                 }
                 SectionHeader(title = "Language packs")
                 ReportCard {

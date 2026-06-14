@@ -47,4 +47,52 @@ object Routes {
     fun scannerDoc(documentId: Long) = "scanner/$documentId"
     fun ocrProcessing(documentId: Long) = "ocr/$documentId"
     fun reader(documentId: Long) = "reader/$documentId"
+
+    /** Routes that show the bottom navigation bar (main tabs + paywall escape hatch). */
+    fun showsBottomNavigation(routeBase: String?): Boolean = when {
+        routeBase == null -> false
+        routeBase == ONBOARDING -> false
+        routeBase == "scanner" || routeBase.startsWith("scanner/") -> false
+        routeBase.startsWith("ocr/") -> false
+        routeBase.startsWith("reader/") -> false
+        routeBase == "login" || routeBase == "register" -> false
+        routeBase == FORGOT_PASSWORD || routeBase == UPDATE_PASSWORD || routeBase == CHANGE_EMAIL -> false
+        routeBase.startsWith("user_manual") -> false
+        routeBase.startsWith("admin") -> false
+        else -> true
+    }
+
+    /** Scan-only scanner entry — free forever (advertising funnel). */
+    fun isScanOnlyRoute(fullRoute: String?): Boolean {
+        if (fullRoute == null) return false
+        val base = fullRoute.substringBefore('?')
+        if (base != "scanner") return false
+        return Regex("scanOnly=true", RegexOption.IGNORE_CASE).containsMatchIn(fullRoute)
+    }
+
+    /** Routes that need trial or subscription (learning); scan-only paths stay free. */
+    fun requiresLearningSubscription(fullRoute: String?): Boolean {
+        if (fullRoute == null) return false
+        val base = fullRoute.substringBefore('?')
+        if (isScanOnlyRoute(fullRoute)) return false
+        return when (base) {
+            HOME,
+            PROFILE,
+            SETTINGS,
+            PAYWALL,
+            ONBOARDING,
+            REFERRAL,
+            FORGOT_PASSWORD,
+            UPDATE_PASSWORD,
+            CHANGE_EMAIL,
+            USER_MANUAL,
+            -> false
+            "login", "register" -> false
+            else -> when {
+                base.startsWith("admin") -> false
+                base.startsWith("user_manual") -> false
+                else -> true
+            }
+        }
+    }
 }

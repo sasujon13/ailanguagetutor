@@ -128,7 +128,7 @@ data class DeviceRegisterRequest(
 @JsonClass(generateAdapter = true)
 data class DeviceRegisterResponse(
     val trialEndsAt: Long? = null,
-    val trialDaysRemaining: Int = 7,
+    val trialDaysRemaining: Int = 30,
 )
 
 @JsonClass(generateAdapter = true)
@@ -155,6 +155,7 @@ data class BillingVerifyRequest(
     val productId: String,
     val slot1Code: String? = null,
     val slot2Code: String? = null,
+    @Json(name = "referralBalanceUsd") val referralBalanceUsd: Double? = null,
 )
 
 @JsonClass(generateAdapter = true)
@@ -209,9 +210,27 @@ data class ReferralPolicyResponse(
 @JsonClass(generateAdapter = true)
 data class ReferralBalanceResponse(
     @Json(name = "balance_usd") val balanceUsd: Double,
+    @Json(name = "pending_usd") val pendingUsd: Double = 0.0,
+    @Json(name = "available_usd") val availableUsd: Double = 0.0,
     @Json(name = "lifetime_earned_usd") val lifetimeEarnedUsd: Double,
     @Json(name = "min_withdrawal_usd") val minWithdrawalUsd: Double = 100.0,
     val withdrawable: Boolean = false,
+)
+
+@JsonClass(generateAdapter = true)
+data class ReferralGiftRequest(
+    @Json(name = "recipientEmail") val recipientEmail: String,
+    @Json(name = "amountUsd") val amountUsd: Double,
+)
+
+@JsonClass(generateAdapter = true)
+data class ReferralGiftResponse(
+    val ok: Boolean,
+    val message: String,
+    @Json(name = "balance_usd") val balanceUsd: Double,
+    @Json(name = "pending_usd") val pendingUsd: Double = 0.0,
+    @Json(name = "available_usd") val availableUsd: Double = 0.0,
+    @Json(name = "lifetime_earned_usd") val lifetimeEarnedUsd: Double = 0.0,
 )
 
 @JsonClass(generateAdapter = true)
@@ -226,6 +245,9 @@ data class ReferralWithdrawResponse(
     val ok: Boolean,
     val message: String,
     @Json(name = "balance_usd") val balanceUsd: Double,
+    @Json(name = "pending_usd") val pendingUsd: Double = 0.0,
+    @Json(name = "available_usd") val availableUsd: Double = 0.0,
+    @Json(name = "lifetime_earned_usd") val lifetimeEarnedUsd: Double = 0.0,
     @Json(name = "withdrawal_id") val withdrawalId: Int? = null,
 )
 
@@ -436,6 +458,37 @@ data class AdminReportsEngagement(
 data class AdminReportsReferrals(
     @Json(name = "pending_withdrawals") val pendingWithdrawals: Int = 0,
     @Json(name = "total_balance_usd") val totalBalanceUsd: Double = 0.0,
+    @Json(name = "pending_commission_usd") val pendingCommissionUsd: Double = 0.0,
+)
+
+@JsonClass(generateAdapter = true)
+data class AdminEarningsMetrics(
+    val pending: Double = 0.0,
+    val available: Double = 0.0,
+    @Json(name = "net_pending") val netPending: Double = 0.0,
+    @Json(name = "net_available") val netAvailable: Double = 0.0,
+    @Json(name = "total_referral") val totalReferral: Double = 0.0,
+)
+
+@JsonClass(generateAdapter = true)
+data class AdminEarningsRow(
+    val label: String,
+    val pending: Double = 0.0,
+    val available: Double = 0.0,
+    @Json(name = "net_pending") val netPending: Double = 0.0,
+    @Json(name = "net_available") val netAvailable: Double = 0.0,
+    @Json(name = "total_referral") val totalReferral: Double = 0.0,
+)
+
+@JsonClass(generateAdapter = true)
+data class AdminEarningsReportResponse(
+    val period: String,
+    @Json(name = "bucket_period") val bucketPeriod: String = "",
+    val from: String = "",
+    val to: String = "",
+    @Json(name = "generated_at_ms") val generatedAtMs: Long = 0L,
+    val totals: AdminEarningsMetrics = AdminEarningsMetrics(),
+    val rows: List<AdminEarningsRow> = emptyList(),
 )
 
 @JsonClass(generateAdapter = true)

@@ -22,6 +22,8 @@ from app.models import (
 )
 from app.schemas import AdminPromoCodeDto, AdminPromoPatchDto, AiProviderToggleRequest, AiRoutingPolicyUpdateRequest, ReferralPolicyPatchDto
 from app.security import quota_used_percent
+from app.services.earnings_report import build_earnings_report
+from app.services.referral_earnings import mature_pending_earnings
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -315,8 +317,13 @@ def admin_reports(
     pending_withdrawals = db.scalar(
         select(func.count()).select_from(ReferralWithdrawal).where(ReferralWithdrawal.status == "pending")
     ) or 0
+    mature_pending_earnings(db)
+    db.commit()
     referral_balance_total = db.scalar(
-        select(func.coalesce(func.sum(ReferralBalance.balance_usd), 0.0))
+        select(func.coalesce(func.sum(ReferralBalance.available_usd), 0.0))
+    ) or 0.0
+    referral_pending_total = db.scalar(
+        select(func.coalesce(func.sum(ReferralBalance.pending_usd), 0.0))
     ) or 0.0
 
     providers = db.scalars(select(AiProvider)).all()
@@ -382,6 +389,7 @@ def admin_reports(
         "referrals": {
             "pending_withdrawals": pending_withdrawals,
             "total_balance_usd": round(float(referral_balance_total), 2),
+            "pending_commission_usd": round(float(referral_pending_total), 2),
         },
         "promo_codes": {
             "total": promo_total,
@@ -393,3 +401,22 @@ def admin_reports(
             "providers": provider_rows,
         },
     }
+
+
+@router.get("/reports/earnings")
+def admin_reports_earnings(
+    period: str = "monthly",
+    from_date: str | None = None,
+    to_date: str | None = None,
+    db: Session = Depends(get_db),
+    _admin: User = Depends(require_admin),
+) -> dict:
+    settings = _report_settings(db)
+    if not settings.cloud_reports_enabled:
+        raise HTTPException(503, "Cloud report generation is disabled by admin settings.")
+    try:
+        report = build_earnings_report(db, period=period, from_raw=from_date, to_raw=to_date)
+        db.commit()
+        return report
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc

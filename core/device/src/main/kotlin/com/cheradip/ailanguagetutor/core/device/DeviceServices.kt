@@ -36,7 +36,7 @@ class TrialRepository @Inject constructor(
     private val deviceService: AiltDeviceService,
     private val guestAiUsageRepository: GuestAiUsageRepository,
 ) {
-    private val _daysRemaining = MutableStateFlow(7)
+    private val _daysRemaining = MutableStateFlow(30)
     val daysRemaining: StateFlow<Int> = _daysRemaining.asStateFlow()
 
     suspend fun ensureTrialRegistered() {
@@ -56,7 +56,7 @@ class TrialRepository @Inject constructor(
                     osVersion = deviceFingerprintProvider.osVersion(),
                 ),
             ).trialDaysRemaining
-        }.getOrDefault(7)
+        }.getOrDefault(30)
         val endsAt = now + TimeUnit.DAYS.toMillis(trialDays.toLong())
         trialStateDao.upsert(
             TrialStateEntity(

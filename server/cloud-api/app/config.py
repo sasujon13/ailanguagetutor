@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     admin_seed_whatsapp: str = "+8801722710298"
     admin_seed_password: str = ""
     guest_ai_limit: int = 99
+    trial_days: int = 30
     otp_ttl_minutes: int = 15
     session_ttl_days: int = 30
     dev_log_otp: bool = True

@@ -60,6 +60,12 @@ fun ReferralScreen(
     var withdrawMessage by remember { mutableStateOf<String?>(null) }
     var withdrawError by remember { mutableStateOf<String?>(null) }
     var withdrawing by remember { mutableStateOf(false) }
+    var showGiftForm by remember { mutableStateOf(false) }
+    var giftEmail by remember { mutableStateOf("") }
+    var giftAmount by remember { mutableStateOf("") }
+    var giftMessage by remember { mutableStateOf<String?>(null) }
+    var giftError by remember { mutableStateOf<String?>(null) }
+    var gifting by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val isLoggedIn = currentUser != null
@@ -74,6 +80,10 @@ fun ReferralScreen(
         ) {
             shareDraft = defaultShareMessage
         }
+    }
+
+    LaunchedEffect(isLoggedIn) {
+        if (isLoggedIn) referralRepository.refresh()
     }
 
     CheradipScrollScreen(
@@ -99,8 +109,24 @@ fun ReferralScreen(
         } else {
             item {
                 Text(
-                    "Referral balance: $${"%.2f".format(balance.balanceUsd)}",
+                    "Available balance: $${"%.2f".format(balance.availableUsd)}",
                     style = MaterialTheme.typography.titleMedium,
+                )
+            }
+            if (balance.pendingUsd > 0.0) {
+                item {
+                    Text(
+                        "Pending (clears after referred subscription month): $${"%.2f".format(balance.pendingUsd)}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            item {
+                Text(
+                    "Total balance: $${"%.2f".format(balance.balanceUsd)}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
             item {
@@ -188,7 +214,7 @@ fun ReferralScreen(
                             enabled = !withdrawing,
                         ) {
                             if (withdrawing) CircularProgressIndicator(modifier = Modifier.padding(end = 8.dp))
-                            Text("Submit withdrawal ($${"%.2f".format(balance.balanceUsd)})")
+                            Text("Submit withdrawal ($${"%.2f".format(balance.availableUsd)})")
                         }
                     }
                     item {
@@ -200,10 +226,95 @@ fun ReferralScreen(
             } else {
                 item {
                     Text(
-                        "Withdrawal unlocks at $${"%.0f".format(balance.minWithdrawalUsd)} in credits.",
+                        "Withdrawal unlocks at $${"%.0f".format(balance.minWithdrawalUsd)} in available credits.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                }
+            }
+            item {
+                HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
+            }
+            item {
+                Text("Gift credits", style = MaterialTheme.typography.titleSmall)
+            }
+            item {
+                Text(
+                    "Send available referral balance to another user by email.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            if (!showGiftForm) {
+                item {
+                    OutlinedButton(
+                        onClick = { showGiftForm = true },
+                        enabled = balance.availableUsd > 0.0,
+                    ) {
+                        Text("Gift credits")
+                    }
+                }
+            } else {
+                item {
+                    OutlinedTextField(
+                        value = giftEmail,
+                        onValueChange = { giftEmail = it },
+                        label = { Text("Recipient email *") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                    )
+                }
+                item {
+                    OutlinedTextField(
+                        value = giftAmount,
+                        onValueChange = { giftAmount = it },
+                        label = { Text("Amount (USD) *") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                    )
+                }
+                giftError?.let { err ->
+                    item { Text(err, color = MaterialTheme.colorScheme.error) }
+                }
+                giftMessage?.let { msg ->
+                    item { Text(msg, color = MaterialTheme.colorScheme.primary) }
+                }
+                item {
+                    Button(
+                        onClick = {
+                            val amount = giftAmount.toDoubleOrNull()
+                            if (giftEmail.isBlank()) {
+                                giftError = "Enter recipient email"
+                                return@Button
+                            }
+                            if (amount == null || amount <= 0.0) {
+                                giftError = "Enter a valid amount"
+                                return@Button
+                            }
+                            scope.launch {
+                                gifting = true
+                                giftError = null
+                                referralRepository.gift(giftEmail.trim(), amount)
+                                    .onSuccess { msg ->
+                                        giftMessage = msg
+                                        showGiftForm = false
+                                        giftEmail = ""
+                                        giftAmount = ""
+                                    }
+                                    .onFailure { giftError = it.message ?: "Gift failed" }
+                                gifting = false
+                            }
+                        },
+                        enabled = !gifting,
+                    ) {
+                        if (gifting) CircularProgressIndicator(modifier = Modifier.padding(end = 8.dp))
+                        Text("Send gift")
+                    }
+                }
+                item {
+                    OutlinedButton(onClick = { showGiftForm = false }) {
+                        Text("Cancel")
+                    }
                 }
             }
             item {

@@ -23,6 +23,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -44,6 +45,8 @@ private enum class HomeActivityMode {
 @Composable
 fun HomeScreen(
     modifier: Modifier = Modifier,
+    hasLearningAccess: Boolean = true,
+    onRequireLearningSubscription: () -> Unit = {},
     onScanClick: (scanOnly: Boolean) -> Unit = {},
     onCameraClick: () -> Unit = {},
     onPracticeClick: () -> Unit = {},
@@ -54,8 +57,28 @@ fun HomeScreen(
     onLearningClick: () -> Unit = {},
     onGrammarClick: () -> Unit = {},
 ) {
-    var activityModeOrdinal by rememberSaveable { mutableIntStateOf(HomeActivityMode.LEARNING.ordinal) }
-    val activityMode = HomeActivityMode.entries[activityModeOrdinal.coerceIn(HomeActivityMode.entries.indices)]
+    var activityModeOrdinal by rememberSaveable { mutableIntStateOf(-1) }
+    LaunchedEffect(hasLearningAccess) {
+        if (activityModeOrdinal == -1) {
+            activityModeOrdinal = if (hasLearningAccess) {
+                HomeActivityMode.LEARNING.ordinal
+            } else {
+                HomeActivityMode.SCAN_ONLY.ordinal
+            }
+        } else if (!hasLearningAccess && activityModeOrdinal == HomeActivityMode.LEARNING.ordinal) {
+            activityModeOrdinal = HomeActivityMode.SCAN_ONLY.ordinal
+        }
+    }
+    val resolvedOrdinal = if (activityModeOrdinal >= 0) {
+        activityModeOrdinal
+    } else if (hasLearningAccess) {
+        HomeActivityMode.LEARNING.ordinal
+    } else {
+        HomeActivityMode.SCAN_ONLY.ordinal
+    }
+    val activityMode = HomeActivityMode.entries[
+        resolvedOrdinal.coerceIn(HomeActivityMode.entries.indices),
+    ]
 
     val learningActions = listOf(
         QuickAction(
@@ -85,7 +108,13 @@ fun HomeScreen(
         item {
             HomeActivityModeSelector(
                 selected = activityMode,
-                onSelected = { activityModeOrdinal = it.ordinal },
+                onSelected = { mode ->
+                    if (mode == HomeActivityMode.LEARNING && !hasLearningAccess) {
+                        onRequireLearningSubscription()
+                    } else {
+                        activityModeOrdinal = mode.ordinal
+                    }
+                },
             )
         }
         item {

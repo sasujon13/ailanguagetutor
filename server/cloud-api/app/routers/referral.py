@@ -4,8 +4,16 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.deps import get_current_user
-from app.models import ReferralBalance, ReferralPolicy, ReferralWithdrawal, User
-from app.schemas import ReferralWithdrawRequest
+from app.models import ReferralPolicy, ReferralWithdrawal, User
+from app.schemas import ReferralGiftRequest, ReferralWithdrawRequest
+from app.services.referral_earnings import (
+    USAGE_GIFT,
+    USAGE_WITHDRAW,
+    balance_row,
+    debit_available_balance,
+    mature_pending_earnings,
+    referral_balance_snapshot,
+)
 
 router = APIRouter(prefix="/referral", tags=["referral"])
 
@@ -28,28 +36,69 @@ def referral_policy(db: Session = Depends(get_db)) -> dict:
     }
 
 
-def _balance_row(db: Session, user_id: int) -> ReferralBalance:
-    row = db.scalar(select(ReferralBalance).where(ReferralBalance.user_id == user_id))
-    if row:
-        return row
-    row = ReferralBalance(user_id=user_id, balance_usd=0.0, lifetime_earned_usd=0.0)
-    db.add(row)
-    db.flush()
-    return row
-
-
 @router.get("/balance")
 def referral_balance(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> dict:
-    row = _balance_row(db, user.id)
+    mature_pending_earnings(db)
+    row = balance_row(db, user.id)
     db.commit()
+    snapshot = referral_balance_snapshot(row)
+    available = snapshot["available_usd"]
     return {
-        "balance_usd": row.balance_usd,
-        "lifetime_earned_usd": row.lifetime_earned_usd,
+        **snapshot,
         "min_withdrawal_usd": MIN_WITHDRAWAL_USD,
-        "withdrawable": row.balance_usd >= MIN_WITHDRAWAL_USD,
+        "withdrawable": available >= MIN_WITHDRAWAL_USD,
+    }
+
+
+@router.post("/gift")
+def referral_gift(
+    body: ReferralGiftRequest,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    recipient = body.recipientEmail.strip().lower()
+    if "@" not in recipient:
+        raise HTTPException(400, "Valid recipient email is required")
+    if user.email and user.email.lower() == recipient:
+        raise HTTPException(400, "Cannot gift credits to yourself")
+
+    recipient_user = db.scalar(select(User).where(User.email == recipient))
+    if not recipient_user:
+        raise HTTPException(
+            404,
+            "Recipient must have a registered account with that email.",
+        )
+    if float(body.amountUsd) < 0.01:
+        raise HTTPException(400, "Minimum gift amount is $0.01")
+
+    mature_pending_earnings(db)
+    try:
+        amount = debit_available_balance(
+            db,
+            user_id=user.id,
+            amount_usd=float(body.amountUsd),
+            usage_type=USAGE_GIFT,
+            recipient_email=recipient,
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+    recipient_bal = balance_row(db, recipient_user.id)
+    recipient_bal.available_usd = round(recipient_bal.available_usd + amount, 2)
+    from app.services.referral_earnings import sync_balance_usd
+
+    sync_balance_usd(recipient_bal)
+
+    db.commit()
+    row = balance_row(db, user.id)
+    snapshot = referral_balance_snapshot(row)
+    return {
+        "ok": True,
+        "message": f"${amount:.2f} gifted to {recipient}.",
+        **snapshot,
     }
 
 
@@ -66,14 +115,14 @@ def referral_withdraw(
     if len(payout_details) < 3:
         raise HTTPException(400, "payoutDetails is required")
 
-    row = _balance_row(db, user.id)
-    amount = float(body.amountUsd if body.amountUsd is not None else row.balance_usd)
+    mature_pending_earnings(db)
+    row = balance_row(db, user.id)
+    amount = float(body.amountUsd if body.amountUsd is not None else row.available_usd)
     if amount < MIN_WITHDRAWAL_USD:
         raise HTTPException(400, f"Minimum withdrawal is ${MIN_WITHDRAWAL_USD:.0f}")
-    if amount > row.balance_usd:
+    if amount > row.available_usd:
         raise HTTPException(400, "Insufficient referral balance")
 
-    row.balance_usd = round(row.balance_usd - amount, 2)
     withdrawal = ReferralWithdrawal(
         user_id=user.id,
         amount_usd=amount,
@@ -82,11 +131,25 @@ def referral_withdraw(
         status="pending",
     )
     db.add(withdrawal)
+    db.flush()
+
+    try:
+        debit_available_balance(
+            db,
+            user_id=user.id,
+            amount_usd=amount,
+            usage_type=USAGE_WITHDRAW,
+            withdrawal_id=withdrawal.id,
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
     db.commit()
     db.refresh(withdrawal)
+    snapshot = referral_balance_snapshot(row)
     return {
         "ok": True,
         "message": "Withdrawal request submitted. Processing within 5–10 business days.",
-        "balance_usd": row.balance_usd,
+        **snapshot,
         "withdrawal_id": withdrawal.id,
     }

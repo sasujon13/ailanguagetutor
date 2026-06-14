@@ -36,6 +36,8 @@ data class ReferralPolicy(
 data class PromoValidation(val code: String, val discountPercent: Int, val discountedPrice: String)
 data class ReferralBalance(
     val balanceUsd: Double,
+    val pendingUsd: Double = 0.0,
+    val availableUsd: Double = 0.0,
     val lifetimeEarnedUsd: Double,
     val minWithdrawalUsd: Double = 100.0,
     val withdrawable: Boolean = false,
@@ -73,7 +75,7 @@ class ReferralRepository @Inject constructor(
     )
     val policy: StateFlow<ReferralPolicy> = _policy.asStateFlow()
 
-    private val _balance = MutableStateFlow(ReferralBalance(0.0, 0.0))
+    private val _balance = MutableStateFlow(ReferralBalance(0.0, 0.0, 0.0, 0.0))
     val balance: StateFlow<ReferralBalance> = _balance.asStateFlow()
 
     init {
@@ -91,10 +93,12 @@ class ReferralRepository @Inject constructor(
             }
             runCatching { referralService.balance() }.onSuccess {
                 _balance.value = ReferralBalance(
-                    it.balanceUsd,
-                    it.lifetimeEarnedUsd,
-                    it.minWithdrawalUsd,
-                    it.withdrawable,
+                    balanceUsd = it.balanceUsd,
+                    pendingUsd = it.pendingUsd,
+                    availableUsd = it.availableUsd,
+                    lifetimeEarnedUsd = it.lifetimeEarnedUsd,
+                    minWithdrawalUsd = it.minWithdrawalUsd,
+                    withdrawable = it.withdrawable,
                 )
             }
         }
@@ -109,14 +113,41 @@ class ReferralRepository @Inject constructor(
                 ReferralWithdrawRequest(method = method, payoutDetails = payoutDetails),
             )
             _balance.value = ReferralBalance(
-                resp.balanceUsd,
-                _balance.value.lifetimeEarnedUsd,
-                _policy.value.minWithdrawalUsd,
-                resp.balanceUsd >= _policy.value.minWithdrawalUsd,
+                balanceUsd = resp.balanceUsd,
+                pendingUsd = resp.pendingUsd,
+                availableUsd = resp.availableUsd,
+                lifetimeEarnedUsd = resp.lifetimeEarnedUsd,
+                minWithdrawalUsd = _policy.value.minWithdrawalUsd,
+                withdrawable = resp.availableUsd >= _policy.value.minWithdrawalUsd,
             )
             resp.message
         }.recoverCatching { error ->
             throw IllegalStateException(networkErrors.present(error, "Withdrawal failed"))
+        }
+    }
+
+    suspend fun gift(recipientEmail: String, amountUsd: Double): Result<String> {
+        if (!networkErrors.isOnline()) {
+            return Result.failure(IllegalStateException(CHECK_INTERNET_CONNECTION))
+        }
+        return runCatching {
+            val resp = referralService.gift(
+                com.cheradip.ailanguagetutor.core.network.ReferralGiftRequest(
+                    recipientEmail = recipientEmail,
+                    amountUsd = amountUsd,
+                ),
+            )
+            _balance.value = ReferralBalance(
+                balanceUsd = resp.balanceUsd,
+                pendingUsd = resp.pendingUsd,
+                availableUsd = resp.availableUsd,
+                lifetimeEarnedUsd = resp.lifetimeEarnedUsd,
+                minWithdrawalUsd = _policy.value.minWithdrawalUsd,
+                withdrawable = resp.availableUsd >= _policy.value.minWithdrawalUsd,
+            )
+            resp.message
+        }.recoverCatching { error ->
+            throw IllegalStateException(networkErrors.present(error, "Gift failed"))
         }
     }
 
@@ -174,6 +205,25 @@ class PromoRepository @Inject constructor(
 
 enum class AccessState { TRIAL_ACTIVE, TRIAL_EXPIRED, SUBSCRIBED, PRO_ACTIVE, PLUS_ACTIVE }
 
+fun AccessState.grantsLearningAccess(): Boolean = when (this) {
+    AccessState.TRIAL_ACTIVE,
+    AccessState.PRO_ACTIVE,
+    AccessState.PLUS_ACTIVE,
+    AccessState.SUBSCRIBED,
+    -> true
+    AccessState.TRIAL_EXPIRED -> false
+}
+
+fun AccessState.hasPaidSubscription(): Boolean = when (this) {
+    AccessState.PRO_ACTIVE,
+    AccessState.PLUS_ACTIVE,
+    AccessState.SUBSCRIBED,
+    -> true
+    AccessState.TRIAL_ACTIVE,
+    AccessState.TRIAL_EXPIRED,
+    -> false
+}
+
 @Singleton
 class BillingRepository @Inject constructor(
     private val trialRepository: TrialRepository,
@@ -219,10 +269,13 @@ class BillingRepository @Inject constructor(
         period: BillingPeriod,
         slot1Code: String? = null,
         slot2Code: String? = null,
+        referralBalanceUsd: Double? = null,
     ): Result<Unit> {
         val productId = PlayProductIds.productId(tier, period)
         return playBillingManager.launchSubscription(activity, productId)
-            .mapCatching { purchase -> verifyAndApply(purchase, slot1Code, slot2Code) }
+            .mapCatching { purchase ->
+                verifyAndApply(purchase, slot1Code, slot2Code, referralBalanceUsd)
+            }
             .recoverCatching { error ->
                 if (error is PurchaseCancelledException) throw error
                 throw IllegalStateException(networkErrors.present(error, "Purchase failed"))
@@ -239,6 +292,7 @@ class BillingRepository @Inject constructor(
         purchase: Purchase,
         slot1Code: String? = null,
         slot2Code: String? = null,
+        referralBalanceUsd: Double? = null,
     ) {
         if (!networkErrors.isOnline()) {
             error(CHECK_INTERNET_CONNECTION)
@@ -251,6 +305,7 @@ class BillingRepository @Inject constructor(
                 productId = productId,
                 slot1Code = slot1Code?.takeIf { it.isNotBlank() },
                 slot2Code = slot2Code?.takeIf { it.isNotBlank() },
+                referralBalanceUsd = referralBalanceUsd?.takeIf { it > 0.0 },
             ),
         )
         if (!response.active) error("Subscription verification failed")
@@ -294,7 +349,10 @@ class CheckAppAccessUseCase @Inject constructor(
     val accessState: StateFlow<AccessState> = billingRepository.accessState
 
     fun requiresPaywall(): Boolean =
-        billingRepository.accessState.value == AccessState.TRIAL_EXPIRED
+        !hasLearningAccess()
+
+    fun hasLearningAccess(): Boolean =
+        billingRepository.accessState.value.grantsLearningAccess()
 
     fun subscriptionTier(): SubscriptionTier =
         when (billingRepository.accessState.value) {
@@ -414,6 +472,7 @@ data class AdminReportsSnapshot(
     val guestAiUsesTotal: Int = 0,
     val pendingWithdrawals: Int = 0,
     val referralBalanceUsd: Double = 0.0,
+    val referralPendingCommissionUsd: Double = 0.0,
     val promoCodesTotal: Int = 0,
     val promoCodesActive: Int = 0,
     val cloudAiRequestsToday: Int = 0,
@@ -430,6 +489,16 @@ data class AdminReportsCloudProviderRow(
     val requestsToday: Int,
     val quotaDailyLimit: Int?,
     val quotaUsedPercent: Int,
+)
+
+data class AdminEarningsSnapshot(
+    val period: String,
+    val bucketPeriod: String,
+    val from: String,
+    val to: String,
+    val generatedAtMs: Long,
+    val totals: com.cheradip.ailanguagetutor.core.network.AdminEarningsMetrics,
+    val rows: List<com.cheradip.ailanguagetutor.core.network.AdminEarningsRow>,
 )
 
 @Singleton
@@ -465,6 +534,7 @@ class AdminReportsRepository @Inject constructor(
                 guestAiUsesTotal = resp.engagement.guestAiUsesTotal,
                 pendingWithdrawals = resp.referrals.pendingWithdrawals,
                 referralBalanceUsd = resp.referrals.totalBalanceUsd,
+                referralPendingCommissionUsd = resp.referrals.pendingCommissionUsd,
                 promoCodesTotal = resp.promoCodes.total,
                 promoCodesActive = resp.promoCodes.active,
                 cloudAiRequestsToday = resp.cloudAi.totalRequestsToday,
@@ -526,5 +596,29 @@ class AdminReportsRepository @Inject constructor(
             .recoverCatching { error ->
                 throw IllegalStateException(networkErrors.present(error, "Could not load debug reports"))
             }
+    }
+
+    suspend fun fetchEarningsReport(
+        period: String,
+        fromDate: String? = null,
+        toDate: String? = null,
+    ): Result<AdminEarningsSnapshot> {
+        if (!networkErrors.isOnline()) {
+            return Result.failure(IllegalStateException(CHECK_INTERNET_CONNECTION))
+        }
+        return runCatching {
+            val resp = adminService.reportsEarnings(period, fromDate, toDate)
+            AdminEarningsSnapshot(
+                period = resp.period,
+                bucketPeriod = resp.bucketPeriod,
+                from = resp.from,
+                to = resp.to,
+                generatedAtMs = resp.generatedAtMs,
+                totals = resp.totals,
+                rows = resp.rows,
+            )
+        }.recoverCatching { error ->
+            throw IllegalStateException(networkErrors.present(error, "Could not load earnings report"))
+        }
     }
 }

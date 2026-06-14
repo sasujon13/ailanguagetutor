@@ -17,7 +17,9 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -50,6 +52,7 @@ fun PaywallScreen(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val policy by referralRepository.policy.collectAsStateWithLifecycle()
+    val referralBalance by referralRepository.balance.collectAsStateWithLifecycle()
     val config = uiState.config
     val activity = LocalContext.current.findActivity()
 
@@ -189,6 +192,42 @@ fun PaywallScreen(
 
         uiState.purchaseError?.let {
             Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 8.dp))
+        }
+
+        if (isLoggedIn && referralBalance.availableUsd > 0.0) {
+            Spacer(modifier = Modifier.height(12.dp))
+            HorizontalDivider()
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Checkbox(
+                    checked = uiState.useReferralBalance,
+                    onCheckedChange = viewModel::setUseReferralBalance,
+                )
+                Column(modifier = Modifier.padding(start = 4.dp)) {
+                    Text("Use referral balance", style = MaterialTheme.typography.bodyMedium)
+                    Text(
+                        "Available: $${"%.2f".format(referralBalance.availableUsd)}" +
+                            if (uiState.useReferralBalance) {
+                                " · Applying $${"%.2f".format(viewModel.referralCreditToApply(uiState))}"
+                            } else {
+                                ""
+                            },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    if (referralBalance.pendingUsd > 0.0) {
+                        Text(
+                            "Pending (clears after subscription month): $${"%.2f".format(referralBalance.pendingUsd)}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
         }
 
         Spacer(modifier = Modifier.height(16.dp))

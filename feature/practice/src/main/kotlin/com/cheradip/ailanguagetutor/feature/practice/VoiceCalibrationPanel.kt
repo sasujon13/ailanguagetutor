@@ -244,13 +244,24 @@ fun PracticeInputCard(
             PracticeHubViewModel.appendVoiceSegment(hubState.typedInput, hubState.partialSpeech)
         else -> hubState.typedInput
     }
-    var textFieldValue by remember { mutableStateOf(TextFieldValue()) }
+    var textFieldValue by remember { mutableStateOf(TextFieldValue(hubState.typedInput)) }
 
-    LaunchedEffect(composedInput) {
-        textFieldValue = TextFieldValue(
-            text = composedInput,
-            selection = TextRange(composedInput.length),
-        )
+    LaunchedEffect(hubState.typedInput, hubState.isListening, hubState.partialSpeech) {
+        val target = when {
+            hubState.isListening && hubState.partialSpeech.isNotBlank() ->
+                PracticeHubViewModel.appendVoiceSegment(hubState.typedInput, hubState.partialSpeech)
+            else -> hubState.typedInput
+        }
+        if (textFieldValue.text != target) {
+            val selection = if (hubState.isListening) {
+                TextRange(target.length)
+            } else {
+                val start = textFieldValue.selection.start.coerceIn(0, target.length)
+                val end = textFieldValue.selection.end.coerceIn(0, target.length)
+                TextRange(start.coerceAtMost(end), end.coerceAtLeast(start))
+            }
+            textFieldValue = TextFieldValue(text = target, selection = selection)
+        }
     }
 
     Card(modifier = modifier.fillMaxWidth()) {
@@ -272,12 +283,8 @@ fun PracticeInputCard(
             OutlinedTextField(
                 value = textFieldValue,
                 onValueChange = { updated ->
-                    val text = updated.text
-                    textFieldValue = TextFieldValue(
-                        text = text,
-                        selection = TextRange(text.length),
-                    )
-                    onInputChange(text)
+                    textFieldValue = updated
+                    onInputChange(updated.text)
                 },
                 label = {
                     Text(

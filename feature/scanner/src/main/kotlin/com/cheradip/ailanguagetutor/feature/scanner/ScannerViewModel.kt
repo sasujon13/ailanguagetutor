@@ -845,7 +845,7 @@ class ScannerViewModel @Inject constructor(
             corners = corners,
             preset = CropPreset.RECTANGLE,
             perspectiveCorrection = true,
-            autoStraighten = true,
+            autoStraighten = false,
         )
         val transitionDraft = TransitionParams(
             corners = corners,

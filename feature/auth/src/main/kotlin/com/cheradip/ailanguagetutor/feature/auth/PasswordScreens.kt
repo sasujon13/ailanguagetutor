@@ -57,7 +57,7 @@ fun ForgotPasswordScreen(
             0 -> {
                 item {
                     Text(
-                        "Enter the email you use to sign in. A code is sent from admin@ailanguagetutor.com " +
+                        "Enter the email you use to sign in. A verification code is sent from noreply@cheradip.com " +
                             "unless you are on the same device you used to register.",
                         style = MaterialTheme.typography.bodyMedium,
                     )

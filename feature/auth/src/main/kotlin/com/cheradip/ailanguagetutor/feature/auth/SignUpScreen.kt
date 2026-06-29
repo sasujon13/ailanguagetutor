@@ -56,7 +56,7 @@ fun SignUpScreen(
     ) {
         item {
             Text(
-                "Use your email address to sign in. Password reset codes are sent from admin@ailanguagetutor.com.",
+                "Use your email address to sign in. Password reset codes are sent from noreply@cheradip.com.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

@@ -15,6 +15,7 @@ The **App API** for AI Language Tutor is **not** in this Android repository. It 
 | Service | URL | Implemented in |
 |---------|-----|----------------|
 | App API | `https://cheradip.com/ailt/api/` | `bcheradip/ailt_api` |
+| User manual (web) | `https://cheradip.com/ailt` | `bcheradip/ailt` → builds `fcheradip/src/assets/ailt/ailt.html` |
 | Home AI | `https://ai.cheradip.com` | `ailanguagetutor/server/v2` |
 
 ## When to edit which repo
@@ -25,7 +26,8 @@ The **App API** for AI Language Tutor is **not** in this Android repository. It 
 | Billing, promo, referral, admin API | `bcheradip/ailt_api` |
 | Language pack files on server | `bcheradip/ailt_api/packs/` (built from this repo) |
 | MySQL schema / migrations | `bcheradip/ailt_api` |
-| Linux nginx / systemd + SMTP | `D:\VSCode\cheradip\bcheradip\ailt_api\deploy\DEPLOY_LINUX.md` |
+| User manual web page | `bcheradip/ailt` → `fcheradip` route `/ailt` |
+| Linux nginx / systemd + Brevo email | `D:\VSCode\cheradip\bcheradip\ailt_api\deploy\BREVO_EMAIL.md` |
 | Android UI, ViewModels, API client | **this repo** (`core/network/`) |
 | Home AI inference | **this repo** (`server/v2/`) |
 | Build language pack ZIPs | **this repo** (`tools/pack-builder/`) |

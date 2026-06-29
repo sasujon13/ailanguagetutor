@@ -41,6 +41,4 @@ server/v2/models/translation/
 server/v2/models/stt/
 server/v2/models/tts/
 
-# Local cloud API dev server
-server/cloud-api/.venv/
-server/cloud-api/.env
+# Local cloud API dev server — moved to bcheradip/ailt_api (external repo)

@@ -76,7 +76,7 @@ Clear cache after NLLB/translation logic changes so old entries are not served f
 **Pack download verify** — use `curl.exe` (bare `Invoke-WebRequest` hangs on binary ZIP):
 
 ```powershell
-curl.exe -s -o NUL -w "status=%{http_code} size=%{size_download}" http://127.0.0.1:8790/api/ailt/languages/en/file
+curl.exe -s -o NUL -w "status=%{http_code} size=%{size_download}" https://cheradip.com/ailt/api/languages/en/file
 ```
 
 ---
@@ -168,7 +168,7 @@ Defined in `core/billing/.../PlayProductIds.kt`. Legacy `cheradip_alt_premium_*`
 
 ### Server side
 
-`server/cloud-api/app/routers/billing.py` — stores entitlement in MySQL (Play API verification stub until Google Play Developer API is wired with service account).
+`bcheradip/ailt_api/app/routers/billing.py` — stores entitlement in MySQL (Play API verification stub until Google Play Developer API is wired with service account).
 
 **Env:** no extra keys required for the local stub; production needs Play service account JSON on the server.
 
@@ -182,7 +182,7 @@ Defined in `core/billing/.../PlayProductIds.kt`. Legacy `cheradip_alt_premium_*`
 | Onboarding | Pick app language on first install — UI translates immediately via Home AI |
 | Default | English (US) |
 | Order | English → device region → A→Z in language lists |
-| Translation | Home AI `POST /translate-strings` + local cache; cloud-api `X-Language` middleware |
+| Translation | Home AI `POST /translate-strings` + local cache; ailt_api `X-Language` middleware |
 | Scope | Bottom nav, Home, Settings, Languages, Onboarding strings (expand `AppStrings.kt` for more screens) |
 
 Removed: top-right overlay flag picker (was unstable in Compose dropdown).
@@ -193,8 +193,8 @@ Removed: top-right overlay flag picker (was unstable in Compose dropdown).
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| WhatsApp OTP delivery | Stub | Auth UI works; wire SMS/WhatsApp provider in cloud-api |
-| cloud-api pytest | Not installed | Add when you want API regression tests |
+| WhatsApp OTP delivery | Stub | Auth UI works; wire SMS/WhatsApp provider in bcheradip/ailt_api |
+| ailt_api pytest | Not installed | Add when you want API regression tests |
 | Tablet two-pane layout | Later | Spec only |
 | OpenVINO-only LLM | Optional | Use when Ollama is not installed |
 

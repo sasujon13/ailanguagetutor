@@ -47,6 +47,7 @@ class AIManager @Inject constructor(
     private val appConfig: AppConfig,
     private val guestAiUsageRepository: GuestAiUsageRepository,
     private val englishPivotAi: EnglishPivotAiCoordinator,
+    private val developerOptions: DeveloperOptionsRepository,
 ) {
     private var lastBackend: AiBackend = AiBackend.CLOUD_POOL
 
@@ -137,11 +138,11 @@ class AIManager @Inject constructor(
         }
 
         val mode = aiModePrefs.resolvedMode(inputSource, tier)
-        val backend = homeAiSettings.preferredBackend.first()
-        if (backend == AiBackend.LOCAL_HOME) {
+        val homeTimeoutMs = developerOptions.getHomeAiFallbackTimeoutMs()
+        if (developerOptions.shouldTryHomeAi()) {
             guestAiUsageRepository.ensureGuestCanUseAi()
             runCatching {
-                withTimeout(appConfig.homeAiTimeoutMs) {
+                withTimeout(homeTimeoutMs) {
                     homeAiService.ask(
                         text = enPrompt,
                         mode = mode,
@@ -159,7 +160,7 @@ class AIManager @Inject constructor(
                 return@withContext englishPivotAi.fromEnglish(result, targetLang, inputSource)
             }.onFailure { e ->
                 val reason = when (e) {
-                    is TimeoutCancellationException -> "home_ai_timeout_${appConfig.homeAiTimeoutMs}ms"
+                    is TimeoutCancellationException -> "home_ai_timeout_${homeTimeoutMs}ms"
                     else -> "home_ai_error: ${e.message}"
                 }
                 aiProviderRepository.recordFallback(reason)
@@ -209,9 +210,8 @@ class AIManager @Inject constructor(
         if (tier == SubscriptionTier.FREE) return@withContext
 
         val mode = aiModePrefs.resolvedMode(inputSource, tier)
-        val backend = homeAiSettings.preferredBackend.first()
 
-        if (backend == AiBackend.LOCAL_HOME) {
+        if (developerOptions.shouldTryHomeAi()) {
             runCatching {
                 homeAiService.prefetchAi(
                     targets = grammarTargets,
@@ -392,11 +392,11 @@ class AIManager @Inject constructor(
         val key = "batch:$sourceLang:$targetLang:${intent.name}:${mode.id}:${inputSource.name}:${paragraph.hashCode()}"
         aiCacheDao.get(key)?.responseJson?.let { return formatAiOutput(it) }
 
-        val backend = homeAiSettings.preferredBackend.first()
-        if (backend == AiBackend.LOCAL_HOME) {
+        val homeTimeoutMs = developerOptions.getHomeAiFallbackTimeoutMs()
+        if (developerOptions.shouldTryHomeAi()) {
             guestAiUsageRepository.ensureGuestCanUseAi()
             runCatching {
-                withTimeout(appConfig.homeAiTimeoutMs) {
+                withTimeout(homeTimeoutMs) {
                     callHomeAi(paragraph, sourceLang, targetLang, inputSource, intent, mode, tier)
                 }
             }.onSuccess { result ->
@@ -411,7 +411,7 @@ class AIManager @Inject constructor(
                 }
             }.onFailure { e ->
                 val reason = when (e) {
-                    is TimeoutCancellationException -> "home_ai_timeout_${appConfig.homeAiTimeoutMs}ms"
+                    is TimeoutCancellationException -> "home_ai_timeout_${homeTimeoutMs}ms"
                     else -> "home_ai_error: ${e.message}"
                 }
                 aiProviderRepository.recordFallback(reason)

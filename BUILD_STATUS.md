@@ -24,10 +24,10 @@ Updated June 2026 after 243-pack rollout, Ollama + NLLB Home AI, and cache/trans
 
 ## Release APK (Cloudflare — your PC)
 
-- **`API_BASE_URL`** → `https://ailt.cheradip.com/api/ailt/` (`server/cloud-api/`)
+- **`API_BASE_URL`** → `https://cheradip.com/ailt/api/` (`bcheradip/ailt_api/`)
 - **`HOME_AI_BASE_URL`** → `https://ai.cheradip.com` (`server/v2/`)
 
-See **`docs/DEV_LOCAL_SETUP.md`**. No separate cheradip.com project required.
+See **`docs/DEV_LOCAL_SETUP.md`**. App API server: **`docs/BCHERADIP_SERVER.md`** → `D:\VSCode\cheradip\bcheradip\ailt_api`
 
 **Android Studio:** **`docs/ANDROID_STUDIO_SETUP.md`** — run configs, variants, emulator vs device.
 
@@ -54,7 +54,7 @@ cd D:\VSCode\android\ailanguagetutor
 | Item | Status |
 |------|--------|
 | `tools/pack-builder/` CLI | ✅ Builds all 243 packs |
-| `server/cloud-api/packs/{code}/v1.zip` | ✅ 243 on disk |
+| `bcheradip/ailt_api/packs/{code}/v1.zip` | ✅ sync via pack-builder |
 | Cloud API `/api/ailt/languages/list` | ✅ Serves metadata + `/file` download |
 | Android `PackInstaller` + SQLite reader | ✅ Unzip + query |
 
@@ -62,7 +62,7 @@ Rebuild packs:
 
 ```powershell
 .\gradlew.bat :tools:pack-builder:run --args="build-all --version 1.0.0"
-# or: .\server\cloud-api\scripts\build-all-packs.ps1
+# or: .\tools\pack-builder\scripts\build-all-packs.ps1
 ```
 
 ## Home AI models (Ollama + NLLB)
@@ -91,9 +91,9 @@ Or manually:
 
 ```powershell
 curl.exe https://ai.cheradip.com/health
-curl.exe https://ailt.cheradip.com/api/ailt/health
+curl.exe https://cheradip.com/ailt/api/health
 # Pack download — use curl (Invoke-WebRequest hangs without -OutFile):
-curl.exe -s -o NUL -w "status=%{http_code} size=%{size_download}" http://127.0.0.1:8790/api/ailt/languages/en/file
+curl.exe -s -o NUL -w "status=%{http_code} size=%{size_download}" https://cheradip.com/ailt/api/languages/en/file
 ```
 
 ## What works now
@@ -162,8 +162,8 @@ Full enable steps: **`docs/OPTIONAL_FEATURES.md`**
 | **OpenVINO LLM path** | Optional | `setup_models.ps1` + `INFERENCE_BACKEND=openvino` |
 | **Play Console billing** | Client ready; needs Play products | 4 SKUs + internal testing track |
 | **Cache housekeeping** | ✅ Scripts | `clear-cache.ps1`, `verify-stack.ps1` |
-| **WhatsApp OTP** | Stub delivery | Wire provider in cloud-api |
-| **cloud-api pytest** | Not installed | Optional test harness |
+| **WhatsApp OTP** | Stub delivery | Wire provider in bcheradip/ailt_api |
+| **ailt_api pytest** | Not installed | Optional test harness |
 | **Tablet two-pane layout** | Later | — |
 
 ### Play Console billing (when ready)

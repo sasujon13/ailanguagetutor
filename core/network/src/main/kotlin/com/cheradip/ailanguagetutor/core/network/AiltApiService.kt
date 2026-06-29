@@ -8,8 +8,8 @@ import retrofit2.http.Path
 import retrofit2.http.Query
 
 /**
- * Cheradip AI Language Tutor API — base: https://ailt.cheradip.com/api/ailt/
- * Implemented in server/cloud-api/ (self-hosted via Cloudflare Tunnel).
+ * Cheradip AI Language Tutor API — base: https://cheradip.com/ailt/api/
+ * Implemented in D:\VSCode\cheradip\bcheradip\ailt_api (FastAPI on Linux).
  */
 interface AiltAuthService {
     @POST("auth/login")

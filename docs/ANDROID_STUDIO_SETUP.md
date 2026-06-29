@@ -33,7 +33,7 @@ Edit `local.env.properties`:
 
 ```properties
 HOME_AI_BASE_URL=https://ai.cheradip.com
-API_BASE_URL=https://ailt.cheradip.com/api/ailt/
+API_BASE_URL=https://cheradip.com/ailt/api/
 ADMIN_SEED_PASSWORD=your-admin-password
 ```
 
@@ -98,11 +98,11 @@ Release builds match what you sideload for real-world testing (no `.debug` suffi
 For full app features, start on your PC (see `helper.txt`):
 
 1. XAMPP **MySQL**
-2. `server\cloud-api\scripts\run-dev.ps1`
+2. App API runs on Linux — see `D:\VSCode\cheradip\bcheradip\ailt_api\README.md`
 3. `server\v2\scripts\run-dev.ps1`
 4. `cloudflared tunnel run cheradip-ailt` (or cloudflared Windows service)
 
-Verify: https://ailt.cheradip.com/api/ailt/health and https://ai.cheradip.com/health
+Verify: https://cheradip.com/ailt/api/health and https://ai.cheradip.com/health
 
 ---
 
@@ -176,7 +176,7 @@ Interactive preview: click the **Run** icon in the `@Preview` gutter to open **I
 |---------|-----|
 | Gradle sync: JDK not found | Settings → Gradle → JDK → Embedded JDK 17 |
 | `local.env.properties` ignored | Rebuild project after editing |
-| App can’t reach API | Start cloud-api + tunnel; check URL in Logcat / Settings |
+| App can’t reach API | Check cheradip.com/ailt/api/health; Admin → Developer → API URL |
 | Two apps on phone (debug + release) | Different package IDs — both can be installed |
 | Run config module missing | Edit configuration → Module → `ailanguagetutor.app.main` |
 | Port 8790 / 8787 in use | Stop old server processes; see `helper.txt` |

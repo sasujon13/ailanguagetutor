@@ -44,6 +44,7 @@ class OcrStructureService @Inject constructor(
     private val aiProviderRepository: AiProviderRepository,
     private val aiCacheDao: AiCacheDao,
     private val networkConnectivityMonitor: NetworkConnectivityMonitor,
+    private val developerOptions: DeveloperOptionsRepository,
     private val appConfig: AppConfig,
 ) {
     suspend fun structure(
@@ -92,10 +93,11 @@ class OcrStructureService @Inject constructor(
         contentType: ScannedContentType,
         cacheKey: String,
     ): OcrStructureResult? {
-        if (homeAiSettings.preferredBackend.first() != AiBackend.LOCAL_HOME) return null
+        if (!developerOptions.shouldTryHomeAi()) return null
+        val homeTimeoutMs = developerOptions.getHomeAiFallbackTimeoutMs()
         return runCatching {
             guestAiUsageRepository.ensureGuestCanUseAi()
-            withTimeout(appConfig.homeAiTimeoutMs) {
+            withTimeout(homeTimeoutMs) {
                 homeAiService.cleanOcr(
                     text = rawOcrText,
                     languageCode = languageCode,

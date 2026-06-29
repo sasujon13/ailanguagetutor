@@ -44,14 +44,15 @@ object NetworkModule {
 
     @Provides
     @Singleton
-    fun provideRetrofit(appConfig: AppConfig, moshi: Moshi, client: OkHttpClient): Retrofit {
-        val baseUrl = appConfig.apiBaseUrl.let { if (it.endsWith("/")) it else "$it/" }
-        return Retrofit.Builder()
-            .baseUrl(baseUrl)
-            .client(client)
-            .addConverterFactory(MoshiConverterFactory.create(moshi))
-            .build()
-    }
+    fun provideApiBaseUrlHolder(appConfig: AppConfig): ApiBaseUrlHolder =
+        ApiBaseUrlHolder().also { holder ->
+            val base = appConfig.apiBaseUrl.let { if (it.endsWith("/")) it else "$it/" }
+            holder.update(base)
+        }
+
+    @Provides
+    @Singleton
+    fun provideRetrofit(provider: AiltRetrofitProvider): Retrofit = provider.get()
 
     @Provides fun provideAuthService(retrofit: Retrofit): AiltAuthService =
         retrofit.create(AiltAuthService::class.java)

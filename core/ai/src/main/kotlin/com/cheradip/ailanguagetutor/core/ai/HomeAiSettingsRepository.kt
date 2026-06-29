@@ -32,7 +32,7 @@ class HomeAiSettingsRepository @Inject constructor(
     val preferredBackend: Flow<AiBackend> = context.homeAiDataStore.data.map { prefs ->
         prefs[keyBackend]?.let {
             runCatching { AiBackend.valueOf(it) }.getOrNull()
-        } ?: AiBackend.LOCAL_HOME
+        } ?: AiBackend.CLOUD_POOL
     }
 
     suspend fun getBaseUrl(): String = baseUrl.first().let { url ->

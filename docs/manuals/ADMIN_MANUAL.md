@@ -85,7 +85,7 @@ GET /api/ailt/admin/reports
 Authorization: Bearer <admin session token>
 ```
 
-Implemented in `server/cloud-api/app/routers/admin.py`.
+Implemented in `server/ailt_api/app/routers/admin.py`.
 
 ---
 
@@ -138,7 +138,7 @@ Shows each configured LLM provider:
 
 - **Home PC offline** — Ensure cloud providers enabled; app falls back automatically.
 - **Cost spike** — Disable expensive paid providers temporarily.
-- **API key expired** — Health shows error; rotate key in `server/cloud-api/.env` and restart.
+- **API key expired** — Health shows error; rotate key in `server/ailt_api/.env` and restart.
 
 ---
 
@@ -180,13 +180,13 @@ cd server\mail
 .\run-dev-smtp.ps1
 
 # 2 — Cloud API (reads SMTP_* from .env)
-cd server\cloud-api
+cd server\ailt_api
 .\scripts\run-dev.ps1
 ```
 
 - Inbox files land in `server/mail/inbox/*.eml`
 - Sender: `admin@ailanguagetutor.com`
-- Config: `server/cloud-api/.env` → `SMTP_HOST`, `SMTP_PORT`, etc.
+- Config: `server/ailt_api/.env` → `SMTP_HOST`, `SMTP_PORT`, etc.
 
 ### Trusted device OTP skip
 
@@ -205,7 +205,7 @@ cd server\mail
 cd server\v2
 .\scripts\run-dev.ps1
 
-cd server\cloud-api
+cd server\ailt_api
 .\scripts\run-dev.ps1
 
 cloudflared tunnel run cheradip-ailt   # if not installed as service
@@ -253,7 +253,7 @@ Guests get **99 AI calls**. After limit, login gate appears. Counter is per-inst
 Served from cloud API. Build/update:
 
 ```powershell
-cd server\cloud-api
+cd server\ailt_api
 python scripts/build_language_packs.py
 ```
 

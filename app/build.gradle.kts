@@ -39,6 +39,7 @@ android {
             useSupportLibrary = true
         }
         buildConfigField("long", "HOME_AI_TIMEOUT_MS", "30000L")
+        buildConfigField("long", "CLOUD_API_TIMEOUT_MS", "30000L")
     }
 
     buildFeatures {
@@ -86,7 +87,7 @@ android {
             buildConfigField(
                 "String",
                 "API_BASE_URL",
-                "\"${loadLocalEnv("API_BASE_URL", "https://ailt.cheradip.com/api/ailt/")}\"",
+                "\"${loadLocalEnv("API_BASE_URL", "https://cheradip.com/ailt/api/")}\"",
             )
             buildConfigField(
                 "String",
@@ -100,8 +101,8 @@ android {
             )
         }
         release {
-            // Release: Cloudflare tunnel endpoints (server/cloud-api + server/v2 on your PC)
-            buildConfigField("String", "API_BASE_URL", "\"https://ailt.cheradip.com/api/ailt/\"")
+            // Release: Linux App API + Home AI tunnel on PC
+            buildConfigField("String", "API_BASE_URL", "\"https://cheradip.com/ailt/api/\"")
             buildConfigField("String", "HOME_AI_BASE_URL", "\"https://ai.cheradip.com\"")
             buildConfigField("String", "ADMIN_SEED_PASSWORD", "\"\"")
             signingConfig = if (releaseApkUsesUploadKeystore) {

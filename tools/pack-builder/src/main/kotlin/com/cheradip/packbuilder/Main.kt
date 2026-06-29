@@ -27,7 +27,7 @@ fun main(args: Array<String>) {
         "build-all" -> {
             val version = argValue(args, "--version") ?: "1.0.0"
             val paths = builder.buildAll(version)
-            builder.syncToCloudApi(version)
+            builder.syncToAiltApi(version)
             println("Built ${paths.size} language packs")
         }
         "validate" -> {
@@ -41,9 +41,9 @@ fun main(args: Array<String>) {
                 kotlin.system.exitProcess(1)
             }
         }
-        "sync-cloud" -> {
+        "sync-ailt" -> {
             val version = argValue(args, "--version") ?: "1.0.0"
-            builder.syncToCloudApi(version)
+            builder.syncToAiltApi(version)
         }
         else -> {
             printUsage()
@@ -83,7 +83,7 @@ private fun printUsage() {
           build-tier1 [--catalog path] --version <semver>
           build-all --version <semver>
           validate --zip <path>
-          sync-cloud --version <semver>
+          sync-ailt --version <semver>
         """.trimIndent(),
     )
 }

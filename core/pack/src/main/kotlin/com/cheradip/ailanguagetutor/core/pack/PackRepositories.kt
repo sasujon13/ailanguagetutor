@@ -511,7 +511,7 @@ class LanguagePackRepository @Inject constructor(
                 } else if (languageCode.equals("en", ignoreCase = true)) {
                     copyBundledFallback(jsonDest, languageCode)
                 } else {
-                    error("SQLite pack for $languageCode not available — start cloud-api and retry")
+                    error("SQLite pack for $languageCode not available — check cheradip.com/ailt/api and retry")
                 }
                 val version = info?.version ?: 1
                 val existing = languagePackDao.getByCode(languageCode)

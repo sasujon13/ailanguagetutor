@@ -52,11 +52,16 @@ import com.cheradip.ailanguagetutor.core.ai.AiRoutingMode
 import com.cheradip.ailanguagetutor.core.ai.HomeAiAdminDashboard
 import com.cheradip.ailanguagetutor.core.ai.HomeAiService
 import com.cheradip.ailanguagetutor.core.ai.HomeAiSettingsRepository
+import com.cheradip.ailanguagetutor.core.ai.DeveloperOptionsRepository
+import com.cheradip.ailanguagetutor.core.common.AppConfig
+import com.cheradip.ailanguagetutor.core.model.AiBackend
+import com.cheradip.ailanguagetutor.core.network.AiltRetrofitProvider
 import com.cheradip.ailanguagetutor.core.billing.AdminPromoRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -205,6 +210,98 @@ class AdminHomeAiViewModel @Inject constructor(
 }
 
 @HiltViewModel
+class AdminDeveloperOptionsViewModel @Inject constructor(
+    private val developerOptions: DeveloperOptionsRepository,
+    private val homeAiSettings: HomeAiSettingsRepository,
+    private val retrofitProvider: AiltRetrofitProvider,
+    private val appConfig: AppConfig,
+) : ViewModel() {
+    private val _homeAiFallbackMs = MutableStateFlow("")
+    val homeAiFallbackMs: StateFlow<String> = _homeAiFallbackMs.asStateFlow()
+
+    private val _cloudApiTimeoutMs = MutableStateFlow("")
+    val cloudApiTimeoutMs: StateFlow<String> = _cloudApiTimeoutMs.asStateFlow()
+
+    private val _apiBaseUrl = MutableStateFlow("")
+    val apiBaseUrl: StateFlow<String> = _apiBaseUrl.asStateFlow()
+
+    private val _preferredBackend = MutableStateFlow(AiBackend.LOCAL_HOME)
+    val preferredBackend: StateFlow<AiBackend> = _preferredBackend.asStateFlow()
+
+    private val _buildDefaults = MutableStateFlow("")
+    val buildDefaults: StateFlow<String> = _buildDefaults.asStateFlow()
+
+    private val _message = MutableStateFlow<String?>(null)
+    val message: StateFlow<String?> = _message.asStateFlow()
+
+    init {
+        viewModelScope.launch { load() }
+    }
+
+    private suspend fun load() {
+        _homeAiFallbackMs.value = developerOptions.getHomeAiFallbackTimeoutMs().toString()
+        _cloudApiTimeoutMs.value = developerOptions.getCloudApiTimeoutMs().toString()
+        _apiBaseUrl.value = developerOptions.getEffectiveApiBaseUrl()
+        _preferredBackend.value = homeAiSettings.preferredBackend.first()
+        _buildDefaults.value =
+            "Build: API ${appConfig.apiBaseUrl} · Home AI ${appConfig.homeAiBaseUrl} · " +
+                "fallback ${appConfig.homeAiTimeoutMs} ms"
+    }
+
+    fun updateHomeAiFallbackMs(value: String) {
+        _homeAiFallbackMs.value = value.filter { it.isDigit() }
+    }
+
+    fun updateCloudApiTimeoutMs(value: String) {
+        _cloudApiTimeoutMs.value = value.filter { it.isDigit() }
+    }
+
+    fun updateApiBaseUrl(value: String) {
+        _apiBaseUrl.value = value
+    }
+
+    fun setPreferredBackend(backend: AiBackend) {
+        _preferredBackend.value = backend
+    }
+
+    fun save() {
+        viewModelScope.launch {
+            val homeMs = _homeAiFallbackMs.value.toLongOrNull() ?: appConfig.homeAiTimeoutMs
+            val cloudMs = _cloudApiTimeoutMs.value.toLongOrNull()
+                ?: com.cheradip.ailanguagetutor.core.network.ApiSettingsRepository.DEFAULT_CLOUD_API_TIMEOUT_MS
+            developerOptions.setHomeAiFallbackTimeoutMs(homeMs)
+            developerOptions.setCloudApiTimeoutMs(cloudMs)
+            val override = _apiBaseUrl.value.trim()
+            if (override == appConfig.apiBaseUrl.trim().trimEnd('/') ||
+                override == appConfig.apiBaseUrl.trim().trimEnd('/') + "/"
+            ) {
+                developerOptions.setApiBaseUrlOverride(null)
+                retrofitProvider.refreshBaseUrl(appConfig.apiBaseUrl)
+            } else {
+                developerOptions.setApiBaseUrlOverride(override)
+                retrofitProvider.refreshBaseUrl(developerOptions.getEffectiveApiBaseUrl())
+            }
+            homeAiSettings.setBackend(_preferredBackend.value)
+            _message.value = if (homeMs == 0L) {
+                "Saved — Home AI skipped; cloud APIs used immediately"
+            } else {
+                "Saved — Home AI waits ${homeMs}ms before cloud fallback"
+            }
+        }
+    }
+
+    fun resetToDefaults() {
+        viewModelScope.launch {
+            developerOptions.resetToDefaults()
+            homeAiSettings.setBackend(AiBackend.LOCAL_HOME)
+            retrofitProvider.refreshBaseUrl(appConfig.apiBaseUrl)
+            load()
+            _message.value = "Reset to build defaults"
+        }
+    }
+}
+
+@HiltViewModel
 class AdminAiViewModel @Inject constructor(
     private val aiProviderRepository: AiProviderRepository,
 ) : ViewModel() {
@@ -273,6 +370,7 @@ fun AdminConsoleScreen(
     promoViewModel: AdminPromoViewModel = hiltViewModel(),
     aiViewModel: AdminAiViewModel = hiltViewModel(),
     homeAiViewModel: AdminHomeAiViewModel = hiltViewModel(),
+    developerViewModel: AdminDeveloperOptionsViewModel = hiltViewModel(),
 ) {
     var tab by remember { mutableIntStateOf(initialTab) }
     Scaffold(
@@ -280,7 +378,7 @@ fun AdminConsoleScreen(
         topBar = {
             CheradipTopBar(
                 title = "Admin console",
-                subtitle = "Promo codes · Cloud AI · Home AI",
+                subtitle = "Promo · Cloud AI · Home AI · Developer",
             )
         },
     ) { padding ->
@@ -289,11 +387,13 @@ fun AdminConsoleScreen(
                 Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text("Promo codes") })
                 Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text("Cloud AI") })
                 Tab(selected = tab == 2, onClick = { tab = 2 }, text = { Text("Home AI") })
+                Tab(selected = tab == 3, onClick = { tab = 3 }, text = { Text("Developer") })
             }
             when (tab) {
                 0 -> AdminPromoTab(Modifier.fillMaxSize(), promoViewModel)
                 1 -> AdminAiProvidersTab(Modifier.fillMaxSize(), aiViewModel)
                 2 -> AdminHomeAiTab(Modifier.fillMaxSize(), homeAiViewModel)
+                3 -> AdminDeveloperOptionsTab(Modifier.fillMaxSize(), developerViewModel)
             }
         }
     }
@@ -391,7 +491,7 @@ private fun AdminPromoTab(
             Text("Loading…", style = MaterialTheme.typography.bodyMedium)
         } else if (codes.isEmpty()) {
             Text(
-                "No rows in promo_codes. Connect to cloud-api, then add codes below.",
+                "No rows in promo_codes. Connect to cheradip.com/ailt/api, then add codes below.",
                 style = MaterialTheme.typography.bodyMedium,
             )
         } else {
@@ -751,6 +851,98 @@ fun AdminHomeAiTab(
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+fun AdminDeveloperOptionsTab(
+    modifier: Modifier = Modifier,
+    viewModel: AdminDeveloperOptionsViewModel = hiltViewModel(),
+) {
+    val homeMs by viewModel.homeAiFallbackMs.collectAsStateWithLifecycle()
+    val cloudMs by viewModel.cloudApiTimeoutMs.collectAsStateWithLifecycle()
+    val apiUrl by viewModel.apiBaseUrl.collectAsStateWithLifecycle()
+    val backend by viewModel.preferredBackend.collectAsStateWithLifecycle()
+    val buildDefaults by viewModel.buildDefaults.collectAsStateWithLifecycle()
+    val message by viewModel.message.collectAsStateWithLifecycle()
+
+    Column(
+        modifier = modifier
+            .verticalScroll(rememberScrollState())
+            .padding(CheradipScreenEdgePadding),
+    ) {
+        Text("Developer options", style = MaterialTheme.typography.headlineSmall)
+        Text(
+            "Admin-only runtime tuning. Set Home AI fallback to 0 ms to use cloud APIs immediately (your current setup).",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = 4.dp),
+        )
+        Text(
+            buildDefaults,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.outline,
+            modifier = Modifier.padding(top = 8.dp),
+        )
+        OutlinedTextField(
+            value = homeMs,
+            onValueChange = viewModel::updateHomeAiFallbackMs,
+            label = { Text("Home AI fallback timeout (ms)") },
+            supportingText = { Text("0 = skip Home AI, use cloud immediately") },
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 12.dp),
+            singleLine = true,
+        )
+        OutlinedTextField(
+            value = cloudMs,
+            onValueChange = viewModel::updateCloudApiTimeoutMs,
+            label = { Text("Cloud API timeout (ms)") },
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 8.dp),
+            singleLine = true,
+        )
+        OutlinedTextField(
+            value = apiUrl,
+            onValueChange = viewModel::updateApiBaseUrl,
+            label = { Text("API base URL") },
+            supportingText = { Text("Default: https://cheradip.com/ailt/api/") },
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 8.dp),
+            singleLine = true,
+        )
+        Text(
+            "Preferred AI backend",
+            style = MaterialTheme.typography.titleSmall,
+            modifier = Modifier.padding(top = 16.dp),
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            FilterChip(
+                selected = backend == AiBackend.LOCAL_HOME,
+                onClick = { viewModel.setPreferredBackend(AiBackend.LOCAL_HOME) },
+                label = { Text("Home AI first") },
+            )
+            FilterChip(
+                selected = backend == AiBackend.CLOUD_POOL,
+                onClick = { viewModel.setPreferredBackend(AiBackend.CLOUD_POOL) },
+                label = { Text("Cloud only") },
+            )
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Button(onClick = viewModel::save) { Text("Save") }
+            Button(onClick = viewModel::resetToDefaults) { Text("Reset defaults") }
+        }
+        message?.let {
+            Text(it, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(top = 8.dp))
         }
     }
 }

@@ -32,7 +32,7 @@ def main() -> None:
     controller.start()
     print(f"Dev SMTP listening on {HOST}:{PORT}")
     print(f"Inbound mail saved to: {INBOX}")
-    print("Point cloud-api SMTP_HOST=127.0.0.1 SMTP_PORT=1025 to deliver outbound mail here.")
+    print("Point bcheradip/ailt_api SMTP_HOST=127.0.0.1 SMTP_PORT=1025 to deliver outbound mail here.")
     try:
         import time
         while True:

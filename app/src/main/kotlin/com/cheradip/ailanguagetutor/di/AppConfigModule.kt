@@ -20,6 +20,7 @@ object AppConfigModule {
         override val adminSeedPassword: String = BuildConfig.ADMIN_SEED_PASSWORD
         override val homeAiBaseUrl: String = BuildConfig.HOME_AI_BASE_URL
         override val homeAiTimeoutMs: Long = BuildConfig.HOME_AI_TIMEOUT_MS
+        override val cloudApiTimeoutMs: Long = BuildConfig.CLOUD_API_TIMEOUT_MS
     }
 
     @Provides

@@ -6,7 +6,9 @@ import com.squareup.moshi.Moshi
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import java.nio.file.Files
 import java.nio.file.Path
+import java.nio.file.Paths
 import java.nio.file.StandardCopyOption
+import java.util.Properties
 import kotlin.io.path.ExperimentalPathApi
 import kotlin.io.path.deleteRecursively
 
@@ -80,23 +82,38 @@ class PackBuilder(private val projectRoot: Path) {
     }
 
     @OptIn(ExperimentalPathApi::class)
-    fun syncToCloudApi(version: String): Int {
+    fun syncToAiltApi(version: String): Int {
         val versionInt = versionMajorInt(version)
-        val cloudPacks = projectRoot.resolve("server/cloud-api/packs")
+        val ailtPacks = resolveAiltPacksDir()
         var count = 0
         if (!Files.isDirectory(outputRoot)) return 0
         Files.list(outputRoot).use { stream ->
             stream.filter { Files.isDirectory(it) }.forEach { langDir ->
                 val zip = langDir.resolve("v$versionInt.zip")
                 if (!Files.isRegularFile(zip)) return@forEach
-                val destDir = cloudPacks.resolve(langDir.fileName.toString())
+                val destDir = ailtPacks.resolve(langDir.fileName.toString())
                 Files.createDirectories(destDir)
                 Files.copy(zip, destDir.resolve("v$versionInt.zip"), StandardCopyOption.REPLACE_EXISTING)
                 count++
             }
         }
-        println("Synced $count packs to $cloudPacks")
+        println("Synced $count packs to $ailtPacks")
         return count
+    }
+
+    private fun resolveAiltPacksDir(): Path {
+        System.getenv("AILT_PACKS_DIR")?.trim()?.takeIf { it.isNotEmpty() }?.let {
+            return Paths.get(it)
+        }
+        val localEnv = projectRoot.resolve("local.env.properties")
+        if (Files.isRegularFile(localEnv)) {
+            val props = Properties()
+            localEnv.toFile().inputStream().use { props.load(it) }
+            props.getProperty("AILT_PACKS_DIR")?.trim()?.takeIf { it.isNotEmpty() }?.let {
+                return Paths.get(it)
+            }
+        }
+        return Paths.get("D:/VSCode/cheradip/bcheradip/ailt_api/packs")
     }
 
     private fun loadCatalog(): WorldLanguageCatalog {

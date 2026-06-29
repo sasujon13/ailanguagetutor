@@ -19,7 +19,7 @@ feature/                Feature screens + ViewModels
   home, scanner, reader, practice, grammar, languages
   auth, settings, billing, onboarding, journal, help
 server/
-  cloud-api/            FastAPI — auth, billing, packs, cloud AI, admin reports
+  ailt_api/            FastAPI — auth, billing, packs, cloud AI, admin reports
   v2/                   FastAPI — Home AI (local models on your PC)
   mail/                 Dev SMTP for OTP emails
 docs/manuals/           Source copies of in-app manuals
@@ -55,7 +55,7 @@ cd D:\VSCode\android\ailanguagetutor
 
 ### Key BuildConfig fields
 
-- `API_BASE_URL` — cloud API (default: `https://ailt.cheradip.com/api/ailt/`)
+- `API_BASE_URL` — cloud API (default: `https://cheradip.com/ailt/api/`)
 - `HOME_AI_BASE_URL` — Home AI (default: `https://ai.cheradip.com`)
 - `ADMIN_SEED_PASSWORD` — local admin fallback login
 
@@ -69,7 +69,7 @@ See `docs/DEV_LOCAL_SETUP.md` and `docs/ANDROID_STUDIO_SETUP.md`.
 
 **Home AI** — port 8787 — `server/v2/` — Curated AI modes, OCR clean, grammar, NLLB
 
-**App API** — port 8790 — `server/cloud-api/` — Login, billing, packs, cloud LLM pool, admin reports
+**App API** — port 8790 — `server/ailt_api/` — Login, billing, packs, cloud LLM pool, admin reports
 
 Production: Cloudflare tunnel exposes both APIs.
 
@@ -85,7 +85,7 @@ cd server\v2
 .\scripts\run-dev.ps1
 
 # App API
-cd server\cloud-api
+cd server\ailt_api
 .\scripts\init-db.ps1   # first time
 .\scripts\run-dev.ps1
 
@@ -238,9 +238,9 @@ Server: `server/v2/app/routers/grammar_book.py`, `server/v2/app/services/grammar
 
 ### Server
 
-- `server/cloud-api/app/routers/auth.py` — email-only signup (`signup/init`), login, OTP flows
-- `server/cloud-api/app/services/email_service.py` — SMTP send
-- `server/cloud-api/app/deps.py` — `get_current_user`, `require_admin`
+- `server/ailt_api/app/routers/auth.py` — email-only signup (`signup/init`), login, OTP flows
+- `server/ailt_api/app/services/email_service.py` — SMTP send
+- `server/ailt_api/app/deps.py` — `get_current_user`, `require_admin`
 - Trusted device: `_is_trusted_device()` skips OTP on registered device
 
 ---

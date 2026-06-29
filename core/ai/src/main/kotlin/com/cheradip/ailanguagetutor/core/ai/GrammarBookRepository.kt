@@ -39,7 +39,7 @@ class GrammarBookRepository @Inject constructor(
     private val networkErrors: NetworkErrorFormatter,
     private val aiProviderRepository: AiProviderRepository,
     private val englishPivotAi: EnglishPivotAiCoordinator,
-    private val appConfig: AppConfig,
+    private val developerOptions: DeveloperOptionsRepository,
     moshi: Moshi,
 ) {
     private val adapter = moshi.adapter(HomeAiGrammarBookResponse::class.java)
@@ -169,9 +169,10 @@ class GrammarBookRepository @Inject constructor(
         targetCode: String,
         displayName: String,
     ): GrammarBook? {
-        if (homeAiSettings.preferredBackend.first() != AiBackend.LOCAL_HOME) return null
+        if (!developerOptions.shouldTryHomeAi()) return null
+        val homeTimeoutMs = developerOptions.getHomeAiFallbackTimeoutMs()
         return runCatching {
-            withTimeout(appConfig.homeAiTimeoutMs) {
+            withTimeout(homeTimeoutMs) {
                 homeAiService.fetchGrammarBook(
                     languageCode = aiLang,
                     languageName = languageName,
@@ -225,9 +226,10 @@ class GrammarBookRepository @Inject constructor(
         mode: AiEngineMode,
         tier: SubscriptionTier,
     ): HomeAiGrammarBookEnrichResponse? {
-        if (homeAiSettings.preferredBackend.first() != AiBackend.LOCAL_HOME) return null
+        if (!developerOptions.shouldTryHomeAi()) return null
+        val homeTimeoutMs = developerOptions.getHomeAiFallbackTimeoutMs()
         return runCatching {
-            withTimeout(appConfig.homeAiTimeoutMs) {
+            withTimeout(homeTimeoutMs) {
                 val enBody = englishPivotAi.toEnglish(section.body, code, InputSource.TYPED)
                 val enHeading = englishPivotAi.toEnglish(section.heading, code, InputSource.TYPED)
                 homeAiService.enrichGrammarBookSection(

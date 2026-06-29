@@ -1,4 +1,4 @@
-# Verify local stack — health, pack download, Home AI translate smoke test
+# Verify stack — Home AI (local) + App API (Linux or local bcheradip/ailt_api)
 # Usage: .\scripts\verify-stack.ps1
 
 $ErrorActionPreference = "Continue"
@@ -18,34 +18,29 @@ function Test-Endpoint {
 Write-Host "=== AI Language Tutor stack verify ==="
 Write-Host ""
 
-$homeHealth = Test-Endpoint "Home AI health" "http://127.0.0.1:8787/health"
-$cloudHealth = Test-Endpoint "Cloud API health" "http://127.0.0.1:8790/api/ailt/health"
+$homeHealth = Test-Endpoint "Home AI health (local)" "http://127.0.0.1:8787/health"
+$cloudHealth = Test-Endpoint "App API health (Linux)" "https://cheradip.com/ailt/api/health"
+$cloudLocal = Test-Endpoint "App API health (local bcheradip)" "http://127.0.0.1:8790/api/ailt/health"
 
-$smtpListen = Get-NetTCPConnection -LocalPort 1025 -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1
-if ($smtpListen) {
-    Write-Host ('OK  SMTP mail receiver (127.0.0.1:1025) PID=' + $smtpListen.OwningProcess)
-} else {
-    Write-Host 'FAIL SMTP mail receiver — start: server\mail\run-dev-smtp.ps1'
-}
+$activeCloud = if ($cloudHealth) { $cloudHealth } else { $cloudLocal }
 
-if ($cloudHealth) {
-    $packCount = $cloudHealth.language_packs_available
-    Write-Host ('  packs=' + $packCount + ' db=' + $cloudHealth.database)
+if ($activeCloud) {
+    $packCount = $activeCloud.language_packs_available
+    Write-Host ('  packs=' + $packCount + ' db=' + $activeCloud.database)
     if ($packCount -lt 243) {
-        Write-Host ('WARN Expected 243 language packs on disk — run: .\gradlew.bat :tools:pack-builder:run --args="build-all --version 1.0.0"')
+        Write-Host ('WARN Expected 243 language packs — run: .\tools\pack-builder\scripts\build-all-packs.ps1')
     } else {
         Write-Host ('OK  Language pack count (' + $packCount + ')')
     }
 }
 
-# Pack download: use curl (Invoke-WebRequest hangs on binary FileResponse without -OutFile)
-$packUrl = "http://127.0.0.1:8790/api/ailt/languages/en/file"
-$curl = curl.exe -s -o NUL -w "%{http_code}|%{size_download}" --max-time 10 $packUrl 2>&1
+$packBase = if ($cloudHealth) { "https://cheradip.com/ailt/api" } else { "http://127.0.0.1:8790/api/ailt" }
+$packUrl = "$packBase/languages/en/file"
+$curl = curl.exe -s -o NUL -w "%{http_code}|%{size_download}" --max-time 15 $packUrl 2>&1
 if ($LASTEXITCODE -eq 0 -and $curl -match '^200\|(\d+)$') {
     Write-Host ('OK  Pack download (en) — ' + $Matches[1] + ' bytes')
 } else {
     Write-Host ('FAIL Pack download — curl returned: ' + $curl)
-    Write-Host "  Tip: use curl.exe or: Invoke-WebRequest -Uri '$packUrl' -OutFile `$env:TEMP\en.zip -TimeoutSec 15"
 }
 
 if ($homeHealth) {
@@ -74,7 +69,7 @@ if ($homeHealth) {
 Write-Host ""
 Write-Host "Tunnels (optional):"
 curl.exe -s -o NUL -w "  ai.cheradip.com -> %{http_code}`n" --max-time 15 https://ai.cheradip.com/health
-curl.exe -s -o NUL -w "  ailt.cheradip.com -> %{http_code}`n" --max-time 15 https://ailt.cheradip.com/api/ailt/health
+curl.exe -s -o NUL -w "  cheradip.com/ailt/api -> %{http_code}`n" --max-time 15 https://cheradip.com/ailt/api/health
 
 Write-Host ""
 Write-Host "Done."

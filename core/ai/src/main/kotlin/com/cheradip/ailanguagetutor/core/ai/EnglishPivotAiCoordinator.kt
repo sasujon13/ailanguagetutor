@@ -28,7 +28,7 @@ class EnglishPivotAiCoordinator @Inject constructor(
     private val checkAppAccess: CheckAppAccessUseCase,
     private val cloudAiFallback: CloudAiFallbackService,
     private val aiProviderRepository: AiProviderRepository,
-    private val appConfig: AppConfig,
+    private val developerOptions: DeveloperOptionsRepository,
 ) {
     fun needsPivot(sourceLang: String, responseLang: String): Boolean =
         !LanguageCodeResolver.isEnglish(sourceLang) || !LanguageCodeResolver.isEnglish(responseLang)
@@ -81,11 +81,12 @@ class EnglishPivotAiCoordinator @Inject constructor(
         targetLang: String,
         inputSource: InputSource,
     ): String? {
-        if (homeAiSettings.preferredBackend.first() != AiBackend.LOCAL_HOME) return null
+        if (!developerOptions.shouldTryHomeAi()) return null
         val tier = checkAppAccess.subscriptionTier()
         val mode = aiModePrefs.resolvedMode(inputSource, tier)
+        val homeTimeoutMs = developerOptions.getHomeAiFallbackTimeoutMs()
         return runCatching {
-            withTimeout(appConfig.homeAiTimeoutMs) {
+            withTimeout(homeTimeoutMs) {
                 homeAiService.translateParagraph(
                     paragraph = text,
                     sourceLang = LanguageCodeResolver.normalizePackCode(sourceLang),

@@ -33,6 +33,22 @@ Full library: **`ailanguagetutor.md` → Cursor Prompt Library**
 - `:core:*` — domain, data, OCR, pack, auth, billing, …
 - `:feature:*` — screens + ViewModels
 
+## Server (App API) — linked project
+
+**Do not implement App API in this repo.** It lives in bcheradip:
+
+| Item | Path |
+|------|------|
+| Server repo | `D:\VSCode\cheradip\bcheradip` |
+| FastAPI App API | `D:\VSCode\cheradip\bcheradip\ailt_api` |
+| Production URL | `https://cheradip.com/ailt/api/` |
+| Link doc | `docs/BCHERADIP_SERVER.md` |
+| Cursor rule | `.cursor/rules/server-bcheradip.mdc` |
+
+**Home AI** stays here: `server/v2/` → `https://ai.cheradip.com`
+
+When updating auth, billing, SMTP, DB, or cloud AI **server** code → edit **bcheradip/ailt_api**, then update Android `core/network/` if the API contract changed.
+
 ## Phase 0 exit
 
 All modules compile · app launches · Cheradip theme · bottom nav shell

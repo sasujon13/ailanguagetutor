@@ -1,129 +1,56 @@
-# Cheradip AI Language Tutor API
+# Cheradip AI Language Tutor — server (this repo)
 
-**Self-hosted from this repo** — exposed via Cloudflare Tunnel:
+This Android repo keeps **Home AI only** (`server/v2/`). The **App API** (auth, billing, SMTP, packs, cloud AI) lives in the separate **bcheradip** project:
 
-**`https://ailt.cheradip.com/api/ailt/`**
+**`D:\VSCode\cheradip\bcheradip\ailt_api`** → production **`https://cheradip.com/ailt/api/`**
 
-Implementation: [`cloud-api/`](cloud-api/) (local dev + production until you add a custom domain path).
+## Services in this repo
 
-Run locally:
+| Service | Path | Public URL | Android config |
+|---------|------|------------|----------------|
+| **Home AI** | `server/v2/` :8787 | `https://ai.cheradip.com` | `HOME_AI_BASE_URL` |
+| **App API** | *bcheradip `ailt_api/`* :8790 | `https://cheradip.com/ailt/api/` | `API_BASE_URL` |
+
+Run Home AI locally:
 
 ```powershell
-cd server\cloud-api
+cd server\v2
 .\scripts\run-dev.ps1
 ```
 
-Or one-click: `cd server; .\scripts\setup-all.ps1`
+App API setup, deploy, and `.env`: see **`D:\VSCode\cheradip\bcheradip\ailt_api\README.md`**.
 
-**Language packs:** 243 SQLite ZIPs in `server/cloud-api/packs/{code}/v1.zip`, synced to MySQL on startup, served at `GET /languages/{code}/file`. Rebuild: `.\server\cloud-api\scripts\build-all-packs.ps1` or `:tools:pack-builder:run`.
+**Linked server doc:** [`docs/BCHERADIP_SERVER.md`](../docs/BCHERADIP_SERVER.md) · pointer file: [`BCHERADIP.link`](BCHERADIP.link)
 
-**Cloud AI:** set `GEMINI_API_KEY` / `OPENAI_API_KEY` / `OPENROUTER_API_KEY` in `.env` for live LLM responses on `/ai/*`.
+## Language packs
 
-The Android app calls these endpoints. Stubs work offline; extend `server/cloud-api/` as you build features.
+Build in this repo; packs sync to bcheradip:
 
-## Services
-
-| Service | Method | Path | Purpose |
-|---------|--------|------|---------|
-| Auth | POST | `auth/login` | Email/WhatsApp login |
-| Auth | POST | `auth/register` | Request OTP |
-| Auth | POST | `auth/verify-email` | Verify email OTP |
-| Auth | POST | `auth/verify-whatsapp` | Verify WhatsApp OTP |
-| Device | POST | `device/register` | Trial registration + fingerprint |
-| Billing | POST | `billing/verify` | Play purchase verification |
-| Promo | GET | `promo/paywall-config` | Slot1/slot2 visibility; hide all if no active discounts |
-| Promo | POST | `promo/validate` | Max 2 codes: LAUNCH50 (slot1) + manual (slot2) |
-| Referral | GET | `referral/policy` | Referrer buyer discount % + commission % |
-| Referral | GET | `referral/balance` | Referrer credits |
-| Languages | GET | `languages/list` | Pack catalog |
-| Languages | GET | `languages/{code}/download` | Pack download metadata |
-| Admin | GET | `admin/promo-codes` | List promo codes |
-| Admin | POST | `admin/promo-codes` | Create promo (name + discount % + flags) |
-| Admin | PATCH | `admin/promo-codes/{id}` | Edit discount % (**0 = expired**) |
-| Admin | PATCH | `admin/referral-policy` | Referrer buyer discount + commission % |
-| **Admin** | **GET** | **`admin/ai/providers`** | **AI provider health & quotas (admin)** |
-| **Admin** | **PATCH** | **`admin/ai/routing`** | **Set routing mode (random free / paid fallback)** |
-| **Admin** | **PATCH** | **`admin/ai/providers/{id}`** | **Enable/disable a provider** |
-| AI | POST | `ai/activity-metadata` | Batch activity titles |
-| AI | POST | `ai/explain-paragraph` | Paragraph explanation (batch only) |
-
-Promo config: [`promo-codes.example.json`](promo-codes.example.json) — LAUNCH50, WELCOME10, COMEBACK20; **Pro actual $2/mo**; discount **0** → *Promo code is expired. No discount available.*
-
-API keys **never** go in the Android APK. Configure providers on the server using `server/ai-providers.example.json` as a template.
-
-### Supported providers (typical free tiers)
-
-| ID | Provider | Notes |
-|----|----------|--------|
-| `gemini` | Google Gemini | Good default for metadata batch jobs |
-| `openai` | OpenAI GPT-4o mini | Free/low-cost tier |
-| `claude` | Anthropic Claude Haiku | Free tier where available |
-| `groq` | Groq (Llama) | High free RPM |
-| `openrouter` | OpenRouter | One key, many models; default `openrouter/free` |
-| `mistral` | Mistral | Smaller free quota |
-| `openai_paid` | GPT-4o paid | Enable when free pool exhausted |
-| `claude_paid` | Claude Sonnet paid | Premium fallback |
-| `openrouter_paid` | OpenRouter paid | Default `anthropic/claude-3.5-sonnet` via same API key |
-
-### Routing modes (`PATCH /admin/ai/routing`)
-
-| Mode | Behavior |
-|------|----------|
-| `random_free` | Pick randomly among enabled **free** providers with `health != exhausted`; **retries another provider on the same request if one API call errors** |
-| `random_all` | Random among all enabled providers |
-| `priority_fallback` | Try free pool randomly; on failure/quota, use paid |
-| `paid_only` | Skip free tier entirely |
-
-Each AI response should include `"provider_used": "gemini"` so the app can show which backend served the request.
-
-### Admin dashboard (app)
-
-Log in as admin → **Settings → AI API status** (or Admin console → **AI providers** tab):
-
-- Per-provider quota bars and health (healthy / degraded / exhausted)
-- Toggle routing mode and paid auto-fallback
-- Enable/disable individual providers
-- Alert when free tier is not enough → enable paid keys in server env
-
-## Admin bootstrap
-
-See `admin.seed.example.json`. Password is **never** in the APK — use `ADMIN_SEED_PASSWORD` in server env or `local.env.properties` for local Android dev only.
-
-- Email: `sashafik.me@gmail.com`
-- WhatsApp: `+8801722710298`
-
-## Environment variables (server)
-
-```bash
-GEMINI_API_KEY=...
-OPENAI_API_KEY=...
-ANTHROPIC_API_KEY=...
-GROQ_API_KEY=...
-MISTRAL_API_KEY=...
-# Paid fallbacks (optional)
-OPENAI_PAID_API_KEY=...
-ANTHROPIC_PAID_API_KEY=...
-ADMIN_SEED_PASSWORD=...
+```powershell
+.\tools\pack-builder\scripts\build-all-packs.ps1
 ```
+
+Default destination: `D:\VSCode\cheradip\bcheradip\ailt_api\packs\`  
+Override: `AILT_PACKS_DIR` in `local.env.properties` or environment.
+
+## API endpoint reference
+
+The Android app calls these on **`https://cheradip.com/ailt/api/`**:
+
+| Area | Routes |
+|------|--------|
+| Auth | `auth/login`, `auth/register`, `auth/verify-email`, … |
+| Device | `device/register` |
+| Billing | `billing/verify` |
+| Promo / referral | `promo/*`, `referral/*` |
+| Languages | `languages/list`, `languages/{code}/download` |
+| Admin | `admin/promo-codes`, `admin/ai/providers`, … |
+| Cloud AI | `ai/activity-metadata`, `ai/explain-paragraph` |
+
+Implementation: `bcheradip/ailt_api/app/routers/`. API keys stay on the server — never in the APK.
 
 ## Version 2.0.0 — Home AI (local PC)
 
-Primary AI runs on your PC: **`server/v2/`** FastAPI → tunnel **`https://ai.cheradip.com`**.
+Primary on-device AI inference runs on your PC via **`server/v2/`** → tunnel **`https://ai.cheradip.com`**.
 
-| Feature | Detail |
-|---------|--------|
-| **Backend** | Ollama (default) or OpenVINO — see `docs/OPTIONAL_FEATURES.md` |
-| **Tiers** | Free · Pro $2/mo · Plus $5/mo |
-| **Modes 1–5** | Smart Tutor, Fast Translation, Balanced (+ polish), Lightweight/OCR, High Accuracy (Plus) |
-| **Translation** | NLLB-600M + short-phrase / Mode 3 Qwen polish |
-| **STT / TTS** | `/stt`, `/tts` stubs until `setup_models.ps1` weights wired |
-| **Cache** | L1 RAM → L2 → L3 SQLite (`clear-cache.ps1`) |
-
-| Config | Purpose |
-|--------|---------|
-| `HOME_AI_BASE_URL` | Android → your PC |
-| `server/v2/scripts/run-dev.ps1` | Start Home AI |
-| `docs/OPTIONAL_FEATURES.md` | STT, TTS, billing, cache |
-| `server/v2/docs/ROUTING_AND_CACHE.md` | Router + cache |
-
-Full spec: `ailanguagetutor.md` → **Version 2.0.0**.
+See `docs/OPTIONAL_FEATURES.md` and `server/v2/docs/ROUTING_AND_CACHE.md`.

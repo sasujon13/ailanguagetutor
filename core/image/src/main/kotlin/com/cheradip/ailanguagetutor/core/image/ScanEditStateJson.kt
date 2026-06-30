@@ -19,6 +19,8 @@ private fun JSONObject.toQuadPoints(): QuadPoints = QuadPoints(
 
 private fun cropParamsFromJson(obj: JSONObject) = CropParams(
     corners = obj.optJSONObject("corners")?.toQuadPoints() ?: QuadPoints.fullFrame(),
+    curveBoundary = obj.optJSONObject("curveBoundary")?.toCurveBoundary(),
+    useCurvedBoundary = obj.optBoolean("useCurvedBoundary", true),
     preset = runCatching { CropPreset.valueOf(obj.optString("preset")) }.getOrDefault(CropPreset.RECTANGLE),
     rotationDegrees = obj.optDouble("rotationDegrees", 0.0).toFloat(),
     autoStraighten = obj.optBoolean("autoStraighten"),
@@ -30,6 +32,8 @@ private fun cropParamsFromJson(obj: JSONObject) = CropParams(
 
 private fun CropParams.toJson(): JSONObject = JSONObject().apply {
     put("corners", corners.toJson())
+    curveBoundary?.let { put("curveBoundary", it.toJson()) }
+    put("useCurvedBoundary", useCurvedBoundary)
     put("preset", preset.name)
     put("rotationDegrees", rotationDegrees)
     put("autoStraighten", autoStraighten)

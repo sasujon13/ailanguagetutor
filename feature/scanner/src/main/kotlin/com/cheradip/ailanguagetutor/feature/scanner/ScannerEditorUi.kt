@@ -27,9 +27,12 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoFixHigh
 import androidx.compose.material.icons.filled.CropRotate
-import androidx.compose.material.icons.filled.History
-import androidx.compose.material.icons.filled.Redo
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.CleaningServices
+import androidx.compose.material.icons.filled.Transform
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Redo
 import androidx.compose.material.icons.filled.Restore
 import androidx.compose.material.icons.filled.RestartAlt
 import androidx.compose.material.icons.filled.RotateLeft
@@ -81,7 +84,6 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
-import androidx.compose.material.icons.filled.Add
 import com.cheradip.ailanguagetutor.core.image.CleanAdjustmentKind
 import com.cheradip.ailanguagetutor.core.image.DocumentFilterPresets
 import com.cheradip.ailanguagetutor.core.image.EditStage
@@ -108,53 +110,65 @@ import kotlin.math.min
 import kotlin.math.roundToInt
 
 @Composable
-private fun scanPreviewImageModel(path: String, cacheKey: String): Any {
-    val context = LocalContext.current
-    return remember(path, cacheKey) {
-        ImageRequest.Builder(context)
-            .data(File(path))
-            .memoryCacheKey(cacheKey)
-            .diskCacheKey(cacheKey)
-            .build()
-    }
-}
-
-@Composable
 fun ScannerPageThumbnailStrip(
     pages: List<ScannerPageItem>,
     selectedPageId: Long?,
     thumbnailPathFor: (ScannerPageItem) -> String,
     onSelectPage: (Long) -> Unit,
+    onAddPage: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
-    val scrollState = rememberScrollState()
     Row(
         modifier = modifier
             .fillMaxWidth()
             .height(72.dp)
-            .horizontalScroll(scrollState)
             .padding(horizontal = 8.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        pages.forEach { page ->
-            val selected = page.id == selectedPageId
-            val borderColor = if (selected) {
-                MaterialTheme.colorScheme.primary
-            } else {
-                MaterialTheme.colorScheme.outlineVariant
+        Row(
+            modifier = Modifier
+                .weight(1f)
+                .horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            pages.forEach { page ->
+                val selected = page.id == selectedPageId
+                val borderColor = if (selected) {
+                    MaterialTheme.colorScheme.primary
+                } else {
+                    MaterialTheme.colorScheme.outlineVariant
+                }
+                AsyncImage(
+                    model = thumbnailPathFor(page),
+                    contentDescription = "Page ${page.pageIndex + 1}",
+                    modifier = Modifier
+                        .width(48.dp)
+                        .height(56.dp)
+                        .clip(RoundedCornerShape(6.dp))
+                        .border(2.dp, borderColor, RoundedCornerShape(6.dp))
+                        .clickable { onSelectPage(page.id) },
+                    contentScale = ContentScale.Crop,
+                )
             }
-            AsyncImage(
-                model = thumbnailPathFor(page),
-                contentDescription = "Page ${page.pageIndex + 1}",
+        }
+        if (onAddPage != null) {
+            Box(
                 modifier = Modifier
+                    .padding(start = 8.dp)
                     .width(48.dp)
                     .height(56.dp)
                     .clip(RoundedCornerShape(6.dp))
-                    .border(2.dp, borderColor, RoundedCornerShape(6.dp))
-                    .clickable { onSelectPage(page.id) },
-                contentScale = ContentScale.Crop,
-            )
+                    .border(2.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(6.dp))
+                    .clickable(onClick = onAddPage),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    Icons.Default.Add,
+                    contentDescription = "Add page",
+                    tint = MaterialTheme.colorScheme.primary,
+                )
+            }
         }
     }
 }
@@ -211,15 +225,19 @@ fun ScannerPreviewArea(
             ),
         contentAlignment = Alignment.Center,
     ) {
-        val showCropOverlay = isCropMode && uiState.previewCompareMode == PreviewCompareMode.ORIGINAL
+        val onOriginalView = uiState.previewCompareMode == PreviewCompareMode.ORIGINAL
+        val showInteractiveCropOverlay = isCropMode && onOriginalView
+        val showCaptureRegionGuide = !isCropMode && onOriginalView
+        val curveBoundary = effectiveCurveBoundary(uiState.draftCrop)
         val preview = when {
-            showCropOverlay -> uiState.selectedPageOriginalPath ?: uiState.previewPath
+            showInteractiveCropOverlay || showCaptureRegionGuide ->
+                uiState.selectedPageOriginalPath ?: uiState.previewPath
             else -> uiState.previewPath ?: uiState.selectedPageOriginalPath
         }
         if (preview != null) {
             val previewModel = scanPreviewImageModel(
                 path = preview,
-                cacheKey = if (showCropOverlay) {
+                cacheKey = if (showInteractiveCropOverlay || showCaptureRegionGuide) {
                     "scan-crop-source-${uiState.selectedPageId}"
                 } else {
                     "scan-preview-${uiState.selectedPageId}-${uiState.previewRevision}"
@@ -244,19 +262,30 @@ fun ScannerPreviewArea(
                     ),
                 contentScale = ContentScale.Fit,
             )
-            if (showCropOverlay) {
-                val cropPreset = uiState.draftCrop.preset
-                CropCornerOverlay(
-                    corners = uiState.draftCrop.corners,
+            if (showInteractiveCropOverlay) {
+                PenToolCropOverlay(
+                    boundary = curveBoundary,
                     previewPath = preview,
                     previewRevision = uiState.previewRevision,
                     selectedPageId = uiState.selectedPageId,
                     imageWidth = uiState.cropSourceWidth,
                     imageHeight = uiState.cropSourceHeight,
-                    lockRectangle = cropPreset != CropPreset.FREEFORM,
-                    onCornersChanged = { quad ->
-                        onUpdateCrop { it.copy(corners = quad) }
+                    interactive = true,
+                    onBoundaryChanged = { curve ->
+                        onUpdateCrop {
+                            it.copy(
+                                curveBoundary = curve,
+                                useCurvedBoundary = true,
+                                corners = curve.boundingQuad(),
+                            )
+                        }
                     },
+                )
+            } else if (showCaptureRegionGuide && curveBoundary.isValid) {
+                CurveGuideOverlay(
+                    boundary = curveBoundary,
+                    imageWidth = uiState.cropSourceWidth,
+                    imageHeight = uiState.cropSourceHeight,
                 )
             }
         }
@@ -309,6 +338,7 @@ fun ScannerEditingControls(
     onSelectFilterPreset: (String) -> Unit,
     onToggleCleanAdjustment: (CleanAdjustmentKind, Int) -> Unit,
     onSetExpandedCleanAdjustment: (CleanAdjustmentKind?) -> Unit,
+    onSetCleanIntensityLevel: (Int) -> Unit,
     onAddCustomFilter: () -> Unit,
     onSaveCustomFilter: (String) -> Unit,
     onRenameCustomFilter: (String) -> Unit,
@@ -329,33 +359,45 @@ fun ScannerEditingControls(
             TextButton(onClick = onRevertToOriginal) { Text("To original") }
         }
 
-        ScannerToolBar(activeTool = uiState.activeTool, onOpenTool = onOpenTool)
+        ScannerEditorIconToolbar(
+            activeTool = uiState.activeTool,
+            onOpenTool = onOpenTool,
+        )
 
-        uiState.activeTool?.let { tool ->
-            ScannerToolPanel(
-                tool = tool,
+        if (uiState.activeTool == ScanTool.CLEAN) {
+            CleanAdjustmentSection(
+                uiState = uiState,
+                onToggleAdjustment = onToggleCleanAdjustment,
+                onSetExpandedAdjustment = onSetExpandedCleanAdjustment,
+            )
+        }
+
+        ScannerFilterPresetsSection(
+            uiState = uiState,
+            onTogglePreset = onSelectFilterPreset,
+            onSetCleanIntensityLevel = onSetCleanIntensityLevel,
+            onAddCustomFilter = onAddCustomFilter,
+        )
+
+        when (uiState.activeTool) {
+            ScanTool.CROP -> CropToolPanel(
                 uiState = uiState,
                 onClose = onCloseTool,
                 onApply = onApply,
-                onPreviewCompareMode = onPreviewCompareMode,
                 onRevertCurrent = onRevertCurrent,
-                onRevertCurrentEffect = onRevertCurrentEffect,
-                onRevertAll = onRevertAll,
                 onRestoreCrop = onRestoreCrop,
-                onRestoreColors = onRestoreColors,
                 onAutoDetect = onAutoDetect,
                 onCropPreset = onCropPreset,
                 onUpdateCrop = onUpdateCrop,
-                onUpdateTransition = onUpdateTransition,
-                onUpdateClean = onUpdateClean,
-                onUpdateGray = onUpdateGray,
-                onSelectFilterPreset = onSelectFilterPreset,
-                onToggleCleanAdjustment = onToggleCleanAdjustment,
-                onSetExpandedCleanAdjustment = onSetExpandedCleanAdjustment,
-                onAddCustomFilter = onAddCustomFilter,
-                onSaveCustomFilter = onSaveCustomFilter,
-                onRenameCustomFilter = onRenameCustomFilter,
             )
+            ScanTool.TRANSITION -> TransitionToolPanel(
+                uiState = uiState,
+                onClose = onCloseTool,
+                onApply = onApply,
+                onRevertCurrent = onRevertCurrent,
+                onUpdateTransition = onUpdateTransition,
+            )
+            else -> Unit
         }
 
         if (uiState.editHistory.isNotEmpty()) {
@@ -377,179 +419,215 @@ fun ScannerEditingControls(
 }
 
 @Composable
-private fun ScannerToolBar(activeTool: ScanTool?, onOpenTool: (ScanTool) -> Unit) {
-    val tools = listOf(
-        ScanTool.ORIGINAL to ("Original" to Icons.Default.Restore),
-        ScanTool.CROP to ("Crop & Rotate" to Icons.Default.CropRotate),
-        ScanTool.CLEAN to ("Clean" to Icons.Default.AutoFixHigh),
-        ScanTool.SAVE to ("Save" to Icons.Default.Save),
-    )
+private fun ScannerCircleIconButton(
+    selected: Boolean,
+    onClick: () -> Unit,
+    icon: ImageVector,
+    contentDescription: String,
+    modifier: Modifier = Modifier,
+) {
+    val background = if (selected) {
+        MaterialTheme.colorScheme.primaryContainer
+    } else {
+        MaterialTheme.colorScheme.surfaceVariant
+    }
+    val tint = if (selected) {
+        MaterialTheme.colorScheme.onPrimaryContainer
+    } else {
+        MaterialTheme.colorScheme.onSurfaceVariant
+    }
+    Box(
+        modifier = modifier
+            .size(44.dp)
+            .clip(CircleShape)
+            .background(background)
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(icon, contentDescription = contentDescription, tint = tint, modifier = Modifier.size(22.dp))
+    }
+}
+
+@Composable
+fun ScannerCompareCircleRow(
+    selected: PreviewCompareMode,
+    activeTool: ScanTool?,
+    onSelect: (PreviewCompareMode) -> Unit,
+    onOpenCrop: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
     Row(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
-            .horizontalScroll(rememberScrollState())
             .padding(horizontal = 8.dp, vertical = 4.dp),
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(
-            Icons.Default.History,
-            contentDescription = "Version history",
-            modifier = Modifier.size(20.dp),
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+        ScannerCircleIconButton(
+            selected = selected == PreviewCompareMode.ORIGINAL && activeTool != ScanTool.CROP,
+            onClick = { onSelect(PreviewCompareMode.ORIGINAL) },
+            icon = Icons.Default.Restore,
+            contentDescription = "Original",
         )
-        tools.forEach { (tool, labelIcon) ->
-            val (label, icon) = labelIcon
-            FilterChip(
-                selected = activeTool == tool,
-                onClick = { onOpenTool(tool) },
-                label = { Text(label, style = MaterialTheme.typography.labelMedium) },
-                leadingIcon = { Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp)) },
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            ScannerCircleIconButton(
+                selected = selected == PreviewCompareMode.AFTER && activeTool != ScanTool.CROP,
+                onClick = { onSelect(PreviewCompareMode.AFTER) },
+                icon = Icons.Default.AutoFixHigh,
+                contentDescription = "Enhance",
+            )
+            ScannerCircleIconButton(
+                selected = activeTool == ScanTool.CROP,
+                onClick = onOpenCrop,
+                icon = Icons.Default.CropRotate,
+                contentDescription = "Crop and rotate",
             )
         }
     }
 }
 
 @Composable
-private fun ScannerToolPanel(
-    tool: ScanTool,
+private fun ScannerEditorIconToolbar(
+    activeTool: ScanTool?,
+    onOpenTool: (ScanTool) -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.SpaceEvenly,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        ScannerCircleIconButton(
+            selected = activeTool == ScanTool.TRANSITION,
+            onClick = { onOpenTool(ScanTool.TRANSITION) },
+            icon = Icons.Default.Transform,
+            contentDescription = "Transform",
+        )
+        ScannerCircleIconButton(
+            selected = activeTool == ScanTool.CLEAN,
+            onClick = { onOpenTool(ScanTool.CLEAN) },
+            icon = Icons.Default.CleaningServices,
+            contentDescription = "Clean",
+        )
+        ScannerCircleIconButton(
+            selected = activeTool == ScanTool.SAVE,
+            onClick = { onOpenTool(ScanTool.SAVE) },
+            icon = Icons.Default.Save,
+            contentDescription = "Save",
+        )
+    }
+}
+
+@Composable
+private fun CropToolPanel(
     uiState: ScannerUiState,
     onClose: () -> Unit,
     onApply: () -> Unit,
-    onPreviewCompareMode: (PreviewCompareMode) -> Unit,
     onRevertCurrent: () -> Unit,
-    onRevertCurrentEffect: () -> Unit,
-    onRevertAll: () -> Unit,
     onRestoreCrop: () -> Unit,
-    onRestoreColors: () -> Unit,
     onAutoDetect: () -> Unit,
     onCropPreset: (CropPreset) -> Unit,
     onUpdateCrop: ((com.cheradip.ailanguagetutor.core.image.CropParams) -> com.cheradip.ailanguagetutor.core.image.CropParams) -> Unit,
-    onUpdateTransition: ((TransitionParams) -> TransitionParams) -> Unit,
-    onUpdateClean: ((CleanParams) -> CleanParams) -> Unit,
-    onUpdateGray: ((GrayParams) -> GrayParams) -> Unit,
-    onSelectFilterPreset: (String) -> Unit,
-    onToggleCleanAdjustment: (CleanAdjustmentKind, Int) -> Unit,
-    onSetExpandedCleanAdjustment: (CleanAdjustmentKind?) -> Unit,
-    onAddCustomFilter: () -> Unit,
-    onSaveCustomFilter: (String) -> Unit,
-    onRenameCustomFilter: (String) -> Unit,
 ) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .height(320.dp)
-            .verticalScroll(rememberScrollState())
             .padding(horizontal = 12.dp, vertical = 4.dp),
     ) {
-        when (tool) {
-            ScanTool.ORIGINAL -> {
-                Text("Tap Original anytime to reload the untouched capture.", style = MaterialTheme.typography.bodySmall)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    TextButton(onClick = onRevertCurrentEffect) { Text("Revert effect") }
-                    TextButton(onClick = onRevertAll) { Text("Revert all") }
-                }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    TextButton(onClick = onRevertCurrent) { Text("Reset tool") }
-                    TextButton(onClick = onRestoreCrop) { Text("Restore crop") }
-                    TextButton(onClick = onRestoreColors) { Text("Restore colors") }
-                }
-                EditPreviewActions(
-                    selected = uiState.previewCompareMode,
-                    showBeforeAfter = false,
-                    onSelect = onPreviewCompareMode,
-                )
-                Button(onClick = onApply, modifier = Modifier.fillMaxWidth()) { Text("Apply reset all") }
+        Text(
+            "Drag anchors and handles like a pen tool. Tap an edge to add a point.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.primary,
+        )
+        Text(
+            "Drag the green curve on the image above to set the capture area.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.primary,
+        )
+        Row(
+            modifier = Modifier.horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            CropPreset.entries.forEach { preset ->
+                AssistChip(onClick = { onCropPreset(preset) }, label = { Text(preset.name.replace('_', ' ')) })
             }
-            ScanTool.CROP -> {
-                Text(
-                    "Drag the green handles on the image above to set the crop area.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.primary,
-                )
-                Row(
-                    modifier = Modifier.horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                ) {
-                    CropPreset.entries.forEach { preset ->
-                        AssistChip(onClick = { onCropPreset(preset) }, label = { Text(preset.name.replace('_', ' ')) })
-                    }
-                }
-                RotationDegreeSlider(
-                    degrees = uiState.draftCrop.rotationDegrees,
-                    onDegreesChange = { deg -> onUpdateCrop { it.copy(rotationDegrees = deg) } },
-                )
-                if (kotlin.math.abs(uiState.cropSkewDegrees) > 1f) {
-                    Text(
-                        "Skew detected: ${uiState.cropSkewDegrees.toInt()}° — use Auto straighten",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.primary,
-                    )
-                }
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    ToggleChip("Auto straighten", uiState.draftCrop.autoStraighten) {
-                        onUpdateCrop { p -> p.copy(autoStraighten = !p.autoStraighten) }
-                    }
-                    ToggleChip("Perspective", uiState.draftCrop.perspectiveCorrection) {
-                        onUpdateCrop { p -> p.copy(perspectiveCorrection = !p.perspectiveCorrection) }
-                    }
-                    ToggleChip("Keystone", uiState.draftCrop.keystoneCorrection) {
-                        onUpdateCrop { p -> p.copy(keystoneCorrection = !p.keystoneCorrection) }
-                    }
-                    ToggleChip("H align", uiState.draftCrop.horizontalAlignment) {
-                        onUpdateCrop { p -> p.copy(horizontalAlignment = !p.horizontalAlignment) }
-                    }
-                    ActionChip("Auto detect edges", onAutoDetect)
-                    ActionChip("Restore boundaries", onRestoreCrop)
-                }
-                if (uiState.draftCrop.preset == CropPreset.ID_CARD ||
-                    uiState.draftCrop.preset == CropPreset.BUSINESS_CARD ||
-                    uiState.draftCrop.preset == CropPreset.PASSPORT
-                ) {
-                    Text(
-                        "Tip: OpenCV finds the card even on top of other documents — tap Auto detect or select the preset again.",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.primary,
-                    )
-                }
-                EditPreviewActions(
-                    selected = uiState.previewCompareMode,
-                    showBeforeAfter = true,
-                    onSelect = onPreviewCompareMode,
-                )
-            }
-            ScanTool.CLEAN, ScanTool.GRAY -> {
-                CleanFiltersPanel(
-                    uiState = uiState,
-                    onTogglePreset = onSelectFilterPreset,
-                    onToggleAdjustment = onToggleCleanAdjustment,
-                    onSetExpandedAdjustment = onSetExpandedCleanAdjustment,
-                    onAddCustomFilter = onAddCustomFilter,
-                )
-                EditPreviewActions(
-                    selected = uiState.previewCompareMode,
-                    showBeforeAfter = true,
-                    onSelect = onPreviewCompareMode,
-                )
-            }
-            ScanTool.SAVE -> {
-                Text("Export to PDF, separate images, or one long image.", style = MaterialTheme.typography.bodyMedium)
-                Text("Files save to Documents/AILanguageTutor/", style = MaterialTheme.typography.bodySmall)
-            }
-            ScanTool.TRANSITION -> Unit
         }
-        if (tool != ScanTool.ORIGINAL && tool != ScanTool.SAVE && tool != ScanTool.GRAY) {
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                TextButton(onClick = onClose) { Text("Cancel") }
-                TextButton(onClick = onRevertCurrent) { Text("Revert") }
-                Button(onClick = onApply, enabled = !uiState.isSaving) { Text("Apply") }
+        RotationDegreeSlider(
+            degrees = uiState.draftCrop.rotationDegrees,
+            onDegreesChange = { deg -> onUpdateCrop { it.copy(rotationDegrees = deg) } },
+        )
+        if (kotlin.math.abs(uiState.cropSkewDegrees) > 1f) {
+            Text(
+                "Skew detected: ${uiState.cropSkewDegrees.toInt()}° — use Auto straighten",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.primary,
+            )
+        }
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            ToggleChip("Auto straighten", uiState.draftCrop.autoStraighten) {
+                onUpdateCrop { p -> p.copy(autoStraighten = !p.autoStraighten) }
             }
+            ToggleChip("Perspective", uiState.draftCrop.perspectiveCorrection) {
+                onUpdateCrop { p -> p.copy(perspectiveCorrection = !p.perspectiveCorrection) }
+            }
+            ToggleChip("Keystone", uiState.draftCrop.keystoneCorrection) {
+                onUpdateCrop { p -> p.copy(keystoneCorrection = !p.keystoneCorrection) }
+            }
+            ToggleChip("H align", uiState.draftCrop.horizontalAlignment) {
+                onUpdateCrop { p -> p.copy(horizontalAlignment = !p.horizontalAlignment) }
+            }
+            ActionChip("Auto detect edges", onAutoDetect)
+            ActionChip("Restore boundaries", onRestoreCrop)
+        }
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+            TextButton(onClick = onClose) { Text("Cancel") }
+            TextButton(onClick = onRevertCurrent) { Text("Revert") }
+            Button(onClick = onApply, enabled = !uiState.isSaving) { Text("Apply") }
+        }
+    }
+}
+
+@Composable
+private fun TransitionToolPanel(
+    uiState: ScannerUiState,
+    onClose: () -> Unit,
+    onApply: () -> Unit,
+    onRevertCurrent: () -> Unit,
+    onUpdateTransition: ((TransitionParams) -> TransitionParams) -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 4.dp),
+    ) {
+        ToggleChip("Auto straighten text", uiState.draftTransition.autoStraightenText) {
+            onUpdateTransition { p -> p.copy(autoStraightenText = !p.autoStraightenText) }
+        }
+        ToggleChip("Curved page correction", uiState.draftTransition.curvedPageCorrection) {
+            onUpdateTransition { p -> p.copy(curvedPageCorrection = !p.curvedPageCorrection) }
+        }
+        Text("Perspective strength", style = MaterialTheme.typography.labelMedium)
+        Slider(
+            value = uiState.draftTransition.perspectiveStrength.toFloat(),
+            onValueChange = { value ->
+                onUpdateTransition { p -> p.copy(perspectiveStrength = value.roundToInt()) }
+            },
+            valueRange = 0f..100f,
+        )
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+            TextButton(onClick = onClose) { Text("Cancel") }
+            TextButton(onClick = onRevertCurrent) { Text("Revert") }
+            Button(onClick = onApply, enabled = !uiState.isSaving) { Text("Apply") }
         }
     }
 }
@@ -569,72 +647,163 @@ private fun ActionChip(label: String, onClick: () -> Unit) {
 }
 
 @Composable
-private fun CleanFiltersPanel(
+private fun CleanAdjustmentSection(
     uiState: ScannerUiState,
-    onTogglePreset: (String) -> Unit,
     onToggleAdjustment: (CleanAdjustmentKind, Int) -> Unit,
     onSetExpandedAdjustment: (CleanAdjustmentKind?) -> Unit,
+) {
+    val selected = uiState.draftFilterSelection
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 4.dp),
+    ) {
+        CleanAdjustmentCircleRow(
+            uiState = uiState,
+            selected = selected,
+            onToggleAdjustment = onToggleAdjustment,
+            onSetExpandedAdjustment = onSetExpandedAdjustment,
+        )
+        uiState.expandedCleanAdjustment?.let { kind ->
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState())
+                    .padding(bottom = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                (0..9).forEach { level ->
+                    FilterChip(
+                        selected = selected.adjustments[kind] == level,
+                        onClick = { onToggleAdjustment(kind, level) },
+                        label = { Text(level.toString(), style = MaterialTheme.typography.labelSmall) },
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ScannerFilterPresetsSection(
+    uiState: ScannerUiState,
+    onTogglePreset: (String) -> Unit,
+    onSetCleanIntensityLevel: (Int) -> Unit,
     onAddCustomFilter: () -> Unit,
 ) {
     val selected = uiState.draftFilterSelection
-    FilterPresetRow(
-        presetIds = DocumentFilterPresets.colorRowIds,
-        selectedIds = selected.presetIds,
-        onToggle = onTogglePreset,
-    )
-    FilterPresetRow(
-        presetIds = DocumentFilterPresets.documentRowIds,
-        selectedIds = selected.presetIds,
-        onToggle = onTogglePreset,
-    )
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .horizontalScroll(rememberScrollState())
-            .padding(vertical = 4.dp),
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-    ) {
-        uiState.customFilters.filter { it.hasSavedSettings }.forEach { slot ->
-            FilterChip(
-                selected = slot.slotId in selected.presetIds,
-                onClick = { onTogglePreset(slot.slotId) },
-                label = { Text(slot.displayName, style = MaterialTheme.typography.labelSmall) },
-            )
-        }
-        IconButton(onClick = onAddCustomFilter) {
-            Icon(Icons.Default.Add, contentDescription = "Save current filters")
-        }
-    }
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .horizontalScroll(rememberScrollState())
-            .padding(vertical = 4.dp),
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-    ) {
-        DocumentFilterPresets.adjustmentKinds.forEach { kind ->
-            FilterChip(
-                selected = uiState.expandedCleanAdjustment == kind || kind in selected.adjustments,
-                onClick = {
-                    onSetExpandedAdjustment(if (uiState.expandedCleanAdjustment == kind) null else kind)
-                },
-                label = { Text(kind.label, style = MaterialTheme.typography.labelSmall) },
-            )
-        }
-    }
-    uiState.expandedCleanAdjustment?.let { kind ->
+    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp)) {
+        CleanIntensitySizeRow(
+            selectedLevel = uiState.selectedCleanIntensityLevel,
+            onSelectLevel = onSetCleanIntensityLevel,
+        )
+        FilterPresetRow(
+            presetIds = DocumentFilterPresets.colorRowIds,
+            selectedIds = selected.presetIds,
+            onToggle = onTogglePreset,
+        )
+        FilterPresetRow(
+            presetIds = DocumentFilterPresets.documentRowIds,
+            selectedIds = selected.presetIds,
+            onToggle = onTogglePreset,
+        )
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .horizontalScroll(rememberScrollState())
-                .padding(bottom = 4.dp),
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                .padding(vertical = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            (0..9).forEach { level ->
+            uiState.customFilters.filter { it.hasSavedSettings }.forEach { slot ->
                 FilterChip(
-                    selected = selected.adjustments[kind] == level,
-                    onClick = { onToggleAdjustment(kind, level) },
-                    label = { Text(level.toString(), style = MaterialTheme.typography.labelSmall) },
+                    selected = slot.slotId in selected.presetIds,
+                    onClick = { onTogglePreset(slot.slotId) },
+                    label = { Text(slot.displayName, style = MaterialTheme.typography.labelSmall) },
+                )
+            }
+            IconButton(onClick = onAddCustomFilter) {
+                Icon(Icons.Default.Add, contentDescription = "Save current filters")
+            }
+        }
+    }
+}
+
+@Composable
+private fun CleanIntensitySizeRow(
+    selectedLevel: Int?,
+    onSelectLevel: (Int) -> Unit,
+) {
+    val sizes = listOf(10.dp, 12.dp, 14.dp, 16.dp, 18.dp, 20.dp, 22.dp)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState())
+            .padding(vertical = 6.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        sizes.forEachIndexed { index, diameter ->
+            val level = index + 1
+            val isSelected = selectedLevel == level
+            val fillColor = if (isSelected) {
+                MaterialTheme.colorScheme.primary
+            } else {
+                MaterialTheme.colorScheme.outline
+            }
+            Box(
+                modifier = Modifier
+                    .size(diameter + 8.dp)
+                    .clickable { onSelectLevel(level) },
+                contentAlignment = Alignment.Center,
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(diameter)
+                        .clip(CircleShape)
+                        .background(fillColor),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun CleanAdjustmentCircleRow(
+    uiState: ScannerUiState,
+    selected: com.cheradip.ailanguagetutor.core.image.CleanFilterSelection,
+    onToggleAdjustment: (CleanAdjustmentKind, Int) -> Unit,
+    onSetExpandedAdjustment: (CleanAdjustmentKind?) -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState())
+            .padding(vertical = 6.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        DocumentFilterPresets.adjustmentKinds.forEach { kind ->
+            val isActive = uiState.expandedCleanAdjustment == kind || kind in selected.adjustments
+            val background = if (isActive) {
+                MaterialTheme.colorScheme.primaryContainer
+            } else {
+                MaterialTheme.colorScheme.surfaceVariant
+            }
+            val label = kind.label.first().toString()
+            Box(
+                modifier = Modifier
+                    .size(36.dp)
+                    .clip(CircleShape)
+                    .background(background)
+                    .clickable {
+                        onSetExpandedAdjustment(if (uiState.expandedCleanAdjustment == kind) null else kind)
+                    },
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = label,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
                 )
             }
         }
@@ -1041,6 +1210,47 @@ private fun RotationDegreeSlider(
 }
 
 @Composable
+private fun CaptureRegionGuideOverlay(
+    corners: QuadPoints,
+    imageWidth: Int,
+    imageHeight: Int,
+) {
+    var size by remember { mutableStateOf(IntSize.Zero) }
+    val fitRect = imageContentFitRect(size, imageWidth, imageHeight)
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .onSizeChanged { size = it },
+    ) {
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            if (size.width == 0 || fitRect.width <= 0f) return@Canvas
+            val pts = listOf(
+                corners.topLeft,
+                corners.topRight,
+                corners.bottomRight,
+                corners.bottomLeft,
+            )
+            val path = Path().apply {
+                pts.forEachIndexed { i, p ->
+                    val point = cornerToOffset(p, fitRect)
+                    if (i == 0) moveTo(point.x, point.y) else lineTo(point.x, point.y)
+                }
+                close()
+            }
+            val shadePath = Path.combine(
+                PathOperation.Difference,
+                Path().apply {
+                    addRect(Rect(0f, 0f, size.width.toFloat(), size.height.toFloat()))
+                },
+                path,
+            )
+            drawPath(shadePath, Color.Black.copy(alpha = 0.35f))
+            drawPath(path, Color(0xFF00897B), style = Stroke(width = 2.5f))
+        }
+    }
+}
+
+@Composable
 private fun CropCornerOverlay(
     corners: QuadPoints,
     previewPath: String,
@@ -1168,29 +1378,6 @@ private fun FloatSlider(label: String, value: Float, min: Float, max: Float, onC
     Slider(value = value, onValueChange = onChange, valueRange = min..max)
 }
 
-private fun imageContentFitRect(container: IntSize, imageWidth: Int, imageHeight: Int): Rect {
-    if (container.width <= 0 || container.height <= 0 || imageWidth <= 0 || imageHeight <= 0) {
-        return Rect(
-            0f,
-            0f,
-            max(container.width, 1).toFloat(),
-            max(container.height, 1).toFloat(),
-        )
-    }
-    val scale = min(
-        container.width.toFloat() / imageWidth,
-        container.height.toFloat() / imageHeight,
-    )
-    val w = imageWidth * scale
-    val h = imageHeight * scale
-    val left = (container.width - w) / 2f
-    val top = (container.height - h) / 2f
-    return Rect(left, top, left + w, top + h)
-}
-
-private fun cornerToOffset(point: PointF, fitRect: Rect): Offset =
-    Offset(fitRect.left + point.x * fitRect.width, fitRect.top + point.y * fitRect.height)
-
 private fun edgeMidpoints(corners: QuadPoints, fitRect: Rect): List<Offset> {
     val tl = cornerToOffset(corners.topLeft, fitRect)
     val tr = cornerToOffset(corners.topRight, fitRect)
@@ -1210,14 +1397,14 @@ private fun nearestHandleIndex(offset: Offset, corners: QuadPoints, fitRect: Rec
     var bestDist = hitRadius
     cornerPts.forEachIndexed { i, p ->
         val center = cornerToOffset(p, fitRect)
-        val d = hypot(offset.x - center.x, offset.y - center.y)
+        val d = hypot(offset.x - center.x, offset.y - center.y).toFloat()
         if (d < bestDist) {
             bestDist = d
             best = i
         }
     }
     edgeMidpoints(corners, fitRect).forEachIndexed { i, e ->
-        val d = hypot(offset.x - e.x, offset.y - e.y)
+        val d = hypot(offset.x - e.x, offset.y - e.y).toFloat()
         if (d < bestDist) {
             bestDist = d
             best = 4 + i

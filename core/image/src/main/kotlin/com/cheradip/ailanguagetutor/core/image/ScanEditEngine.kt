@@ -109,6 +109,11 @@ class ScanEditEngine {
         hints: DocumentDetectionHints = DocumentDetectionHints(),
     ): QuadPoints = DocumentEdgeDetector.detectCorners(bitmap, hints)
 
+    fun autoDetectCurve(
+        bitmap: Bitmap,
+        hints: DocumentDetectionHints = DocumentDetectionHints(),
+    ): CurveBoundary = CurvedDocumentDetector.detect(bitmap, hints)
+
     fun presetCrop(preset: CropPreset, imageWidth: Int, imageHeight: Int): QuadPoints {
         val ratio = preset.aspectRatio() ?: return QuadPoints()
         val imageRatio = imageWidth.toFloat() / imageHeight
@@ -394,6 +399,10 @@ class ScanEditEngine {
             rotation += computeStraightenDegrees(corners)
         }
         if (rotation != 0f) result = BitmapUtils.rotate(result, rotation)
+        val curve = params.curveBoundary?.takeIf { params.useCurvedBoundary && it.isValid }
+        if (curve != null && params.perspectiveCorrection) {
+            return CurvedBoundaryWarp.warp(result, curve)
+        }
         val pxCorners = PerspectiveTransform.cornersToPixels(corners, result.width, result.height)
         return if (params.perspectiveCorrection) {
             PerspectiveTransform.warp(result, pxCorners, 1f)

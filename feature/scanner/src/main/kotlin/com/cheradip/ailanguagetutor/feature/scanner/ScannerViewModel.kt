@@ -45,6 +45,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import java.io.File
 import javax.inject.Inject
+import kotlin.math.roundToInt
 
 enum class PreviewCompareMode {
     AFTER,
@@ -115,6 +116,7 @@ data class ScannerUiState(
     val editingCustomFilter: Boolean = false,
     val draftFilterSelection: CleanFilterSelection = CleanFilterSelection(),
     val expandedCleanAdjustment: CleanAdjustmentKind? = null,
+    val selectedCleanIntensityLevel: Int? = null,
     val customFilters: List<CustomFilterSlot> = defaultCustomFilterSlots(),
     val showCustomFilterRenameDialog: Boolean = false,
     val renamingCustomSlotId: String? = null,
@@ -174,7 +176,47 @@ class ScannerViewModel @Inject constructor(
 
     fun prepareForOcr() {
         viewModelScope.launch {
+            commitCleanFilterDrafts()
             persistWorkflow(stage = ScanWorkflowStage.OCR)
+        }
+    }
+
+    private suspend fun commitCleanFilterDrafts() {
+        val docId = _uiState.value.documentId ?: return
+        val customPresets = customFilterPresets()
+        _uiState.value.pages.forEach { page ->
+            val state = editStates[page.id] ?: return@forEach
+            val appliedSelection = scanEditEngine.cleanDraftFromApplied(state)
+            if (state.draftFilterSelection == appliedSelection) return@forEach
+            val updated = scanEditEngine.applyTool(state, ScanTool.CLEAN, customPresets)
+            val rendered = withContext(Dispatchers.Default) {
+                scanEditEngine.renderApplied(updated, customPresets)
+            }
+            val outFile = imageStorage.createWorkingCopy(docId, updated.pageId)
+            val saved = withContext(Dispatchers.IO) {
+                BitmapUtils.save(rendered, outFile.absolutePath)
+            }
+            val finalState = updated.copy(workingPath = saved.path)
+            editStates[page.id] = finalState
+            documentRepository.updatePageImage(
+                pageId = page.id,
+                imagePath = saved.path,
+                width = saved.width,
+                height = saved.height,
+                editStateJson = finalState.toJson(),
+            )
+            if (page.id == _uiState.value.selectedPageId) {
+                syncDraftFromState(page.id)
+                refreshPreview(page.id)
+            }
+        }
+        _uiState.update { ui ->
+            ui.copy(
+                pages = ui.pages.map { page ->
+                    val state = editStates[page.id]
+                    if (state != null) page.copy(imagePath = state.workingPath) else page
+                },
+            )
         }
     }
 
@@ -261,7 +303,7 @@ class ScannerViewModel @Inject constructor(
     fun onPhotoCaptured(bytes: ByteArray) {
         viewModelScope.launch {
             captureMutex.withLock {
-                addCapturedPage(bytes, enhance = true, openCropTool = true)
+                addCapturedPage(bytes, enhance = true, openCropTool = false)
             }
         }
     }
@@ -272,18 +314,13 @@ class ScannerViewModel @Inject constructor(
             captureMutex.withLock {
                 _uiState.update { it.copy(isSaving = true, error = null) }
                 runCatching {
-                    val addedIds = mutableListOf<Long>()
                     bytesList.forEach { bytes ->
                         addCapturedPage(
                             bytes = bytes,
-                            enhance = false,
-                            openCropTool = true,
+                            enhance = true,
+                            openCropTool = false,
                             batchMode = true,
-                        )?.let { addedIds.add(it) }
-                    }
-                    addedIds.lastOrNull()?.let { id ->
-                        refreshPreview(id)
-                        detectCropCorners(id)
+                        )
                     }
                 }.onFailure { e ->
                     _uiState.update { it.copy(isSaving = false, error = e.message) }
@@ -381,7 +418,13 @@ class ScannerViewModel @Inject constructor(
     }
 
     fun selectPage(pageId: Long) {
-        _uiState.update { it.copy(selectedPageId = pageId, activeTool = null) }
+        _uiState.update {
+            it.copy(
+                selectedPageId = pageId,
+                activeTool = null,
+                previewCompareMode = PreviewCompareMode.ORIGINAL,
+            )
+        }
         syncDraftFromState(pageId)
         refreshPreview(pageId)
         persistWorkflow()
@@ -394,23 +437,22 @@ class ScannerViewModel @Inject constructor(
             persistWorkflow()
             return
         }
+        if (_uiState.value.activeTool == resolved) {
+            closeToolPanel()
+            return
+        }
         val pageId = _uiState.value.selectedPageId
         _uiState.update {
             it.copy(
                 activeTool = resolved,
-                previewCompareMode = PreviewCompareMode.AFTER,
+                previewCompareMode = when (resolved) {
+                    ScanTool.CROP -> PreviewCompareMode.ORIGINAL
+                    else -> PreviewCompareMode.AFTER
+                },
             )
         }
         persistWorkflow()
         pageId ?: return
-        if (resolved == ScanTool.CLEAN) {
-            val state = editStates[pageId] ?: return
-            editStates[pageId] = state.copy(
-                draftClean = CleanParams(),
-                draftGray = GrayParams(),
-                draftFilterSelection = scanEditEngine.cleanDraftFromApplied(state),
-            )
-        }
         syncDraftFromState(pageId)
         if (resolved == ScanTool.ORIGINAL) {
             refreshPreview(pageId, forceOriginal = true)
@@ -421,25 +463,33 @@ class ScannerViewModel @Inject constructor(
 
     fun closeToolPanel() {
         val pageId = _uiState.value.selectedPageId
-        if (_uiState.value.activeTool == ScanTool.CLEAN && pageId != null) {
-            val state = editStates[pageId]
-            if (state != null) {
-                editStates[pageId] = state.copy(
-                    draftClean = CleanParams(),
-                    draftGray = GrayParams(),
-                    draftFilterSelection = scanEditEngine.cleanDraftFromApplied(state),
-                )
-                syncDraftFromState(pageId)
-            }
-        }
         _uiState.update { it.copy(activeTool = null, previewCompareMode = PreviewCompareMode.AFTER) }
         pageId?.let { refreshPreview(it) }
         persistWorkflow()
     }
 
     fun setPreviewCompareMode(mode: PreviewCompareMode) {
-        _uiState.update { it.copy(previewCompareMode = mode) }
+        _uiState.update {
+            it.copy(
+                previewCompareMode = mode,
+                activeTool = if (it.activeTool == ScanTool.CROP) null else it.activeTool,
+            )
+        }
         _uiState.value.selectedPageId?.let { refreshPreview(it) }
+        persistWorkflow()
+    }
+
+    fun setCleanIntensityLevel(level: Int) {
+        val pageId = _uiState.value.selectedPageId ?: return
+        val state = editStates[pageId] ?: return
+        val clamped = level.coerceIn(1, 7)
+        val current = state.draftFilterSelection
+        val contrastLevel = ((clamped / 7f) * 9f).roundToInt().coerceIn(1, 9)
+        updateDraftFilterSelection(
+            state,
+            current.copy(adjustments = mapOf(CleanAdjustmentKind.CONTRAST to contrastLevel)),
+        )
+        _uiState.update { it.copy(selectedCleanIntensityLevel = clamped) }
     }
 
     fun deleteSelectedPage() {
@@ -810,15 +860,19 @@ class ScannerViewModel @Inject constructor(
                     cropPreset = _uiState.value.draftCrop.preset,
                 )
                 val bitmap = withContext(Dispatchers.IO) { BitmapUtils.load(state.originalPath) }
-                val corners = scanEditEngine.autoDetectCrop(bitmap, hints)
-                state.copy(
+                val curve = scanEditEngine.autoDetectCurve(bitmap, hints)
+                editStates[targetId] = state.copy(
                     draftCrop = state.draftCrop.copy(
-                        corners = corners,
+                        corners = curve.boundingQuad(),
+                        curveBoundary = curve,
+                        useCurvedBoundary = true,
                         perspectiveCorrection = state.draftCrop.preset != CropPreset.FREEFORM,
                     ),
                 )
-            }.onSuccess { updated ->
-                editStates[targetId] = updated
+            }.onSuccess {
+                val updated = editStates[targetId] ?: return@onSuccess
+                syncDraftFromState(targetId)
+                refreshPreview(targetId)
                 _uiState.update {
                     it.copy(
                         isProcessingPreview = false,
@@ -840,9 +894,12 @@ class ScannerViewModel @Inject constructor(
             cropPreset = CropPreset.RECTANGLE,
         )
         val bitmap = withContext(Dispatchers.IO) { BitmapUtils.load(state.originalPath) }
-        val corners = scanEditEngine.autoDetectCrop(bitmap, hints)
+        val curve = scanEditEngine.autoDetectCurve(bitmap, hints)
+        val corners = curve.boundingQuad()
         val cropDraft = CropParams(
             corners = corners,
+            curveBoundary = curve,
+            useCurvedBoundary = true,
             preset = CropPreset.RECTANGLE,
             perspectiveCorrection = true,
             autoStraighten = false,
@@ -885,7 +942,8 @@ class ScannerViewModel @Inject constructor(
                     if (page.id == pageId) page.copy(imagePath = saved.path) else page
                 },
                 selectedPageId = pageId,
-                activeTool = if (openCropTool) ScanTool.CROP else ui.activeTool,
+                activeTool = if (openCropTool) ScanTool.CROP else null,
+                previewCompareMode = PreviewCompareMode.ORIGINAL,
                 cropSkewDegrees = scanEditEngine.detectSkew(cropDraft.corners),
             )
         }
@@ -1154,6 +1212,8 @@ class ScannerViewModel @Inject constructor(
                         compareMode == PreviewCompareMode.ORIGINAL -> scanEditEngine.renderOriginal(state)
                         compareMode == PreviewCompareMode.BEFORE -> scanEditEngine.renderBeforeCurrentTool(state, customPresets)
                         tool != null -> scanEditEngine.renderPreview(state, tool, customPresets = customPresets)
+                        state.draftFilterSelection != scanEditEngine.cleanDraftFromApplied(state) ->
+                            scanEditEngine.renderPreview(state, ScanTool.CLEAN, customPresets = customPresets)
                         else -> scanEditEngine.renderApplied(state, customPresets)
                     }
                 }

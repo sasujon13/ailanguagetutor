@@ -22,7 +22,7 @@ object MlKitDocumentScannerHelper {
             .setGalleryImportAllowed(true)
             .setPageLimit(pageLimit)
             .setResultFormats(GmsDocumentScannerOptions.RESULT_FORMAT_JPEG)
-            .setScannerMode(GmsDocumentScannerOptions.SCANNER_MODE_FULL)
+            .setScannerMode(GmsDocumentScannerOptions.SCANNER_MODE_BASE)
             .build()
 
     suspend fun getScanIntentSender(activity: Activity, pageLimit: Int = 20): IntentSender {

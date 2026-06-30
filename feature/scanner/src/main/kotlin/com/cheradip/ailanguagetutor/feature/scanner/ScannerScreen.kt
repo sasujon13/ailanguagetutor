@@ -111,23 +111,17 @@ fun ScannerScreen(
     }
     var importGalleryOpened by remember { mutableStateOf(false) }
     var initialScanLaunched by remember { mutableStateOf(false) }
+    var showLiveCamera by remember { mutableStateOf(false) }
 
-    val launchMlKitScan: () -> Unit = {
-        val activity = context.findHostActivity()
-        if (activity != null) {
-            scope.launch {
-                runCatching {
-                    val sender = MlKitDocumentScannerHelper.getScanIntentSender(activity)
-                    mlKitScannerLauncher.launch(IntentSenderRequest.Builder(sender).build())
-                }.onFailure {
-                    snackbarHostState.showSnackbar("Document scanner unavailable — opening gallery")
-                    galleryLauncher.launch("image/*")
-                }
-            }
+    val openLiveCamera: () -> Unit = {
+        if (hasCameraPermission) {
+            showLiveCamera = true
         } else {
-            galleryLauncher.launch("image/*")
+            permissionLauncher.launch(Manifest.permission.CAMERA)
         }
     }
+
+    val launchMlKitScan: () -> Unit = openLiveCamera
 
     LaunchedEffect(documentId, launchMode, scanOnly) {
         val sourceType = if (launchMode == ScannerLaunchMode.IMPORT) "import" else "scan"
@@ -160,7 +154,7 @@ fun ScannerScreen(
             !initialScanLaunched
         ) {
             initialScanLaunched = true
-            launchMlKitScan()
+            openLiveCamera()
         }
     }
 
@@ -174,6 +168,22 @@ fun ScannerScreen(
 
     val isImportMode = launchMode == ScannerLaunchMode.IMPORT
     val showEditor = uiState.pages.isNotEmpty() && uiState.selectedPageId != null
+
+    if (showLiveCamera && hasCameraPermission && !isImportMode) {
+        ScannerLiveCamera(
+            onCapture = { bytes ->
+                viewModel.onPhotoCaptured(bytes)
+                showLiveCamera = false
+            },
+            onDone = { showLiveCamera = false },
+            onImportGallery = {
+                showLiveCamera = false
+                galleryLauncher.launch("image/*")
+            },
+            modifier = Modifier.fillMaxSize(),
+        )
+        return
+    }
 
     if (uiState.showExportDialog) {
         ScanExportDialog(
@@ -232,18 +242,9 @@ fun ScannerScreen(
         },
         snackbarHost = { SnackbarHost(snackbarHostState) },
         floatingActionButton = {
-            if (isImportMode || (showEditor && !isImportMode)) {
-                FloatingActionButton(onClick = {
-                    if (isImportMode) {
-                        galleryLauncher.launch("image/*")
-                    } else {
-                        launchMlKitScan()
-                    }
-                }) {
-                    Icon(
-                        if (isImportMode) Icons.Default.PhotoLibrary else Icons.Default.Camera,
-                        contentDescription = "Add page",
-                    )
+            if (isImportMode && !showEditor) {
+                FloatingActionButton(onClick = { galleryLauncher.launch("image/*") }) {
+                    Icon(Icons.Default.PhotoLibrary, contentDescription = "Add page")
                 }
             }
         },
@@ -265,11 +266,23 @@ fun ScannerScreen(
                     onDeletePage = viewModel::deleteSelectedPage,
                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                 )
+                ScannerCompareCircleRow(
+                    selected = uiState.previewCompareMode,
+                    activeTool = uiState.activeTool,
+                    onSelect = viewModel::setPreviewCompareMode,
+                    onOpenCrop = { viewModel.openTool(ScanTool.CROP) },
+                    modifier = Modifier.padding(horizontal = 8.dp),
+                )
                 ScannerPageThumbnailStrip(
                     pages = uiState.pages,
                     selectedPageId = uiState.selectedPageId,
                     thumbnailPathFor = viewModel::pageThumbnailPath,
                     onSelectPage = viewModel::selectPage,
+                    onAddPage = if (isImportMode) {
+                        { galleryLauncher.launch("image/*") }
+                    } else {
+                        openLiveCamera
+                    },
                 )
                 Text(
                     text = "${uiState.pageCount} page(s) · tap a thumbnail to switch page",
@@ -302,6 +315,7 @@ fun ScannerScreen(
                     onSelectFilterPreset = viewModel::toggleCleanFilter,
                     onToggleCleanAdjustment = viewModel::toggleCleanAdjustment,
                     onSetExpandedCleanAdjustment = viewModel::setExpandedCleanAdjustment,
+                    onSetCleanIntensityLevel = viewModel::setCleanIntensityLevel,
                     onAddCustomFilter = viewModel::addCustomFilterFromSelection,
                     onSaveCustomFilter = viewModel::saveCustomFilter,
                     onRenameCustomFilter = viewModel::requestRenameCustomFilter,
@@ -337,8 +351,8 @@ fun ScannerScreen(
                 MlKitScanPrompt(
                     title = "Scan documents",
                     subtitle = "Auto edge detection, perspective correction, and multi-page capture.",
-                    primaryLabel = "Scan document",
-                    onPrimary = launchMlKitScan,
+                    primaryLabel = "Open live scanner",
+                    onPrimary = openLiveCamera,
                     icon = Icons.Default.Camera,
                     secondaryLabel = "Import from gallery",
                     onSecondary = { galleryLauncher.launch("image/*") },

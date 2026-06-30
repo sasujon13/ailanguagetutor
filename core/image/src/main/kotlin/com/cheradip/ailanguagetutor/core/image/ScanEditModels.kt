@@ -110,6 +110,8 @@ data class PointF(val x: Float, val y: Float)
 
 data class CropParams(
     val corners: QuadPoints = QuadPoints.fullFrame(),
+    val curveBoundary: CurveBoundary? = null,
+    val useCurvedBoundary: Boolean = true,
     val preset: CropPreset = CropPreset.RECTANGLE,
     val rotationDegrees: Float = 0f,
     val autoStraighten: Boolean = false,

@@ -22,6 +22,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.cheradip.ailanguagetutor.core.auth.AuthRepository
+import com.cheradip.ailanguagetutor.ui.components.CheradipFormError
 import com.cheradip.ailanguagetutor.ui.components.CheradipScrollScreen
 import com.cheradip.ailanguagetutor.ui.components.IconTextButton
 import kotlinx.coroutines.launch
@@ -71,7 +72,7 @@ fun LoginScreen(
         }
         error?.let { msg ->
             item {
-                Text(msg, color = MaterialTheme.colorScheme.error)
+                CheradipFormError(message = msg)
             }
         }
         item {

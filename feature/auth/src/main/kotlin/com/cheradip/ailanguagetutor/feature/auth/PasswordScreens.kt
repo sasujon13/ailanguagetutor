@@ -21,6 +21,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.cheradip.ailanguagetutor.core.auth.AuthRepository
+import com.cheradip.ailanguagetutor.core.network.AUTH_PASSWORD_CONFIRM_MISMATCH_MESSAGE
+import com.cheradip.ailanguagetutor.ui.components.CheradipFormError
 import com.cheradip.ailanguagetutor.ui.components.CheradipScrollScreen
 import com.cheradip.ailanguagetutor.ui.components.IconTextButton
 import kotlinx.coroutines.launch
@@ -115,7 +117,7 @@ fun ForgotPasswordScreen(
         }
 
         error?.let { msg ->
-            item { Text(msg, color = MaterialTheme.colorScheme.error) }
+            item { CheradipFormError(message = msg) }
         }
 
         item {
@@ -265,7 +267,7 @@ fun UpdatePasswordScreen(
         }
 
         error?.let { msg ->
-            item { Text(msg, color = MaterialTheme.colorScheme.error) }
+            item { CheradipFormError(message = msg) }
         }
 
         item {
@@ -384,7 +386,7 @@ fun ChangeEmailScreen(
             item { Text(msg, style = MaterialTheme.typography.bodySmall) }
         }
         error?.let { msg ->
-            item { Text(msg, color = MaterialTheme.colorScheme.error) }
+            item { CheradipFormError(message = msg) }
         }
         item {
             if (step == 0) {
@@ -451,6 +453,6 @@ private fun validatePasswordReset(
     if (newPassword.length < 8 || !newPassword.any { it.isLetter() } || !newPassword.any { it.isDigit() }) {
         return "Password must be 8+ characters with a letter and a number"
     }
-    if (newPassword != confirmPassword) return "Passwords do not match"
+    if (newPassword != confirmPassword) return AUTH_PASSWORD_CONFIRM_MISMATCH_MESSAGE
     return null
 }

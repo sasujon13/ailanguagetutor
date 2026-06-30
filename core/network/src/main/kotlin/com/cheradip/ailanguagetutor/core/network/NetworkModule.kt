@@ -29,6 +29,7 @@ object NetworkModule {
     fun provideOkHttpClient(
         appLocaleInterceptor: AppLocaleInterceptor,
         sessionAuthInterceptor: SessionAuthInterceptor,
+        deviceIdInterceptor: DeviceIdInterceptor,
     ): OkHttpClient {
         val logging = HttpLoggingInterceptor().apply {
             level = HttpLoggingInterceptor.Level.BASIC
@@ -38,6 +39,7 @@ object NetworkModule {
             .readTimeout(30, TimeUnit.SECONDS)
             .addInterceptor(appLocaleInterceptor)
             .addInterceptor(sessionAuthInterceptor)
+            .addInterceptor(deviceIdInterceptor)
             .addInterceptor(logging)
             .build()
     }

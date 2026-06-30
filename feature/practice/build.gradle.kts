@@ -30,6 +30,7 @@ dependencies {
     implementation(project(":core:translation"))
     implementation(project(":core:speech"))
     implementation(project(":core:device"))
+    implementation(project(":core:network"))
     implementation(project(":core:ocr"))
     implementation(project(":feature:dictionary"))
     implementation(libs.androidx.activity.compose)

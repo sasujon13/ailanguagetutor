@@ -36,6 +36,7 @@ import com.cheradip.ailanguagetutor.core.speech.ListeningState
 import com.cheradip.ailanguagetutor.core.speech.SpeechListenConfig
 import com.cheradip.ailanguagetutor.core.speech.SpeechToTextEngine
 import com.cheradip.ailanguagetutor.core.speech.VoiceCalibrationRepository
+import com.cheradip.ailanguagetutor.core.network.CHECK_INTERNET_CONNECTION
 import com.cheradip.ailanguagetutor.core.translation.OfflinePracticeProcessor
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -503,7 +504,7 @@ class PracticeHubViewModel @Inject constructor(
             _uiState.update {
                 it.copy(
                     aiLoading = false,
-                    processError = AI_INTERNET_REQUIRED,
+                    processError = CHECK_INTERNET_CONNECTION,
                 )
             }
             return
@@ -998,7 +999,6 @@ class PracticeHubViewModel @Inject constructor(
     }
 
     companion object {
-        const val AI_INTERNET_REQUIRED = "Check Internet Connection"
         const val AI_PROCESS_FAILED = "Could not process with AI. Try again."
         const val TRANSLATION_LANG_MISMATCH =
             "Translation mode requires different input and output languages. Change languages in AI Mode settings."

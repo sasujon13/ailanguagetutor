@@ -6,12 +6,10 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
-import com.cheradip.ailanguagetutor.core.common.AppConfig
 import com.cheradip.ailanguagetutor.core.common.DeviceIdProvider
 import com.cheradip.ailanguagetutor.core.common.SessionTokenHolder
 import com.cheradip.ailanguagetutor.core.network.AiltAuthService
 import com.cheradip.ailanguagetutor.core.network.AuthLoginRequest
-import com.cheradip.ailanguagetutor.core.network.CHECK_INTERNET_CONNECTION
 import com.cheradip.ailanguagetutor.core.network.EmailChangeConfirmRequest
 import com.cheradip.ailanguagetutor.core.network.EmailChangeSendRequest
 import com.cheradip.ailanguagetutor.core.network.NetworkErrorFormatter
@@ -20,6 +18,7 @@ import com.cheradip.ailanguagetutor.core.network.PasswordUpdateSendRequest
 import com.cheradip.ailanguagetutor.core.network.RecoveryResetRequest
 import com.cheradip.ailanguagetutor.core.network.RecoverySendRequest
 import com.cheradip.ailanguagetutor.core.network.SignupInitRequest
+import com.cheradip.ailanguagetutor.core.network.loginFailureMessage
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
@@ -51,7 +50,6 @@ data class PasswordSendResult(
 @Singleton
 class AuthRepository @Inject constructor(
     @ApplicationContext private val context: Context,
-    private val appConfig: AppConfig,
     private val authService: AiltAuthService,
     private val sessionTokenHolder: SessionTokenHolder,
     private val deviceIdProvider: DeviceIdProvider,
@@ -81,11 +79,7 @@ class AuthRepository @Inject constructor(
 
     suspend fun login(username: String, password: String): Result<AuthUser> {
         if (!networkErrors.isOnline()) {
-            localLogin(username, password)?.let { user ->
-                persistUser(user)
-                return Result.success(user)
-            }
-            return Result.failure(IllegalArgumentException(CHECK_INTERNET_CONNECTION))
+            return Result.failure(IllegalArgumentException(networkErrors.offlineMessage()))
         }
         return try {
             val resp = authService.login(AuthLoginRequest(username.trim(), password, deviceId()))
@@ -93,19 +87,13 @@ class AuthRepository @Inject constructor(
             persistUser(user)
             Result.success(user)
         } catch (e: Exception) {
-            val local = localLogin(username, password)
-            if (local != null) {
-                persistUser(local)
-                Result.success(local)
-            } else {
-                Result.failure(IllegalArgumentException(networkErrors.present(e, "Login failed")))
-            }
+            Result.failure(IllegalArgumentException(loginFailureMessage(e, "Login failed")))
         }
     }
 
     suspend fun signupInit(details: SignupDetails): Result<AuthUser> {
         if (!networkErrors.isOnline()) {
-            return Result.failure(IllegalArgumentException(CHECK_INTERNET_CONNECTION))
+            return Result.failure(IllegalArgumentException(networkErrors.offlineMessage()))
         }
         return try {
         val resp = authService.signupInit(
@@ -128,7 +116,7 @@ class AuthRepository @Inject constructor(
 
     suspend fun recoverySend(username: String): Result<PasswordSendResult> {
         if (!networkErrors.isOnline()) {
-            return Result.failure(IllegalArgumentException(CHECK_INTERNET_CONNECTION))
+            return Result.failure(IllegalArgumentException(networkErrors.offlineMessage()))
         }
         return try {
         val resp = authService.recoverySend(RecoverySendRequest(username.trim(), deviceId()))
@@ -144,7 +132,7 @@ class AuthRepository @Inject constructor(
         otp: String?,
     ): Result<String> {
         if (!networkErrors.isOnline()) {
-            return Result.failure(IllegalArgumentException(CHECK_INTERNET_CONNECTION))
+            return Result.failure(IllegalArgumentException(networkErrors.offlineMessage()))
         }
         return try {
         val resp = authService.recoveryReset(
@@ -163,7 +151,7 @@ class AuthRepository @Inject constructor(
 
     suspend fun passwordUpdateSend(currentPassword: String): Result<PasswordSendResult> {
         if (!networkErrors.isOnline()) {
-            return Result.failure(IllegalArgumentException(CHECK_INTERNET_CONNECTION))
+            return Result.failure(IllegalArgumentException(networkErrors.offlineMessage()))
         }
         return try {
         val resp = authService.passwordUpdateSend(
@@ -181,7 +169,7 @@ class AuthRepository @Inject constructor(
         otp: String?,
     ): Result<String> {
         if (!networkErrors.isOnline()) {
-            return Result.failure(IllegalArgumentException(CHECK_INTERNET_CONNECTION))
+            return Result.failure(IllegalArgumentException(networkErrors.offlineMessage()))
         }
         return try {
         val resp = authService.passwordUpdateConfirm(
@@ -200,7 +188,7 @@ class AuthRepository @Inject constructor(
 
     suspend fun emailChangeSend(): Result<PasswordSendResult> {
         if (!networkErrors.isOnline()) {
-            return Result.failure(IllegalArgumentException(CHECK_INTERNET_CONNECTION))
+            return Result.failure(IllegalArgumentException(networkErrors.offlineMessage()))
         }
         return try {
         val resp = authService.emailChangeSend(EmailChangeSendRequest(deviceId()))
@@ -212,7 +200,7 @@ class AuthRepository @Inject constructor(
 
     suspend fun emailChangeConfirm(otp: String?, newEmail: String): Result<AuthUser> {
         if (!networkErrors.isOnline()) {
-            return Result.failure(IllegalArgumentException(CHECK_INTERNET_CONNECTION))
+            return Result.failure(IllegalArgumentException(networkErrors.offlineMessage()))
         }
         return try {
         val resp = authService.emailChangeConfirm(
@@ -249,19 +237,5 @@ class AuthRepository @Inject constructor(
             user.sessionToken?.let { prefs[keySession] = it }
         }
         sessionTokenHolder.setToken(user.sessionToken)
-    }
-
-    private fun localLogin(username: String, password: String): AuthUser? {
-        val adminEmail = "sashafik.me@gmail.com"
-        val adminPass = appConfig.adminSeedPassword
-        return when {
-            adminPass.isNotBlank() &&
-                username.equals(adminEmail, ignoreCase = true) &&
-                password == adminPass ->
-                AuthUser(email = adminEmail, role = "admin", whatsapp = "+8801722710298")
-            username.contains("@") && password.length >= 6 ->
-                AuthUser(email = username, role = "user")
-            else -> null
-        }
     }
 }

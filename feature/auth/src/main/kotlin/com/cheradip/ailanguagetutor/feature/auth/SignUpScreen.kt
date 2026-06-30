@@ -26,6 +26,8 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.cheradip.ailanguagetutor.core.auth.AuthRepository
 import com.cheradip.ailanguagetutor.core.auth.SignupDetails
+import com.cheradip.ailanguagetutor.core.network.AUTH_PASSWORD_CONFIRM_MISMATCH_MESSAGE
+import com.cheradip.ailanguagetutor.ui.components.CheradipFormError
 import com.cheradip.ailanguagetutor.ui.components.CheradipScrollScreen
 import com.cheradip.ailanguagetutor.ui.components.IconTextButton
 import kotlinx.coroutines.launch
@@ -119,7 +121,7 @@ fun SignUpScreen(
         }
 
         error?.let { msg ->
-            item { Text(msg, color = MaterialTheme.colorScheme.error) }
+            item { CheradipFormError(message = msg) }
         }
 
         item {
@@ -175,7 +177,7 @@ private fun validateSignUp(
     if (password.length < 8 || !password.any { it.isLetter() } || !password.any { it.isDigit() }) {
         return "Password must be 8+ characters with a letter and a number"
     }
-    if (password != confirmPassword) return "Passwords do not match"
+    if (password != confirmPassword) return AUTH_PASSWORD_CONFIRM_MISMATCH_MESSAGE
     if (!termsAccepted) return "Accept Terms & Privacy to continue"
     return null
 }

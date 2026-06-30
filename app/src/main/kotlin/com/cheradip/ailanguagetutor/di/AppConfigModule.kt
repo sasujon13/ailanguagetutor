@@ -2,6 +2,7 @@ package com.cheradip.ailanguagetutor.di
 
 import com.cheradip.ailanguagetutor.BuildConfig
 import com.cheradip.ailanguagetutor.core.common.AppConfig
+import com.cheradip.ailanguagetutor.core.common.DeviceIdHolder
 import com.cheradip.ailanguagetutor.core.common.SessionTokenHolder
 import dagger.Module
 import dagger.Provides
@@ -26,4 +27,8 @@ object AppConfigModule {
     @Provides
     @Singleton
     fun provideSessionTokenHolder(): SessionTokenHolder = SessionTokenHolder()
+
+    @Provides
+    @Singleton
+    fun provideDeviceIdHolder(): DeviceIdHolder = DeviceIdHolder()
 }

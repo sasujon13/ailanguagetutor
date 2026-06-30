@@ -49,6 +49,7 @@ import com.cheradip.ailanguagetutor.core.speech.CalibrationContent
 import com.cheradip.ailanguagetutor.core.speech.CalibrationTier
 import com.cheradip.ailanguagetutor.core.speech.LanguageCalibrationStatus
 import com.cheradip.ailanguagetutor.core.audio.TtsPlaybackState
+import com.cheradip.ailanguagetutor.ui.components.CheradipFormError
 import com.cheradip.ailanguagetutor.ui.components.IconTextButton
 import com.cheradip.ailanguagetutor.ui.components.PronunciationControlRow
 
@@ -330,11 +331,7 @@ fun PracticeInputCard(
                 }
             }
             hubState.processError?.let { err ->
-                Text(
-                    err,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.error,
-                )
+                CheradipFormError(message = err)
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 IconTextButton(

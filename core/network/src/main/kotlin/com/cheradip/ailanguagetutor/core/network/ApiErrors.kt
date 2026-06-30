@@ -8,7 +8,15 @@ import java.net.SocketTimeoutException
 import java.net.UnknownHostException
 import javax.net.ssl.SSLException
 
-const val CHECK_INTERNET_CONNECTION = "Check Internet Connection"
+const val CHECK_INTERNET_CONNECTION = "You are Offline! Connect to Internet."
+
+const val AUTH_NOT_REGISTERED_CODE = "NOT_REGISTERED"
+const val AUTH_PASSWORD_MISMATCH_CODE = "PASSWORD_MISMATCH"
+
+const val AUTH_NOT_REGISTERED_MESSAGE =
+    "Not registered with your inputted Email/Mobile Number."
+const val AUTH_PASSWORD_MISMATCH_MESSAGE = "Password Not Matched!"
+const val AUTH_PASSWORD_CONFIRM_MISMATCH_MESSAGE = "Password Not Matched!"
 
 /**
  * For features that require internet: offline → [CHECK_INTERNET_CONNECTION];
@@ -23,8 +31,25 @@ fun resolveInternetRequiredError(
     return error?.userFacingMessage(fallback) ?: fallback
 }
 
+fun mapAuthApiDetail(detail: String): String? = when (detail.trim()) {
+    AUTH_NOT_REGISTERED_CODE -> AUTH_NOT_REGISTERED_MESSAGE
+    AUTH_PASSWORD_MISMATCH_CODE -> AUTH_PASSWORD_MISMATCH_MESSAGE
+    else -> detail.takeIf { it.isLikelyUserCustomMessage() }
+}
+
+fun loginFailureMessage(error: Throwable, fallback: String = "Login failed"): String {
+    val http = error as? HttpException
+    return http?.loginErrorMessage(fallback) ?: error.userFacingMessage(fallback)
+}
+
+fun HttpException.loginErrorMessage(fallback: String = "Login failed"): String {
+    parseHttpDetail(this)?.let { mapAuthApiDetail(it) }?.let { return it }
+    return userFacingMessage(fallback)
+}
+
 fun Throwable.userFacingMessage(fallback: String = "Something went wrong. Please try again."): String {
     if (this is HttpException) {
+        parseHttpDetail(this)?.let { mapAuthApiDetail(it) }?.let { return it }
         parseHttpDetail(this)?.takeIf { it.isLikelyUserCustomMessage() }?.let { return it }
         return httpStatusFallback(code(), fallback)
     }

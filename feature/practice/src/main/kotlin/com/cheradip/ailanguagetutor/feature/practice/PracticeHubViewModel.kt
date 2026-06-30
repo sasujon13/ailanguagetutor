@@ -50,6 +50,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Dispatchers
@@ -543,37 +544,51 @@ class PracticeHubViewModel @Inject constructor(
         if (!skipLoadingStart) {
             _uiState.update { it.copy(aiLoading = true, processError = null) }
         }
-        val output = runCatching {
-            offlinePracticeProcessor.process(
-                text = text,
-                sourceLang = langs.inputLanguage,
-                targetLang = langs.outputLanguage,
-                intent = currentProcessingIntent(),
-            )
-        }.getOrElse { "Offline process failed: ${it.message ?: "unknown error"}" }
-        val intent = currentProcessingIntent()
-        if (recordActivity) {
-            publishProcessResult(
-                text = text,
-                output = output,
-                intent = intent,
-                offline = true,
-                activityType = "practice_offline",
-                title = "Learning: offline process",
-                sourceLang = langs.inputLanguage,
-                targetLang = langs.outputLanguage,
-                inputSource = _uiState.value.lastInputSource,
-            )
-        } else {
+        try {
+            val output = withContext(Dispatchers.IO) {
+                runCatching {
+                    offlinePracticeProcessor.process(
+                        text = text,
+                        sourceLang = langs.inputLanguage,
+                        targetLang = langs.outputLanguage,
+                        intent = currentProcessingIntent(),
+                    )
+                }.getOrElse { "Offline process failed: ${it.message ?: "unknown error"}" }
+            }
+            val intent = currentProcessingIntent()
+            if (recordActivity) {
+                publishProcessResult(
+                    text = text,
+                    output = output,
+                    intent = intent,
+                    offline = true,
+                    activityType = "practice_offline",
+                    title = "Learning: offline process",
+                    sourceLang = langs.inputLanguage,
+                    targetLang = langs.outputLanguage,
+                    inputSource = _uiState.value.lastInputSource,
+                )
+            } else {
+                _uiState.update {
+                    it.copy(
+                        aiLoading = false,
+                        aiOutput = output,
+                        aiIntent = intent,
+                        outputOffline = true,
+                        processError = null,
+                        outputWords = wordMapBuilder.buildFromPlainText(output),
+                        wordSheet = null,
+                    )
+                }
+            }
+        } catch (e: CancellationException) {
+            _uiState.update { it.copy(aiLoading = false) }
+            throw e
+        } catch (e: Exception) {
             _uiState.update {
                 it.copy(
                     aiLoading = false,
-                    aiOutput = output,
-                    aiIntent = intent,
-                    outputOffline = true,
-                    processError = null,
-                    outputWords = wordMapBuilder.buildFromPlainText(output),
-                    wordSheet = null,
+                    processError = "Offline process failed: ${e.message ?: "unknown error"}",
                 )
             }
         }

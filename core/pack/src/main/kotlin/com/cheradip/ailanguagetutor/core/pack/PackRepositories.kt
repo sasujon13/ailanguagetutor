@@ -320,27 +320,32 @@ class PackDatabaseConnector @Inject constructor(
         return null
     }
 
-    suspend fun lookupPhrase(phrase: String, sourceLang: String, targetLang: String? = null): String? =
-        withContext(Dispatchers.IO) {
-            val normalized = phrase.lowercase().trim()
-            val src = LanguageCodeResolver.normalizePackCode(sourceLang)
-            val tgt = targetLang?.let { LanguageCodeResolver.normalizePackCode(it) }
-
-            for (packCode in LanguageCodeResolver.packFallbackChain(sourceLang)) {
-                languagePackDao.getByCode(packCode)?.localPath?.let { path ->
-                    PackInstaller.translationDb(path)?.let { db ->
-                        PackSqliteReader.lookupPhrase(db, normalized, src)?.let { hit ->
-                            packUsageTracker.record("phrase", sourceLang, packCode, "sqlite")
-                            return@withContext hit
-                        }
+    /** Phrase-table lookup only (no word pivot) — safe to call from [pivotTranslation]. */
+    private suspend fun lookupPhraseInPacks(phrase: String, sourceLang: String): String? {
+        val normalized = phrase.lowercase().trim()
+        val src = LanguageCodeResolver.normalizePackCode(sourceLang)
+        for (packCode in LanguageCodeResolver.packFallbackChain(sourceLang)) {
+            languagePackDao.getByCode(packCode)?.localPath?.let { path ->
+                PackInstaller.translationDb(path)?.let { db ->
+                    PackSqliteReader.lookupPhrase(db, normalized, src)?.let { hit ->
+                        packUsageTracker.record("phrase", sourceLang, packCode, "sqlite")
+                        return hit
                     }
                 }
-                loadPack(packCode)?.phrases?.get(normalized)?.let { hit ->
-                    packUsageTracker.record("phrase", sourceLang, packCode, "json")
-                    return@withContext hit
-                }
             }
+            loadPack(packCode)?.phrases?.get(normalized)?.let { hit ->
+                packUsageTracker.record("phrase", sourceLang, packCode, "json")
+                return hit
+            }
+        }
+        return null
+    }
 
+    suspend fun lookupPhrase(phrase: String, sourceLang: String, targetLang: String? = null): String? =
+        withContext(Dispatchers.IO) {
+            lookupPhraseInPacks(phrase, sourceLang)?.let { return@withContext it }
+            val src = LanguageCodeResolver.normalizePackCode(sourceLang)
+            val tgt = targetLang?.let { LanguageCodeResolver.normalizePackCode(it) }
             if (tgt != null && !src.equals(tgt, ignoreCase = true)) {
                 pivotTranslation(phrase, src, tgt)?.let { return@withContext it }
             }
@@ -354,7 +359,7 @@ class PackDatabaseConnector @Inject constructor(
             val tgt = LanguageCodeResolver.normalizePackCode(targetLang)
             if (src == tgt) return@withContext text
 
-            lookupPhrase(text, src, tgt)?.let { return@withContext it }
+            lookupPhraseInPacks(text, sourceLang)?.let { return@withContext it }
 
             for (packCode in LanguageCodeResolver.packFallbackChain(src)) {
                 languagePackDao.getByCode(packCode)?.localPath?.let { path ->

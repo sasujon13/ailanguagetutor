@@ -592,11 +592,11 @@ class PracticeHubViewModel @Inject constructor(
                 targetLang = targetLang,
                 inputSource = inputSource,
             )
-        } catch (_: GuestAiLimitReachedException) {
+        } catch (e: GuestAiLimitReachedException) {
             _uiState.update {
                 it.copy(
                     aiLoading = false,
-                    processError = GUEST_AI_LOGIN_REQUIRED,
+                    processError = guestAiLoginRequiredMessage(e.limit),
                 )
             }
             return null
@@ -988,7 +988,14 @@ class PracticeHubViewModel @Inject constructor(
         const val TRANSLATION_LANG_MISMATCH =
             "Translation mode requires different input and output languages. Change languages in AI Mode settings."
         const val GUEST_AI_LOGIN_REQUIRED =
-            "You've used your 99 free AI requests. Sign in or create an account to continue."
+            "You've used your free AI requests. Sign in or create an account to continue."
+
+        fun guestAiLoginRequiredMessage(limit: Int): String =
+            if (limit >= 999_999) {
+                GUEST_AI_LOGIN_REQUIRED
+            } else {
+                "You've used your $limit free AI requests. Sign in or create an account to continue."
+            }
         private const val VOICE_AUTO_AI_DELAY_MS = 7_000L
         private const val VOICE_SESSION_SILENCE_MS = 7_000L
 

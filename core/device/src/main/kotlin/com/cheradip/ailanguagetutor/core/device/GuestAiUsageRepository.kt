@@ -30,12 +30,21 @@ class GuestAiUsageRepository @Inject constructor(
     private val guestAiGateNotifier: GuestAiGateNotifier,
 ) {
     private val keyCount = intPreferencesKey("request_count")
+    private val keyLimit = intPreferencesKey("request_limit")
 
     val requestCount: Flow<Int> = context.guestAiDataStore.data.map { prefs ->
         prefs[keyCount] ?: 0
     }
 
-    val requiresLogin: Flow<Boolean> = requestCount.map { it >= GUEST_AI_REQUEST_LIMIT }
+    val guestAiLimit: Flow<Int> = context.guestAiDataStore.data.map { prefs ->
+        prefs[keyLimit] ?: GUEST_AI_REQUEST_LIMIT
+    }
+
+    val requiresLogin: Flow<Boolean> = context.guestAiDataStore.data.map { prefs ->
+        val count = prefs[keyCount] ?: 0
+        val limit = prefs[keyLimit] ?: GUEST_AI_REQUEST_LIMIT
+        count >= limit
+    }
 
     suspend fun isLoggedIn(): Boolean = authRepository.currentUser.first() != null
 
@@ -47,6 +56,7 @@ class GuestAiUsageRepository @Inject constructor(
             deviceService.syncGuestAiUsage(GuestAiSyncRequest(deviceId = deviceId, localCount = local))
         }.onSuccess { response ->
             saveLocalCount(response.count.coerceAtLeast(local))
+            saveLocalLimit(response.limit)
         }
     }
 
@@ -54,9 +64,10 @@ class GuestAiUsageRepository @Inject constructor(
         if (isLoggedIn()) return
         syncFromServer()
         val count = readLocalCount()
-        if (count >= GUEST_AI_REQUEST_LIMIT) {
+        val limit = readLocalLimit()
+        if (count >= limit) {
             guestAiGateNotifier.notifyLoginRequired()
-            throw GuestAiLimitReachedException(count)
+            throw GuestAiLimitReachedException(count, limit)
         }
     }
 
@@ -69,6 +80,7 @@ class GuestAiUsageRepository @Inject constructor(
             deviceService.recordGuestAiUsage(GuestAiRecordRequest(deviceId = deviceId))
         }.onSuccess { response ->
             saveLocalCount(maxOf(nextLocal, response.count))
+            saveLocalLimit(response.limit)
             if (response.requiresLogin) {
                 guestAiGateNotifier.notifyLoginRequired()
             }
@@ -78,9 +90,19 @@ class GuestAiUsageRepository @Inject constructor(
     private suspend fun readLocalCount(): Int =
         context.guestAiDataStore.data.first()[keyCount] ?: 0
 
+    private suspend fun readLocalLimit(): Int =
+        context.guestAiDataStore.data.first()[keyLimit] ?: GUEST_AI_REQUEST_LIMIT
+
     private suspend fun saveLocalCount(count: Int) {
         context.guestAiDataStore.edit { prefs ->
             prefs[keyCount] = count.coerceAtLeast(0)
+        }
+    }
+
+    private suspend fun saveLocalLimit(limit: Int) {
+        if (limit <= 0) return
+        context.guestAiDataStore.edit { prefs ->
+            prefs[keyLimit] = limit
         }
     }
 }

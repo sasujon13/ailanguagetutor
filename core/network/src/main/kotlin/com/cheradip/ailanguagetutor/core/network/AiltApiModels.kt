@@ -145,7 +145,7 @@ data class GuestAiRecordRequest(
 @JsonClass(generateAdapter = true)
 data class GuestAiUsageResponse(
     val count: Int = 0,
-    val limit: Int = 99,
+    val limit: Int = 99_999_999,
     val requiresLogin: Boolean = false,
 )
 

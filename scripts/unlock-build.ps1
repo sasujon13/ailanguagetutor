@@ -5,6 +5,7 @@
 #   .\scripts\unlock-build.ps1
 #   .\scripts\unlock-build.ps1 -ThenBuild
 #   .\scripts\unlock-build.ps1 -ThenPreview
+#   .\scripts\assemble-release.ps1          # release APK (see that script)
 
 param(
     [switch]$ThenBuild,

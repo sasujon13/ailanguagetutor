@@ -490,10 +490,7 @@ class LanguagePackRepository @Inject constructor(
             val existingState = languagePackDao.getByCode(languageCode)
             val hasSqlitePack = PackInstaller.dictionaryDb(existingState?.localPath)?.isFile == true
             if (!hasSqlitePack || info != null) {
-                val downloadUrls = buildList {
-                    info?.downloadUrl?.let { add(it) }
-                    add(packFileUrl(languageCode))
-                }.distinct()
+                val downloadUrls = resolvePackDownloadUrls(languageCode, info?.downloadUrl)
                 var downloaded = false
                 for (url in downloadUrls) {
                     if (downloadPackFromUrl(url, zipDest)) {
@@ -548,6 +545,27 @@ class LanguagePackRepository @Inject constructor(
     private fun packFileUrl(languageCode: String): String {
         val base = appConfig.apiBaseUrl.trimEnd('/')
         return "$base/languages/${languageCode.lowercase()}/file"
+    }
+
+    /** Canonical App API file URL first — ignore stale download_url hosts from the server DB. */
+    private fun resolvePackDownloadUrls(languageCode: String, apiDownloadUrl: String?): List<String> {
+        val canonical = packFileUrl(languageCode)
+        val normalizedApi = apiDownloadUrl
+            ?.trim()
+            ?.takeIf { it.isNotEmpty() }
+            ?.let { normalizePackDownloadUrl(it, languageCode) }
+            ?.takeIf { it != canonical }
+        return listOfNotNull(canonical, normalizedApi)
+    }
+
+    private fun normalizePackDownloadUrl(url: String, languageCode: String): String {
+        val code = languageCode.lowercase()
+        val suffix = "/languages/$code/file"
+        return if (url.contains(suffix, ignoreCase = true)) {
+            packFileUrl(code)
+        } else {
+            url
+        }
     }
 
     private fun downloadPackFromUrl(url: String, dest: File): Boolean {

@@ -1,6 +1,13 @@
+import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
+
 plugins {
     alias(libs.plugins.android.library)
     alias(libs.plugins.kotlin.android)
+}
+
+// OpenCV + heavy image math triggers intermittent K2 ICE under incremental compile.
+tasks.withType<KotlinCompile>().configureEach {
+    incremental = false
 }
 
 android {

@@ -1,4 +1,6 @@
 import org.gradle.api.artifacts.VersionCatalogsExtension
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import org.jetbrains.kotlin.gradle.dsl.KotlinAndroidProjectExtension
 
 plugins {
     alias(libs.plugins.android.application) apply false
@@ -11,14 +13,11 @@ plugins {
 }
 
 subprojects {
-    pluginManager.withPlugin("com.android.application") {
-        tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
-            kotlinOptions.jvmTarget = "17"
-        }
-    }
-    pluginManager.withPlugin("com.android.library") {
-        tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
-            kotlinOptions.jvmTarget = "17"
+    pluginManager.withPlugin("org.jetbrains.kotlin.android") {
+        extensions.configure<KotlinAndroidProjectExtension> {
+            compilerOptions {
+                jvmTarget.set(JvmTarget.JVM_17)
+            }
         }
     }
     afterEvaluate {

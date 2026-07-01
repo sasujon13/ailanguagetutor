@@ -27,23 +27,29 @@ internal object OpenCvCurvedContourEngine {
         val scaled = scaleDown(bitmap, 1200)
         val src = Mat()
         Utils.bitmapToMat(scaled, src)
-        return runCatching {
-            val edges = Mat()
-            val gray = Mat()
-            val blurred = Mat()
+        val edges = Mat()
+        val gray = Mat()
+        val blurred = Mat()
+        return try {
             Imgproc.cvtColor(src, gray, Imgproc.COLOR_RGBA2GRAY)
             Imgproc.GaussianBlur(gray, blurred, Size(5.0, 5.0), 0.0)
             Imgproc.Canny(blurred, edges, 50.0, 150.0)
             Imgproc.dilate(edges, edges, Mat.ones(Size(3.0, 3.0), edges.type()))
             val poly = extractBestContour(edges, scaled.width, scaled.height, hints)
+            if (poly == null) {
+                null
+            } else {
+                val curveStrength = if (hints.scanType == DocumentScanType.BOOK) 0.14f else 0.08f
+                CurveBoundary.fromPolygon(poly, curveStrength)
+            }
+        } catch (_: Throwable) {
+            null
+        } finally {
             gray.release()
             blurred.release()
             edges.release()
-            poly?.let { pts ->
-                val curveStrength = if (hints.scanType == DocumentScanType.BOOK) 0.14f else 0.08f
-                CurveBoundary.fromPolygon(pts, curveStrength)
-            }
-        }.getOrNull().also { src.release() }
+            src.release()
+        }
     }
 
     private fun extractBestContour(

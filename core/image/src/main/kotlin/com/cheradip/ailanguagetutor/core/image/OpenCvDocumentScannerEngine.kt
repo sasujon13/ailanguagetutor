@@ -32,14 +32,16 @@ internal object OpenCvDocumentScannerEngine {
         val scaled = scaleDown(bitmap, 1400)
         val src = Mat()
         Utils.bitmapToMat(scaled, src)
-        return runCatching {
-            val candidates = buildList {
-                addAll(collectQuadsCanny(src))
-                addAll(collectQuadsAdaptive(src))
-                addAll(collectQuadsOtsu(src))
-            }.distinctBy { quadKey(it.quad) }
-            pickBest(candidates, src, hints, scaled.width, scaled.height)
-        }.getOrNull().also {
+        return try {
+            val candidates = mutableListOf<Candidate>()
+            candidates += collectQuadsCanny(src)
+            candidates += collectQuadsAdaptive(src)
+            candidates += collectQuadsOtsu(src)
+            val distinct = candidates.distinctBy { quadKey(it.quad) }
+            pickBest(distinct, src, hints, scaled.width, scaled.height)
+        } catch (_: Throwable) {
+            null
+        } finally {
             src.release()
         }
     }
@@ -309,10 +311,11 @@ internal object OpenCvDocumentScannerEngine {
     }
 
     private fun quadKey(quad: QuadPoints): String {
-        fun r(v: Float) = (v * 50).toInt()
-        return "${r(quad.topLeft.x)}${r(quad.topLeft.y)}" +
-            "${r(quad.topRight.x)}${r(quad.topRight.y)}" +
-            "${r(quad.bottomRight.x)}${r(quad.bottomRight.y)}" +
-            "${r(quad.bottomLeft.x)}${r(quad.bottomLeft.y)}"
+        return "${quadCoordKey(quad.topLeft.x)}${quadCoordKey(quad.topLeft.y)}" +
+            "${quadCoordKey(quad.topRight.x)}${quadCoordKey(quad.topRight.y)}" +
+            "${quadCoordKey(quad.bottomRight.x)}${quadCoordKey(quad.bottomRight.y)}" +
+            "${quadCoordKey(quad.bottomLeft.x)}${quadCoordKey(quad.bottomLeft.y)}"
     }
+
+    private fun quadCoordKey(value: Float): Int = (value * 50).toInt()
 }

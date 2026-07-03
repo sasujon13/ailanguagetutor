@@ -20,6 +20,7 @@ dependencies {
     implementation(project(":core:database"))
     implementation(project(":core:network"))
     implementation(project(":core:device"))
+    implementation(project(":core:auth"))
     implementation(libs.androidx.core.ktx)
     implementation(libs.datastore.preferences)
     implementation(libs.billing.ktx)

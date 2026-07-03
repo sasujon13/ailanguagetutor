@@ -17,13 +17,17 @@ import com.cheradip.ailanguagetutor.core.network.CHECK_INTERNET_CONNECTION
 import com.cheradip.ailanguagetutor.core.network.NetworkErrorFormatter
 import com.cheradip.ailanguagetutor.core.network.PromoValidateRequest
 import com.cheradip.ailanguagetutor.core.network.ReferralWithdrawRequest
+import com.cheradip.ailanguagetutor.core.auth.AuthRepository
 import com.android.billingclient.api.Purchase
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -230,10 +234,17 @@ class BillingRepository @Inject constructor(
     private val playBillingManager: PlayBillingManager,
     private val billingService: AiltBillingService,
     private val networkErrors: NetworkErrorFormatter,
+    private val authRepository: AuthRepository,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private val _accessState = MutableStateFlow(AccessState.TRIAL_ACTIVE)
-    val accessState: StateFlow<AccessState> = _accessState.asStateFlow()
+    private val _baseAccessState = MutableStateFlow(AccessState.TRIAL_ACTIVE)
+    private val _adminOverride = MutableStateFlow(false)
+
+    // Admin accounts always get full access, regardless of trial expiry or subscription.
+    val accessState: StateFlow<AccessState> =
+        combine(_baseAccessState, _adminOverride) { base, isAdmin ->
+            if (isAdmin && !base.hasPaidSubscription()) AccessState.PLUS_ACTIVE else base
+        }.stateIn(scope, SharingStarted.Eagerly, AccessState.TRIAL_ACTIVE)
 
     private val _storePrices = MutableStateFlow<Map<String, String>>(emptyMap())
     val storePrices: StateFlow<Map<String, String>> = _storePrices.asStateFlow()
@@ -242,6 +253,11 @@ class BillingRepository @Inject constructor(
     val billingReady: StateFlow<Boolean> = _billingReady.asStateFlow()
 
     init {
+        scope.launch {
+            authRepository.currentUser.collect { user ->
+                _adminOverride.value = user?.role.equals("admin", ignoreCase = true)
+            }
+        }
         scope.launch {
             trialRepository.ensureTrialRegistered()
             _billingReady.value = playBillingManager.connect()
@@ -316,20 +332,20 @@ class BillingRepository @Inject constructor(
     }
 
     private fun applyVerifiedTier(tier: String) {
-        _accessState.value = when (tier.lowercase()) {
+        _baseAccessState.value = when (tier.lowercase()) {
             "plus" -> AccessState.PLUS_ACTIVE
             else -> AccessState.PRO_ACTIVE
         }
     }
 
     suspend fun refreshAccess() {
-        val subscribed = _accessState.value in setOf(
+        val subscribed = _baseAccessState.value in setOf(
             AccessState.SUBSCRIBED,
             AccessState.PRO_ACTIVE,
             AccessState.PLUS_ACTIVE,
         )
         if (subscribed) return
-        _accessState.value = if (trialRepository.isTrialActive()) {
+        _baseAccessState.value = if (trialRepository.isTrialActive()) {
             AccessState.TRIAL_ACTIVE
         } else {
             AccessState.TRIAL_EXPIRED
@@ -338,7 +354,7 @@ class BillingRepository @Inject constructor(
 
     /** Debug-only bypass when Play Billing unavailable (emulator without Play Store). */
     fun unlockPremiumDev(plus: Boolean = false) {
-        _accessState.value = if (plus) AccessState.PLUS_ACTIVE else AccessState.PRO_ACTIVE
+        _baseAccessState.value = if (plus) AccessState.PLUS_ACTIVE else AccessState.PRO_ACTIVE
     }
 }
 

@@ -20,7 +20,9 @@ class AiltRetrofitProvider @Inject constructor(
     private var cachedBaseUrl: String? = null
 
     fun get(): Retrofit {
-        val base = baseUrlHolder.baseUrl
+        val base = ApiBaseUrlNormalizer.normalize(
+            baseUrlHolder.baseUrl.ifBlank { ApiBaseUrlNormalizer.PRODUCTION },
+        )
         val existing = cachedRetrofit
         if (existing != null && cachedBaseUrl == base) return existing
         return synchronized(this) {

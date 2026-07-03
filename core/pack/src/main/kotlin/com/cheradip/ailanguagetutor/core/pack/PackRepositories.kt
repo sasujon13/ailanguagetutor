@@ -1,7 +1,6 @@
 package com.cheradip.ailanguagetutor.core.pack
 
 import android.content.Context
-import com.cheradip.ailanguagetutor.core.common.AppConfig
 import com.cheradip.ailanguagetutor.core.database.dao.LanguagePackDao
 import com.cheradip.ailanguagetutor.core.database.dao.TranslationCacheDao
 import com.cheradip.ailanguagetutor.core.database.entity.LanguagePackStateEntity
@@ -9,6 +8,7 @@ import com.cheradip.ailanguagetutor.core.model.LanguageCatalogEntry
 import com.cheradip.ailanguagetutor.core.model.WordDefinition
 import com.cheradip.ailanguagetutor.core.model.WorldLanguageCatalog
 import com.cheradip.ailanguagetutor.core.network.AiltLanguageService
+import com.cheradip.ailanguagetutor.core.network.AiltRetrofitProvider
 import com.cheradip.ailanguagetutor.core.network.NetworkErrorFormatter
 import com.squareup.moshi.JsonClass
 import com.squareup.moshi.Moshi
@@ -18,9 +18,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
-import okhttp3.OkHttpClient
-import okhttp3.Request
 import java.io.File
+import java.util.zip.ZipInputStream
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -457,13 +456,13 @@ class DictionaryRepository @Inject constructor(
 class LanguagePackRepository @Inject constructor(
     @ApplicationContext private val context: Context,
     private val languagePackDao: LanguagePackDao,
-    private val languageService: AiltLanguageService,
+    private val retrofitProvider: AiltRetrofitProvider,
     private val packConnector: PackDatabaseConnector,
     private val translationCacheDao: TranslationCacheDao,
-    private val okHttpClient: OkHttpClient,
-    private val appConfig: AppConfig,
     private val networkErrors: NetworkErrorFormatter,
 ) {
+    private fun languageService(): AiltLanguageService =
+        retrofitProvider.get().create(AiltLanguageService::class.java)
     companion object {
         const val MAX_ACTIVE_PACKS = 3
     }
@@ -483,21 +482,14 @@ class LanguagePackRepository @Inject constructor(
 
     suspend fun downloadAndActivate(languageCode: String): Result<Unit> = withContext(Dispatchers.IO) {
         runCatching {
-            val info = runCatching { languageService.downloadInfo(languageCode) }.getOrNull()
+            val info = runCatching { languageService().downloadInfo(languageCode) }.getOrNull()
             val packsDir = File(context.filesDir, "packs").apply { mkdirs() }
             val zipDest = File(packsDir, "$languageCode.zip")
             val jsonDest = File(packsDir, "$languageCode.json")
             val existingState = languagePackDao.getByCode(languageCode)
             val hasSqlitePack = PackInstaller.dictionaryDb(existingState?.localPath)?.isFile == true
             if (!hasSqlitePack || info != null) {
-                val downloadUrls = resolvePackDownloadUrls(languageCode, info?.downloadUrl)
-                var downloaded = false
-                for (url in downloadUrls) {
-                    if (downloadPackFromUrl(url, zipDest)) {
-                        downloaded = true
-                        break
-                    }
-                }
+                val downloaded = downloadPackZip(languageCode, zipDest)
                 val localPath = if (downloaded && zipDest.isFile) {
                     val installedDb = PackInstaller.installPack(zipDest, languageCode, packsDir)
                     installedDb.parentFile?.absolutePath ?: installedDb.absolutePath
@@ -542,41 +534,39 @@ class LanguagePackRepository @Inject constructor(
         }
     }
 
-    private fun packFileUrl(languageCode: String): String {
-        val base = appConfig.apiBaseUrl.trimEnd('/')
-        return "$base/languages/${languageCode.lowercase()}/file"
-    }
-
-    /** Canonical App API file URL first — ignore stale download_url hosts from the server DB. */
-    private fun resolvePackDownloadUrls(languageCode: String, apiDownloadUrl: String?): List<String> {
-        val canonical = packFileUrl(languageCode)
-        val normalizedApi = apiDownloadUrl
-            ?.trim()
-            ?.takeIf { it.isNotEmpty() }
-            ?.let { normalizePackDownloadUrl(it, languageCode) }
-            ?.takeIf { it != canonical }
-        return listOfNotNull(canonical, normalizedApi)
-    }
-
-    private fun normalizePackDownloadUrl(url: String, languageCode: String): String {
-        val code = languageCode.lowercase()
-        val suffix = "/languages/$code/file"
-        return if (url.contains(suffix, ignoreCase = true)) {
-            packFileUrl(code)
-        } else {
-            url
+    /** Download via Retrofit (same base URL as /download metadata) — ignores stale download_url in JSON. */
+    private suspend fun downloadPackZip(languageCode: String, dest: File): Boolean {
+        return runCatching {
+            if (dest.isFile) dest.delete()
+            val code = languageCode.lowercase()
+            val response = languageService().downloadPackFile(code)
+            if (!response.isSuccessful) return false
+            val body = response.body() ?: return false
+            body.byteStream().use { input ->
+                dest.outputStream().use { output -> input.copyTo(output) }
+            }
+            isValidPackZip(dest)
+        }.getOrDefault(false).also { ok ->
+            if (!ok && dest.isFile) dest.delete()
         }
     }
 
-    private fun downloadPackFromUrl(url: String, dest: File): Boolean {
+    private fun isValidPackZip(file: File): Boolean {
+        if (!file.isFile || file.length() < 256) return false
         return runCatching {
-            val request = Request.Builder().url(url).get().build()
-            okHttpClient.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) return false
-                val body = response.body ?: return false
-                dest.outputStream().use { out -> body.byteStream().copyTo(out) }
+            ZipInputStream(file.inputStream()).use { zis ->
+                var entry = zis.nextEntry
+                while (entry != null) {
+                    if (entry.name.equals("dictionary.db", ignoreCase = true) ||
+                        entry.name.endsWith("/dictionary.db", ignoreCase = true)
+                    ) {
+                        return true
+                    }
+                    zis.closeEntry()
+                    entry = zis.nextEntry
+                }
+                false
             }
-            dest.length() > 0
         }.getOrDefault(false)
     }
 

@@ -7,25 +7,21 @@ import javax.inject.Singleton
 
 @Singleton
 class ApiBaseUrlInitializer @Inject constructor(
-    private val holder: ApiBaseUrlHolder,
     private val retrofitProvider: AiltRetrofitProvider,
     private val apiSettings: ApiSettingsRepository,
-    appConfig: AppConfig,
+    private val appConfig: AppConfig,
 ) {
-    init {
+    /** Call from [android.app.Application.onCreate] so Retrofit is never left on a dead host. */
+    fun ensureProductionBaseUrl() {
         runBlocking {
-            holder.update(
-                runCatching { apiSettings.getEffectiveApiBaseUrl() }
-                    .getOrElse { normalize(appConfig.apiBaseUrl) },
-            )
+            apiSettings.clearDeprecatedApiHostOverrideIfNeeded()
+            val url = runCatching { apiSettings.getEffectiveApiBaseUrl() }
+                .getOrElse { ApiBaseUrlNormalizer.normalize(appConfig.apiBaseUrl) }
+            retrofitProvider.refreshBaseUrl(url)
         }
-        retrofitProvider.get()
     }
 
     suspend fun applyFromSettings() {
         retrofitProvider.refreshBaseUrl(apiSettings.getEffectiveApiBaseUrl())
     }
-
-    private fun normalize(url: String): String =
-        url.trim().let { if (it.endsWith("/")) it else "$it/" }
 }

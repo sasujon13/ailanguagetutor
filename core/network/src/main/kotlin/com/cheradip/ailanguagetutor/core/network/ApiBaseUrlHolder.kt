@@ -10,6 +10,6 @@ class ApiBaseUrlHolder @Inject constructor() {
     var baseUrl: String = ""
 
     fun update(url: String) {
-        baseUrl = url.trim().let { if (it.endsWith("/")) it else "$it/" }
+        baseUrl = ApiBaseUrlNormalizer.normalize(url)
     }
 }

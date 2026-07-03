@@ -212,6 +212,9 @@ fun AppNavHost(
         if (hasLearningAccess) return@LaunchedEffect
         val route = currentRoute ?: return@LaunchedEffect
         if (route == Routes.PAYWALL) return@LaunchedEffect
+        // currentRoute is the route *template* (scanner?mode={mode}&scanOnly={scanOnly}),
+        // so read the actual arg — scan-only scanning/editing/saving stays free forever.
+        if (backStack?.arguments?.getBoolean("scanOnly") == true) return@LaunchedEffect
         if (!Routes.requiresLearningSubscription(route)) return@LaunchedEffect
         navController.navigate(Routes.PAYWALL) {
             popUpTo(Routes.HOME) { saveState = true }

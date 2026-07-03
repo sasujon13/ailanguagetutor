@@ -1,11 +1,14 @@
 package com.cheradip.ailanguagetutor.core.network
 
+import okhttp3.ResponseBody
+import retrofit2.Response
 import retrofit2.http.Body
 import retrofit2.http.GET
 import retrofit2.http.PATCH
 import retrofit2.http.POST
 import retrofit2.http.Path
 import retrofit2.http.Query
+import retrofit2.http.Streaming
 
 /**
  * Cheradip AI Language Tutor API — base: https://cheradip.com/ailt/api/
@@ -89,6 +92,10 @@ interface AiltLanguageService {
 
     @GET("languages/{code}/download")
     suspend fun downloadInfo(@Path("code") code: String): LanguagePackInfo
+
+    @GET("languages/{code}/file")
+    @Streaming
+    suspend fun downloadPackFile(@Path("code") code: String): Response<ResponseBody>
 }
 
 interface AiltAdminService {

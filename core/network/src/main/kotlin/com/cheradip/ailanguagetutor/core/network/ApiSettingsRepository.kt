@@ -40,7 +40,8 @@ class ApiSettingsRepository @Inject constructor(
     }
 
     val effectiveApiBaseUrl: Flow<String> = context.apiSettingsDataStore.data.map { prefs ->
-        normalizeBaseUrl(prefs[keyApiBaseUrl]?.trim()?.takeIf { it.isNotEmpty() } ?: appConfig.apiBaseUrl)
+        val raw = prefs[keyApiBaseUrl]?.trim()?.takeIf { it.isNotEmpty() } ?: appConfig.apiBaseUrl
+        ApiBaseUrlNormalizer.normalize(raw)
     }
 
     suspend fun getHomeAiFallbackTimeoutMs(): Long = homeAiFallbackTimeoutMs.first()
@@ -67,7 +68,7 @@ class ApiSettingsRepository @Inject constructor(
             if (trimmed.isEmpty()) {
                 prefs.remove(keyApiBaseUrl)
             } else {
-                prefs[keyApiBaseUrl] = normalizeBaseUrl(trimmed)
+                prefs[keyApiBaseUrl] = ApiBaseUrlNormalizer.normalize(trimmed)
             }
         }
     }
@@ -76,8 +77,15 @@ class ApiSettingsRepository @Inject constructor(
         context.apiSettingsDataStore.edit { it.clear() }
     }
 
-    private fun normalizeBaseUrl(url: String): String =
-        url.trim().let { if (it.endsWith("/")) it else "$it/" }
+    /** Remove saved override when it still targets the dead ailt.cheradip.com host. */
+    suspend fun clearDeprecatedApiHostOverrideIfNeeded() {
+        val raw = context.apiSettingsDataStore.data.first()[keyApiBaseUrl] ?: return
+        if (ApiBaseUrlNormalizer.isDeprecatedHost(raw)) {
+            setApiBaseUrlOverride(null)
+        }
+    }
+
+    private fun normalizeBaseUrl(url: String): String = ApiBaseUrlNormalizer.normalize(url)
 
     companion object {
         const val DEFAULT_CLOUD_API_TIMEOUT_MS = CLOUD_API_TIMEOUT_MS

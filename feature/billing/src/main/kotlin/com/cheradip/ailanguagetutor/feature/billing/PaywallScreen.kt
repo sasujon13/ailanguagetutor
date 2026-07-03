@@ -60,8 +60,8 @@ fun PaywallScreen(
         modifier = modifier,
         topBar = {
             CheradipTopBar(
-                title = "Upgrade to keep learning",
-                subtitle = "30-day trial · No ads · Offline-first · Home AI on Pro/Plus",
+                title = "Upgrade to Keep Learning",
+                subtitle = "30-day's trial · No ads · Offline · AI on Pro/Plus",
             )
         },
     ) { padding ->
@@ -74,7 +74,7 @@ fun PaywallScreen(
     ) {
         if (!isLoggedIn) {
             Text(
-                "Sign in or create an account before subscribing.",
+                "Sign in or Create an Account before Subscribing.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.padding(top = 8.dp),
@@ -116,7 +116,7 @@ fun PaywallScreen(
         }
         PlanOption(
             title = "Pro",
-            subtitle = "Modes 1–4 · Home AI · Cloud fallback",
+            subtitle = "Modes 1–4 · AI · Cloud fallback",
             payablePrice = proPrice.payable,
             compareAtPrice = proPrice.compareAt,
             selected = uiState.selectedPlan == PaywallPlan.PRO,
@@ -124,7 +124,7 @@ fun PaywallScreen(
         )
         PlanOption(
             title = "Plus",
-            subtitle = "All modes including Mode 5 · Priority features",
+            subtitle = "All modes including Mode 5 · Priority Features",
             payablePrice = plusPrice.payable,
             compareAtPrice = plusPrice.compareAt,
             selected = uiState.selectedPlan == PaywallPlan.PLUS,
@@ -139,10 +139,10 @@ fun PaywallScreen(
                     value = uiState.slot1Code,
                     onValueChange = {},
                     readOnly = true,
-                    label = { Text(config.slot1.label ?: "Launch promo") },
+                    label = { Text(config.slot1.label ?: "Launch Promo") },
                     placeholder = {
                         if (uiState.slot1Code.isBlank()) {
-                            Text("Applied automatically at checkout")
+                            Text("Applied automatically at Checkout")
                         }
                     },
                     modifier = Modifier.fillMaxWidth(),
@@ -161,7 +161,7 @@ fun PaywallScreen(
                     value = uiState.slot2Code,
                     onValueChange = viewModel::updateSlot2,
                     label = { Text(config.slot2.label ?: "Additional promo") },
-                    placeholder = { Text(config.slot2.placeholder ?: "Referrer or code") },
+                    placeholder = { Text(config.slot2.placeholder ?: "Referrer or Code") },
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(top = 8.dp),
@@ -247,7 +247,7 @@ fun PaywallScreen(
             }
             Text(
                 when {
-                    !isLoggedIn -> "Sign in to subscribe"
+                    !isLoggedIn -> "Sign in to Subscribe"
                     uiState.selectedPlan == PaywallPlan.PLUS -> "Subscribe to Plus via Google Play"
                     else -> "Subscribe to Pro via Google Play"
                 },

@@ -48,8 +48,7 @@ object NetworkModule {
     @Singleton
     fun provideApiBaseUrlHolder(appConfig: AppConfig): ApiBaseUrlHolder =
         ApiBaseUrlHolder().also { holder ->
-            val base = appConfig.apiBaseUrl.let { if (it.endsWith("/")) it else "$it/" }
-            holder.update(base)
+            holder.update(appConfig.apiBaseUrl)
         }
 
     @Provides

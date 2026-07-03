@@ -10,4 +10,9 @@ import javax.inject.Inject
 class AiLanguageTutorApp : Application() {
     @Inject lateinit var apiBaseUrlInitializer: ApiBaseUrlInitializer
     @Inject lateinit var deviceIdBootstrap: DeviceIdBootstrap
+
+    override fun onCreate() {
+        super.onCreate()
+        apiBaseUrlInitializer.ensureProductionBaseUrl()
+    }
 }

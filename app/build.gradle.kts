@@ -38,6 +38,10 @@ android {
         vectorDrawables {
             useSupportLibrary = true
         }
+        // Phone ABIs only — drops x86/x86_64 OpenCV natives (16 KB warning on emulator builds).
+        ndk {
+            abiFilters += listOf("arm64-v8a", "armeabi-v7a")
+        }
         buildConfigField("long", "HOME_AI_TIMEOUT_MS", "30000L")
         buildConfigField("long", "CLOUD_API_TIMEOUT_MS", "30000L")
     }
@@ -113,10 +117,6 @@ android {
             isDebuggable = false
             isMinifyEnabled = true
             isShrinkResources = true
-            ndk {
-                // OpenCV natives: ship phone ABIs only (~half the universal APK size).
-                abiFilters += listOf("arm64-v8a", "armeabi-v7a")
-            }
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
@@ -137,6 +137,9 @@ android {
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
+        }
+        jniLibs {
+            useLegacyPackaging = false
         }
     }
 }

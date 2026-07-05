@@ -9,7 +9,7 @@ object Routes {
     const val LANGUAGES = "languages"
     const val PROFILE = "profile"
     const val SETTINGS = "settings"
-    const val SCANNER = "scanner?mode={mode}&scanOnly={scanOnly}"
+    const val SCANNER = "scanner?mode={mode}&scanOnly={scanOnly}&launchCapture={launchCapture}"
     const val SCANNER_DOC = "scanner/{documentId}"
     const val OCR_PROCESSING = "ocr/{documentId}"
     const val READER = "reader/{documentId}"
@@ -40,8 +40,8 @@ object Routes {
 
     fun practiceHub(startVoice: Boolean = false, activityId: Long = -1L) =
         "practice/$activityId?startVoice=$startVoice"
-    fun scanner(mode: String = "camera", scanOnly: Boolean = false) =
-        "scanner?mode=$mode&scanOnly=$scanOnly"
+    fun scanner(mode: String = "camera", scanOnly: Boolean = false, launchCapture: Boolean = true) =
+        "scanner?mode=$mode&scanOnly=$scanOnly&launchCapture=$launchCapture"
     fun login(returnTo: String = "") = "login?returnTo=$returnTo"
     fun register(returnTo: String = "") = "register?returnTo=$returnTo"
     fun scannerDoc(documentId: Long) = "scanner/$documentId"

@@ -143,7 +143,7 @@ fun AppNavHost(
             if (documentRepository.getDocument(session.documentId) == null) {
                 scanWorkflowRepository.clear()
             } else if (session.stage == ScanWorkflowStage.SCANNER) {
-                navController.navigate(Routes.scanner(session.mode, scanOnly = true)) {
+                navController.navigate(Routes.scanner(session.mode, scanOnly = true, launchCapture = false)) {
                     launchSingleTop = true
                 }
             }
@@ -513,14 +513,20 @@ fun AppNavHost(
                         type = NavType.BoolType
                         defaultValue = false
                     },
+                    navArgument("launchCapture") {
+                        type = NavType.BoolType
+                        defaultValue = true
+                    },
                 ),
             ) { entry ->
                 val mode = entry.arguments?.getString("mode") ?: "camera"
                 val scanOnly = entry.arguments?.getBoolean("scanOnly") ?: false
+                val launchCapture = entry.arguments?.getBoolean("launchCapture") ?: true
                 ScannerScreen(
                     documentId = null,
                     launchMode = if (mode == "import") ScannerLaunchMode.IMPORT else ScannerLaunchMode.CAMERA,
                     scanOnly = scanOnly,
+                    launchCapture = launchCapture,
                     onBack = { navController.popBackStack() },
                     onDone = { docId ->
                         navController.navigate(Routes.ocrProcessing(docId)) {

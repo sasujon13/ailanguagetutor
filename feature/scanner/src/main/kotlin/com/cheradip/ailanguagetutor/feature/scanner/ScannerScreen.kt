@@ -8,9 +8,6 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.material.icons.filled.Edit
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -26,7 +23,6 @@ import androidx.compose.material.icons.filled.Save
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -67,6 +63,7 @@ fun ScannerScreen(
     onDone: (Long) -> Unit,
     launchMode: ScannerLaunchMode = ScannerLaunchMode.CAMERA,
     scanOnly: Boolean = false,
+    launchCapture: Boolean = true,
     viewModel: ScannerViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -114,7 +111,10 @@ fun ScannerScreen(
                     }
                     mlKitReplaceSelectedPage = false
                 }
-                is MlKitDocumentScannerHelper.ScanActivityOutcome.Cancelled -> Unit
+                is MlKitDocumentScannerHelper.ScanActivityOutcome.Cancelled -> {
+                    mlKitReplaceSelectedPage = false
+                    if (scanOnly) viewModel.onScanCaptureFinished()
+                }
                 is MlKitDocumentScannerHelper.ScanActivityOutcome.Failed ->
                     snackbarHostState.showSnackbar(outcome.message)
             }
@@ -151,13 +151,14 @@ fun ScannerScreen(
         }
     }
 
-    LaunchedEffect(documentId, launchMode, scanOnly) {
+    LaunchedEffect(documentId, launchMode, scanOnly, launchCapture) {
         val sourceType = if (launchMode == ScannerLaunchMode.IMPORT) "import" else "scan"
         viewModel.initDocument(
             existingId = documentId,
             sourceType = sourceType,
             mode = if (launchMode == ScannerLaunchMode.IMPORT) "import" else "camera",
             scanOnlyMode = scanOnly,
+            launchCapture = launchCapture,
         )
     }
 
@@ -174,14 +175,23 @@ fun ScannerScreen(
         }
     }
 
-    LaunchedEffect(hasCameraPermission, launchMode, uiState.isDocumentReady, uiState.pages.isEmpty()) {
-        if (
-            launchMode == ScannerLaunchMode.CAMERA &&
-            hasCameraPermission &&
-            uiState.isDocumentReady &&
-            uiState.pages.isEmpty() &&
-            !initialScanLaunched
-        ) {
+    LaunchedEffect(
+        hasCameraPermission,
+        launchMode,
+        scanOnly,
+        uiState.isDocumentReady,
+        uiState.pages.isEmpty(),
+        uiState.scanInReview,
+    ) {
+        if (launchMode != ScannerLaunchMode.CAMERA || !hasCameraPermission || !uiState.isDocumentReady || initialScanLaunched) {
+            return@LaunchedEffect
+        }
+        val shouldLaunchMlKit = if (scanOnly) {
+            !uiState.scanInReview
+        } else {
+            uiState.pages.isEmpty()
+        }
+        if (shouldLaunchMlKit) {
             initialScanLaunched = true
             launchMlKitScan(false)
         }
@@ -196,7 +206,8 @@ fun ScannerScreen(
     }
 
     val isImportMode = launchMode == ScannerLaunchMode.IMPORT
-    val showScanOnlyStage = scanOnly && uiState.pages.isNotEmpty() && uiState.selectedPageId != null
+    val showScanOnlyStage = scanOnly && uiState.scanInReview &&
+        uiState.pages.isNotEmpty() && uiState.selectedPageId != null
     val showLearningReview = !scanOnly && uiState.pages.isNotEmpty() && uiState.selectedPageId != null
     val previewPath = uiState.previewPath
         ?: uiState.pages.firstOrNull { it.id == uiState.selectedPageId }?.imagePath
@@ -226,6 +237,17 @@ fun ScannerScreen(
         )
     }
 
+    val showAutoEnhanceToggle = hasCameraPermission || isImportMode || showScanOnlyStage || showLearningReview
+
+    val canAddMorePages = !uiState.isSaving && viewModel.remainingPageSlots() > 0
+    val onAddScanPage: () -> Unit = {
+        if (isImportMode) {
+            galleryLauncher.launch("image/*")
+        } else {
+            launchMlKitScan(false)
+        }
+    }
+
     Scaffold(
         topBar = {
             CheradipTopBar(
@@ -240,22 +262,6 @@ fun ScannerScreen(
             )
         },
         snackbarHost = { SnackbarHost(snackbarHostState) },
-        floatingActionButton = {
-            if (showScanOnlyStage || showLearningReview) {
-                FloatingActionButton(onClick = {
-                    if (isImportMode) {
-                        galleryLauncher.launch("image/*")
-                    } else {
-                        launchMlKitScan(false)
-                    }
-                }) {
-                    Icon(
-                        if (isImportMode) Icons.Default.PhotoLibrary else Icons.Default.Camera,
-                        contentDescription = "Add page",
-                    )
-                }
-            }
-        },
     ) { padding ->
         Column(
             modifier = Modifier
@@ -263,12 +269,20 @@ fun ScannerScreen(
                 .padding(padding)
                 .verticalScroll(rememberScrollState()),
         ) {
+            if (showAutoEnhanceToggle) {
+                AppAutoEnhanceOnScanToggle(
+                    enabled = uiState.appAutoEnhanceOnScan,
+                    onEnabledChange = viewModel::setAppAutoEnhanceOnScan,
+                )
+            }
             if (showScanOnlyStage) {
                 ScannerReadOnlyPreview(
                     imagePath = previewPath,
                     cacheKey = "scan-preview-${uiState.selectedPageId}-${uiState.previewRevision}",
                     isLoading = uiState.isProcessingPreview,
                     onDeletePage = viewModel::deleteSelectedPage,
+                    onRescanPage = { launchMlKitScan(true) },
+                    rescanEnabled = uiState.selectedPageId != null && !uiState.isSaving,
                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                 )
                 ScannerPageThumbnailStrip(
@@ -276,31 +290,14 @@ fun ScannerScreen(
                     selectedPageId = uiState.selectedPageId,
                     thumbnailPathFor = viewModel::pageThumbnailPath,
                     onSelectPage = viewModel::selectPage,
+                    onAddPage = onAddScanPage,
+                    addPageEnabled = canAddMorePages,
                 )
                 Text(
-                    text = "${uiState.pageCount} page(s) · tap a thumbnail to switch · camera adds more",
+                    text = "${uiState.pageCount} page(s) · tap a thumbnail to switch · + to add more",
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                     style = MaterialTheme.typography.bodySmall,
                 )
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 4.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    OutlinedButton(
-                        onClick = { launchMlKitScan(true) },
-                        modifier = Modifier.weight(1f),
-                        enabled = uiState.selectedPageId != null && !uiState.isSaving,
-                    ) {
-                        Icon(
-                            Icons.Default.Edit,
-                            contentDescription = null,
-                            modifier = Modifier.padding(end = 6.dp).size(18.dp),
-                        )
-                        Text("Rescan page")
-                    }
-                }
                 ScanExportOptionsPanel(
                     options = uiState.exportOptions,
                     onUpdate = viewModel::updateExportOptions,
@@ -331,9 +328,11 @@ fun ScannerScreen(
                     selectedPageId = uiState.selectedPageId,
                     thumbnailPathFor = viewModel::pageThumbnailPath,
                     onSelectPage = viewModel::selectPage,
+                    onAddPage = onAddScanPage,
+                    addPageEnabled = canAddMorePages,
                 )
                 Text(
-                    text = "${uiState.pageCount} page(s) · tap a thumbnail to switch page",
+                    text = "${uiState.pageCount} page(s) · tap a thumbnail to switch · + to add more",
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                     style = MaterialTheme.typography.bodySmall,
                 )
@@ -359,7 +358,7 @@ fun ScannerScreen(
                     onPrimary = { galleryLauncher.launch("image/*") },
                     icon = Icons.Default.PhotoLibrary,
                 )
-            } else if (hasCameraPermission) {
+            } else if (hasCameraPermission && (!scanOnly || uiState.scanInReview || initialScanLaunched)) {
                 MlKitScanPrompt(
                     title = "Scan documents",
                     subtitle = "Auto edge detection, perspective correction, and multi-page capture.",

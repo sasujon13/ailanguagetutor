@@ -27,6 +27,8 @@ data class ScanWorkflowSession(
     val scanOnly: Boolean = false,
     val selectedPageId: Long? = null,
     val activeTool: String? = null,
+    /** True after ML Kit Next — show export/review UI without forcing another capture. */
+    val inReview: Boolean = false,
 )
 
 private val Context.scanWorkflowDataStore: DataStore<Preferences> by preferencesDataStore(
@@ -43,6 +45,17 @@ class ScanWorkflowRepository @Inject constructor(
     private val keyScanOnly = booleanPreferencesKey("scan_only")
     private val keySelectedPageId = longPreferencesKey("selected_page_id")
     private val keyActiveTool = stringPreferencesKey("active_tool")
+    private val keyInReview = booleanPreferencesKey("in_review")
+    private val keyAppAutoEnhanceOnScan = booleanPreferencesKey("app_auto_enhance_on_scan")
+
+    suspend fun loadAppAutoEnhanceOnScan(): Boolean =
+        context.scanWorkflowDataStore.data.first()[keyAppAutoEnhanceOnScan] ?: false
+
+    suspend fun saveAppAutoEnhanceOnScan(enabled: Boolean) {
+        context.scanWorkflowDataStore.edit { prefs ->
+            prefs[keyAppAutoEnhanceOnScan] = enabled
+        }
+    }
 
     val session: Flow<ScanWorkflowSession?> = context.scanWorkflowDataStore.data.map { prefs ->
         val docId = prefs[keyDocumentId] ?: return@map null
@@ -57,6 +70,7 @@ class ScanWorkflowRepository @Inject constructor(
             scanOnly = prefs[keyScanOnly] ?: false,
             selectedPageId = prefs[keySelectedPageId]?.takeIf { it > 0L },
             activeTool = prefs[keyActiveTool],
+            inReview = prefs[keyInReview] ?: false,
         )
     }
 
@@ -78,10 +92,17 @@ class ScanWorkflowRepository @Inject constructor(
             } else {
                 prefs.remove(keyActiveTool)
             }
+            prefs[keyInReview] = session.inReview
         }
     }
 
     suspend fun clear() {
-        context.scanWorkflowDataStore.edit { it.clear() }
+        context.scanWorkflowDataStore.edit { prefs ->
+            val keepAutoEnhance = prefs[keyAppAutoEnhanceOnScan]
+            prefs.clear()
+            if (keepAutoEnhance != null) {
+                prefs[keyAppAutoEnhanceOnScan] = keepAutoEnhance
+            }
+        }
     }
 }

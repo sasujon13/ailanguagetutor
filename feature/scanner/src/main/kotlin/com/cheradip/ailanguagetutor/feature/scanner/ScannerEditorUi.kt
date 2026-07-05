@@ -23,7 +23,9 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -66,6 +68,8 @@ fun ScannerPageThumbnailStrip(
     selectedPageId: Long?,
     thumbnailPathFor: (ScannerPageItem) -> String,
     onSelectPage: (Long) -> Unit,
+    onAddPage: (() -> Unit)? = null,
+    addPageEnabled: Boolean = true,
     modifier: Modifier = Modifier,
 ) {
     val scrollState = rememberScrollState()
@@ -97,6 +101,54 @@ fun ScannerPageThumbnailStrip(
                 contentScale = ContentScale.Crop,
             )
         }
+        if (onAddPage != null) {
+            AddPageThumbnail(
+                onClick = onAddPage,
+                enabled = addPageEnabled,
+            )
+        }
+    }
+}
+
+@Composable
+private fun AddPageThumbnail(
+    onClick: () -> Unit,
+    enabled: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    val borderColor = if (enabled) {
+        MaterialTheme.colorScheme.primary.copy(alpha = 0.55f)
+    } else {
+        MaterialTheme.colorScheme.outlineVariant
+    }
+    val contentColor = if (enabled) {
+        MaterialTheme.colorScheme.primary
+    } else {
+        MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+    }
+    Box(
+        modifier = modifier
+            .width(48.dp)
+            .height(56.dp)
+            .clip(RoundedCornerShape(6.dp))
+            .border(2.dp, borderColor, RoundedCornerShape(6.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.65f))
+            .clickable(enabled = enabled, onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Icon(
+                imageVector = Icons.Default.Add,
+                contentDescription = "Add page",
+                modifier = Modifier.size(22.dp),
+                tint = contentColor,
+            )
+            Text(
+                text = "Add",
+                style = MaterialTheme.typography.labelSmall,
+                color = contentColor,
+            )
+        }
     }
 }
 
@@ -107,6 +159,8 @@ fun ScannerReadOnlyPreview(
     cacheKey: String,
     isLoading: Boolean,
     onDeletePage: () -> Unit,
+    onRescanPage: (() -> Unit)? = null,
+    rescanEnabled: Boolean = true,
     modifier: Modifier = Modifier,
 ) {
     var scale by remember { mutableFloatStateOf(1f) }
@@ -153,22 +207,70 @@ fun ScannerReadOnlyPreview(
         if (isLoading) {
             CircularProgressIndicator(modifier = Modifier.size(36.dp))
         }
-        IconButton(
-            onClick = onDeletePage,
+        Row(
             modifier = Modifier
                 .align(Alignment.BottomEnd)
-                .padding(8.dp)
-                .background(
+                .padding(8.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            if (onRescanPage != null) {
+                IconButton(
+                    onClick = onRescanPage,
+                    enabled = rescanEnabled,
+                    modifier = Modifier.background(
+                        MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.92f),
+                        CircleShape,
+                    ),
+                ) {
+                    Icon(
+                        Icons.Default.Refresh,
+                        contentDescription = "Rescan page",
+                        tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                    )
+                }
+            }
+            IconButton(
+                onClick = onDeletePage,
+                modifier = Modifier.background(
                     MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.92f),
                     CircleShape,
                 ),
-        ) {
-            Icon(
-                Icons.Default.Delete,
-                contentDescription = "Delete page",
-                tint = MaterialTheme.colorScheme.onErrorContainer,
+            ) {
+                Icon(
+                    Icons.Default.Delete,
+                    contentDescription = "Delete page",
+                    tint = MaterialTheme.colorScheme.onErrorContainer,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun AppAutoEnhanceOnScanToggle(
+    enabled: Boolean,
+    onEnabledChange: (Boolean) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+            Text("App auto-enhance", style = MaterialTheme.typography.bodyMedium)
+            Text(
+                if (enabled) {
+                    "On — crop, perspective & document filter after each capture"
+                } else {
+                    "Off — keep ML Kit image as captured"
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
+        Switch(checked = enabled, onCheckedChange = onEnabledChange)
     }
 }
 
@@ -188,18 +290,20 @@ fun ScanExportOptionsPanel(
             label = { Text("Document name (optional)") },
             modifier = Modifier.fillMaxWidth(),
         )
-        EnumChips("Format", ExportFormat.entries, options.format) { f -> onUpdate { it.copy(format = f) } }
-        EnumChips("Quality", ExportQuality.entries, options.quality) { q -> onUpdate { it.copy(quality = q) } }
-        EnumChips("Compression", ExportCompression.entries, options.compression) { c ->
-            onUpdate { it.copy(compression = c) }
-        }
-        EnumChips("Page size", ExportPageSize.entries, options.pageSize) { s -> onUpdate { it.copy(pageSize = s) } }
-        EnumChips("Margins", ExportMargins.entries, options.margins) { m -> onUpdate { it.copy(margins = m) } }
-        EnumChips("Orientation", ExportOrientation.entries, options.orientation) { o ->
-            onUpdate { it.copy(orientation = o) }
-        }
-        EnumChips("Watermark", WatermarkMode.entries, options.watermarkMode) { mode ->
-            onUpdate { it.copy(watermarkMode = mode, useTimestampWatermark = mode == WatermarkMode.TIMESTAMP) }
+        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            EnumChips("Format", ExportFormat.entries, options.format) { f -> onUpdate { it.copy(format = f) } }
+            EnumChips("Quality", ExportQuality.entries, options.quality) { q -> onUpdate { it.copy(quality = q) } }
+            EnumChips("Compression", ExportCompression.entries, options.compression) { c ->
+                onUpdate { it.copy(compression = c) }
+            }
+            EnumChips("Page size", ExportPageSize.entries, options.pageSize) { s -> onUpdate { it.copy(pageSize = s) } }
+            EnumChips("Margins", ExportMargins.entries, options.margins) { m -> onUpdate { it.copy(margins = m) } }
+            EnumChips("Orientation", ExportOrientation.entries, options.orientation) { o ->
+                onUpdate { it.copy(orientation = o) }
+            }
+            EnumChips("Watermark", WatermarkMode.entries, options.watermarkMode) { mode ->
+                onUpdate { it.copy(watermarkMode = mode, useTimestampWatermark = mode == WatermarkMode.TIMESTAMP) }
+            }
         }
         if (options.watermarkMode == WatermarkMode.CUSTOM) {
             OutlinedTextField(
@@ -317,9 +421,7 @@ private fun ExportLabelOptionsRow(
     content: @Composable RowScope.() -> Unit,
 ) {
     Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(vertical = 2.dp),
+        modifier = modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {

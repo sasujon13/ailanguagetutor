@@ -46,7 +46,6 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.cheradip.ailanguagetutor.core.image.ScanTool
 import com.cheradip.ailanguagetutor.ui.components.CheradipTopBar
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -173,12 +172,14 @@ fun ScannerScreen(
     }
 
     val isImportMode = launchMode == ScannerLaunchMode.IMPORT
-    val showEditor = uiState.pages.isNotEmpty() && uiState.selectedPageId != null
+    val showReview = uiState.pages.isNotEmpty() && uiState.selectedPageId != null
+    val previewPath = uiState.previewPath
+        ?: uiState.pages.firstOrNull { it.id == uiState.selectedPageId }?.imagePath
 
     if (uiState.showExportDialog) {
         ScanExportDialog(
             options = uiState.exportOptions,
-            previewPath = uiState.previewPath ?: uiState.pages.firstOrNull()?.imagePath,
+            previewPath = previewPath,
             onDismiss = viewModel::dismissExportDialog,
             onExport = viewModel::exportDocument,
             onUpdate = viewModel::updateExportOptions,
@@ -199,40 +200,23 @@ fun ScannerScreen(
             onDismiss = viewModel::dismissExportPreview,
         )
     }
-    if (uiState.showVersionCompare) {
-        ScanVersionCompareDialog(
-            label = uiState.versionCompareLabel,
-            beforePath = uiState.versionCompareBeforePath,
-            afterPath = uiState.versionCompareAfterPath,
-            onDismiss = viewModel::dismissVersionCompare,
-        )
-    }
-    if (uiState.showCustomFilterRenameDialog) {
-        val slot = uiState.customFilters.find { it.slotId == uiState.renamingCustomSlotId }
-        CustomFilterRenameDialog(
-            currentName = slot?.displayName ?: "Custom",
-            onDismiss = viewModel::dismissRenameCustomFilter,
-            onConfirm = viewModel::renameCustomFilter,
-        )
-    }
 
     Scaffold(
         topBar = {
             CheradipTopBar(
                 title = if (isImportMode) "Import" else "Scanner",
-                subtitle = if (showEditor) {
-                    if (scanOnly) "Edit · then Save" else "Edit · then Process & Read"
-                } else if (isImportMode) {
-                    "Gallery import"
-                } else {
-                    "ML Kit document scan"
+                subtitle = when {
+                    showReview && scanOnly -> "Review pages · then Save"
+                    showReview -> "Review pages · then Process & Read"
+                    isImportMode -> "Gallery import"
+                    else -> "ML Kit document scan"
                 },
                 onBack = onBack,
             )
         },
         snackbarHost = { SnackbarHost(snackbarHostState) },
         floatingActionButton = {
-            if (isImportMode || (showEditor && !isImportMode)) {
+            if (showReview) {
                 FloatingActionButton(onClick = {
                     if (isImportMode) {
                         galleryLauncher.launch("image/*")
@@ -248,20 +232,17 @@ fun ScannerScreen(
             }
         },
     ) { padding ->
-        val editorScrollState = rememberScrollState()
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .verticalScroll(
-                    editorScrollState,
-                    enabled = uiState.activeTool != ScanTool.CROP,
-                ),
+                .verticalScroll(rememberScrollState()),
         ) {
-            if (showEditor) {
-                ScannerPreviewArea(
-                    uiState = uiState,
-                    onUpdateCrop = viewModel::updateDraftCrop,
+            if (showReview) {
+                ScannerReadOnlyPreview(
+                    imagePath = previewPath,
+                    cacheKey = "scan-preview-${uiState.selectedPageId}-${uiState.previewRevision}",
+                    isLoading = uiState.isProcessingPreview,
                     onDeletePage = viewModel::deleteSelectedPage,
                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                 )
@@ -275,37 +256,6 @@ fun ScannerScreen(
                     text = "${uiState.pageCount} page(s) · tap a thumbnail to switch page",
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                     style = MaterialTheme.typography.bodySmall,
-                )
-                ScannerEditingControls(
-                    uiState = uiState,
-                    onOpenTool = viewModel::openTool,
-                    onCloseTool = viewModel::closeToolPanel,
-                    onApply = viewModel::applyCurrentTool,
-                    onPreviewCompareMode = viewModel::setPreviewCompareMode,
-                    onUndo = viewModel::undo,
-                    onRedo = viewModel::redo,
-                    onRevertAll = viewModel::revertAllEdits,
-                    onRevertCurrent = viewModel::revertCurrentTool,
-                    onRevertCurrentEffect = viewModel::revertCurrentEffect,
-                    onRevertToOriginal = viewModel::revertToOriginal,
-                    onCompareHistory = viewModel::compareWithHistory,
-                    onRestoreCrop = viewModel::restoreCropBoundaries,
-                    onRestoreColors = viewModel::restoreOriginalColors,
-                    onJumpToHistory = viewModel::jumpToHistoryStage,
-                    onJumpToStage = viewModel::jumpToStage,
-                    onAutoDetect = viewModel::autoDetectEdges,
-                    onCropPreset = viewModel::applyCropPreset,
-                    onUpdateCrop = viewModel::updateDraftCrop,
-                    onUpdateTransition = viewModel::updateDraftTransition,
-                    onUpdateClean = viewModel::updateDraftClean,
-                    onUpdateGray = viewModel::updateDraftGray,
-                    onSelectFilterPreset = viewModel::toggleCleanFilter,
-                    onToggleCleanAdjustment = viewModel::toggleCleanAdjustment,
-                    onSetExpandedCleanAdjustment = viewModel::setExpandedCleanAdjustment,
-                    onAddCustomFilter = viewModel::addCustomFilterFromSelection,
-                    onSaveCustomFilter = viewModel::saveCustomFilter,
-                    onRenameCustomFilter = viewModel::requestRenameCustomFilter,
-                    modifier = Modifier.padding(horizontal = 8.dp),
                 )
                 Button(
                     onClick = {

@@ -152,7 +152,7 @@ class ScannerViewModel @Inject constructor(
         scanOnly = scanOnlyMode
         viewModelScope.launch {
             val saved = scanWorkflowRepository.currentSession()
-            val resolvedId = existingId ?: resolveResumeDocumentId(saved)
+            val resolvedId = existingId ?: resolveResumeDocumentId(saved, scanOnlyMode)
             if (resolvedId != null) {
                 applySessionMeta(saved?.takeIf { it.documentId == resolvedId })
                 loadDocument(resolvedId)
@@ -182,8 +182,12 @@ class ScannerViewModel @Inject constructor(
         viewModelScope.launch { scanWorkflowRepository.clear() }
     }
 
-    private suspend fun resolveResumeDocumentId(saved: ScanWorkflowSession?): Long? {
+    private suspend fun resolveResumeDocumentId(
+        saved: ScanWorkflowSession?,
+        requestedScanOnly: Boolean,
+    ): Long? {
         if (saved == null || saved.stage != ScanWorkflowStage.SCANNER) return null
+        if (saved.scanOnly != requestedScanOnly) return null
         if (documentRepository.getDocument(saved.documentId) == null) {
             scanWorkflowRepository.clear()
             return null
@@ -198,18 +202,13 @@ class ScannerViewModel @Inject constructor(
     private fun applySessionMeta(session: ScanWorkflowSession?) {
         if (session == null) return
         launchMode = session.mode
-        scanOnly = session.scanOnly
         documentSourceType = if (session.mode == "import") "import" else "scan"
     }
 
     private suspend fun restoreWorkflowUi(session: ScanWorkflowSession?) {
         if (session == null || session.documentId != _uiState.value.documentId) return
-        val tool = session.activeTool?.let { runCatching { ScanTool.valueOf(it) }.getOrNull() }
         _uiState.update {
-            it.copy(
-                selectedPageId = session.selectedPageId ?: it.selectedPageId,
-                activeTool = tool ?: it.activeTool,
-            )
+            it.copy(selectedPageId = session.selectedPageId ?: it.selectedPageId)
         }
         (session.selectedPageId ?: _uiState.value.selectedPageId)?.let { refreshPreview(it) }
     }
@@ -261,7 +260,7 @@ class ScannerViewModel @Inject constructor(
     fun onPhotoCaptured(bytes: ByteArray) {
         viewModelScope.launch {
             captureMutex.withLock {
-                addCapturedPage(bytes, enhance = true, openCropTool = true)
+                addCapturedPage(bytes)
             }
         }
     }
@@ -272,21 +271,10 @@ class ScannerViewModel @Inject constructor(
             captureMutex.withLock {
                 _uiState.update { it.copy(isSaving = true, error = null) }
                 runCatching {
-                    val addedIds = mutableListOf<Long>()
-                    bytesList.forEach { bytes ->
-                        addCapturedPage(
-                            bytes = bytes,
-                            enhance = false,
-                            openCropTool = true,
-                            batchMode = true,
-                        )?.let { addedIds.add(it) }
-                    }
-                    addedIds.lastOrNull()?.let { id ->
-                        refreshPreview(id)
-                        detectCropCorners(id)
-                    }
+                    bytesList.forEach { bytes -> addCapturedPage(bytes, batchMode = true) }
+                    _uiState.value.pages.lastOrNull()?.id?.let { refreshPreview(it) }
                 }.onFailure { e ->
-                    _uiState.update { it.copy(isSaving = false, error = e.message) }
+                    _uiState.update { it.copy(error = e.message) }
                 }
                 _uiState.update { it.copy(isSaving = false) }
             }
@@ -295,22 +283,10 @@ class ScannerViewModel @Inject constructor(
 
     fun onGalleryImage(bytes: ByteArray) = onPhotoCaptured(bytes)
 
-    fun pageThumbnailPath(page: ScannerPageItem): String {
-        val state = editStates[page.id]
-        val hasApplied = state?.let {
-            it.appliedCrop != null || it.appliedTransition != null ||
-                it.appliedClean != null || it.appliedGray != null ||
-                it.appliedFilterSelection?.let { sel ->
-                    sel.presetIds.isNotEmpty() || sel.adjustments.isNotEmpty()
-                } == true
-        } ?: false
-        return page.thumbnailPath(hasApplied)
-    }
+    fun pageThumbnailPath(page: ScannerPageItem): String = page.imagePath
 
     private suspend fun addCapturedPage(
         bytes: ByteArray,
-        enhance: Boolean,
-        openCropTool: Boolean,
         batchMode: Boolean = false,
     ): Long? {
         val docId = _uiState.value.documentId ?: return null
@@ -355,13 +331,11 @@ class ScannerViewModel @Inject constructor(
                     pageCount = it.pageCount + 1,
                     pages = it.pages + item,
                     selectedPageId = item.id,
-                    activeTool = if (openCropTool) ScanTool.CROP else it.activeTool,
+                    activeTool = null,
                 )
             }
             syncDraftFromState(item.id)
-            if (enhance) {
-                autoEnhanceCapturedPage(item.id, openCropTool)
-            } else if (!batchMode) {
+            if (!batchMode) {
                 refreshPreview(item.id)
             }
             persistWorkflow()

@@ -363,10 +363,10 @@ fun AppNavHost(
                         }
                     },
                     onCameraClick = {
-                        requireLearningAccess { navController.navigate(Routes.scanner("camera")) }
+                        requireLearningAccess { navController.navigate(Routes.scanner("camera", false)) }
                     },
                     onImportClick = {
-                        requireLearningAccess { navController.navigate(Routes.scanner("import")) }
+                        requireLearningAccess { navController.navigate(Routes.scanner("import", false)) }
                     },
                     onPracticeClick = {
                         requireLearningAccess {
@@ -423,9 +423,9 @@ fun AppNavHost(
                     startVoiceInput = startVoice,
                     restoreActivityId = activityId.takeIf { it > 0L },
                     onOpenModeSelection = { navController.navigate(Routes.MODE_SELECTION) },
-                    onScanClick = { navController.navigate(Routes.scanner("camera")) },
-                    onCameraClick = { navController.navigate(Routes.scanner("camera")) },
-                    onImportClick = { navController.navigate(Routes.scanner("import")) },
+                    onScanClick = { navController.navigate(Routes.scanner("camera", false)) },
+                    onCameraClick = { navController.navigate(Routes.scanner("camera", false)) },
+                    onImportClick = { navController.navigate(Routes.scanner("import", false)) },
                 )
             }
             composable(Routes.MODE_SELECTION) {

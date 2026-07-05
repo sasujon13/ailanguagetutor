@@ -172,11 +172,12 @@ fun ScannerScreen(
     }
 
     val isImportMode = launchMode == ScannerLaunchMode.IMPORT
-    val showReview = uiState.pages.isNotEmpty() && uiState.selectedPageId != null
+    val showScanOnlyStage = scanOnly && uiState.pages.isNotEmpty() && uiState.selectedPageId != null
+    val showLearningReview = !scanOnly && uiState.pages.isNotEmpty() && uiState.selectedPageId != null
     val previewPath = uiState.previewPath
         ?: uiState.pages.firstOrNull { it.id == uiState.selectedPageId }?.imagePath
 
-    if (uiState.showExportDialog) {
+    if (!scanOnly && uiState.showExportDialog) {
         ScanExportDialog(
             options = uiState.exportOptions,
             previewPath = previewPath,
@@ -206,8 +207,8 @@ fun ScannerScreen(
             CheradipTopBar(
                 title = if (isImportMode) "Import" else "Scanner",
                 subtitle = when {
-                    showReview && scanOnly -> "Review pages · then Save"
-                    showReview -> "Review pages · then Process & Read"
+                    showScanOnlyStage -> "Preview · export options · Save"
+                    showLearningReview -> "Review pages · then Process & Read"
                     isImportMode -> "Gallery import"
                     else -> "ML Kit document scan"
                 },
@@ -216,7 +217,7 @@ fun ScannerScreen(
         },
         snackbarHost = { SnackbarHost(snackbarHostState) },
         floatingActionButton = {
-            if (showReview) {
+            if (showScanOnlyStage || showLearningReview) {
                 FloatingActionButton(onClick = {
                     if (isImportMode) {
                         galleryLauncher.launch("image/*")
@@ -238,7 +239,43 @@ fun ScannerScreen(
                 .padding(padding)
                 .verticalScroll(rememberScrollState()),
         ) {
-            if (showReview) {
+            if (showScanOnlyStage) {
+                ScannerReadOnlyPreview(
+                    imagePath = previewPath,
+                    cacheKey = "scan-preview-${uiState.selectedPageId}-${uiState.previewRevision}",
+                    isLoading = uiState.isProcessingPreview,
+                    onDeletePage = viewModel::deleteSelectedPage,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                )
+                ScannerPageThumbnailStrip(
+                    pages = uiState.pages,
+                    selectedPageId = uiState.selectedPageId,
+                    thumbnailPathFor = viewModel::pageThumbnailPath,
+                    onSelectPage = viewModel::selectPage,
+                )
+                Text(
+                    text = "${uiState.pageCount} page(s) · tap a thumbnail to switch page",
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                ScanExportOptionsPanel(
+                    options = uiState.exportOptions,
+                    onUpdate = viewModel::updateExportOptions,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                )
+                Button(
+                    onClick = viewModel::exportDocument,
+                    modifier = Modifier.fillMaxWidth().padding(16.dp),
+                    enabled = uiState.pageCount > 0 && !uiState.isSaving,
+                ) {
+                    Icon(
+                        Icons.Default.Save,
+                        contentDescription = null,
+                        modifier = Modifier.padding(end = 8.dp),
+                    )
+                    Text("Save")
+                }
+            } else if (showLearningReview) {
                 ScannerReadOnlyPreview(
                     imagePath = previewPath,
                     cacheKey = "scan-preview-${uiState.selectedPageId}-${uiState.previewRevision}",
@@ -259,22 +296,18 @@ fun ScannerScreen(
                 )
                 Button(
                     onClick = {
-                        if (scanOnly) {
-                            viewModel.openSaveExportDialog()
-                        } else {
-                            viewModel.prepareForOcr()
-                            uiState.documentId?.let(onDone)
-                        }
+                        viewModel.prepareForOcr()
+                        uiState.documentId?.let(onDone)
                     },
                     modifier = Modifier.fillMaxWidth().padding(16.dp),
                     enabled = uiState.pageCount > 0 && !uiState.isSaving,
                 ) {
                     Icon(
-                        if (scanOnly) Icons.Default.Save else Icons.Default.Camera,
+                        Icons.Default.Camera,
                         contentDescription = null,
                         modifier = Modifier.padding(end = 8.dp),
                     )
-                    Text(if (scanOnly) "Save" else "Process & Read")
+                    Text("Process & Read")
                 }
             } else if (isImportMode) {
                 MlKitScanPrompt(

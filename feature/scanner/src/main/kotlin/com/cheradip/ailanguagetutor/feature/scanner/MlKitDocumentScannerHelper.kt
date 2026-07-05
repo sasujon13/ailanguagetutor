@@ -17,16 +17,23 @@ object MlKitDocumentScannerHelper {
         data class Failed(val message: String) : ScanActivityOutcome
     }
 
-    fun buildOptions(pageLimit: Int = 20): GmsDocumentScannerOptions =
+    fun buildOptions(pageLimit: Int = 20, useBaseMode: Boolean = false): GmsDocumentScannerOptions =
         GmsDocumentScannerOptions.Builder()
             .setGalleryImportAllowed(true)
             .setPageLimit(pageLimit)
             .setResultFormats(GmsDocumentScannerOptions.RESULT_FORMAT_JPEG)
-            .setScannerMode(GmsDocumentScannerOptions.SCANNER_MODE_FULL)
+            .setScannerMode(
+                if (useBaseMode) GmsDocumentScannerOptions.SCANNER_MODE_BASE
+                else GmsDocumentScannerOptions.SCANNER_MODE_FULL,
+            )
             .build()
 
-    suspend fun getScanIntentSender(activity: Activity, pageLimit: Int = 20): IntentSender {
-        val scanner = GmsDocumentScanning.getClient(buildOptions(pageLimit))
+    suspend fun getScanIntentSender(
+        activity: Activity,
+        pageLimit: Int = 20,
+        useBaseMode: Boolean = false,
+    ): IntentSender {
+        val scanner = GmsDocumentScanning.getClient(buildOptions(pageLimit, useBaseMode))
         return scanner.getStartScanIntent(activity).await()
     }
 

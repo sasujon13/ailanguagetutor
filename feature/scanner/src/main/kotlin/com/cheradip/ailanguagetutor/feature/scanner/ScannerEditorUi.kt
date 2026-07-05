@@ -22,6 +22,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Save
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -170,6 +171,84 @@ fun ScannerReadOnlyPreview(
 }
 
 @Composable
+fun ScanExportOptionsPanel(
+    options: ExportOptions,
+    onUpdate: ((ExportOptions) -> ExportOptions) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        OutlinedTextField(
+            value = options.documentName,
+            onValueChange = { name -> onUpdate { it.copy(documentName = name) } },
+            label = { Text("Document name (optional)") },
+            modifier = Modifier.fillMaxWidth(),
+        )
+        EnumChips("Format", ExportFormat.entries, options.format) { f -> onUpdate { it.copy(format = f) } }
+        EnumChips("Quality", ExportQuality.entries, options.quality) { q -> onUpdate { it.copy(quality = q) } }
+        EnumChips("Compression", ExportCompression.entries, options.compression) { c ->
+            onUpdate { it.copy(compression = c) }
+        }
+        EnumChips("Page size", ExportPageSize.entries, options.pageSize) { s -> onUpdate { it.copy(pageSize = s) } }
+        EnumChips("Margins", ExportMargins.entries, options.margins) { m -> onUpdate { it.copy(margins = m) } }
+        EnumChips("Orientation", ExportOrientation.entries, options.orientation) { o ->
+            onUpdate { it.copy(orientation = o) }
+        }
+        EnumChips("Watermark", WatermarkMode.entries, options.watermarkMode) { mode ->
+            onUpdate { it.copy(watermarkMode = mode, useTimestampWatermark = mode == WatermarkMode.TIMESTAMP) }
+        }
+        if (options.watermarkMode == WatermarkMode.CUSTOM) {
+            OutlinedTextField(
+                value = options.watermark,
+                onValueChange = { w -> onUpdate { it.copy(watermark = w) } },
+                label = { Text("Custom watermark text") },
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Switch(checked = options.passwordEnabled, onCheckedChange = { enabled ->
+                onUpdate { it.copy(passwordEnabled = enabled) }
+            })
+            Text("Password protect PDF", modifier = Modifier.padding(start = 8.dp))
+        }
+        if (options.passwordEnabled) {
+            OutlinedTextField(
+                value = options.password,
+                onValueChange = { p -> onUpdate { it.copy(password = p) } },
+                label = { Text("PDF password") },
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+        OutlinedTextField(
+            value = options.author,
+            onValueChange = { v -> onUpdate { it.copy(author = v) } },
+            label = { Text("Author") },
+            modifier = Modifier.fillMaxWidth(),
+        )
+        OutlinedTextField(
+            value = options.title,
+            onValueChange = { v -> onUpdate { it.copy(title = v) } },
+            label = { Text("Title") },
+            modifier = Modifier.fillMaxWidth(),
+        )
+        OutlinedTextField(
+            value = options.subject,
+            onValueChange = { v -> onUpdate { it.copy(subject = v) } },
+            label = { Text("Subject") },
+            modifier = Modifier.fillMaxWidth(),
+        )
+        OutlinedTextField(
+            value = options.keywords,
+            onValueChange = { v -> onUpdate { it.copy(keywords = v) } },
+            label = { Text("Keywords") },
+            modifier = Modifier.fillMaxWidth(),
+        )
+    }
+}
+
+@Composable
 fun ScanExportDialog(
     options: ExportOptions,
     previewPath: String?,
@@ -193,74 +272,15 @@ fun ScanExportDialog(
                         contentScale = ContentScale.Fit,
                     )
                 }
-                OutlinedTextField(
-                    value = options.documentName,
-                    onValueChange = { name -> onUpdate { it.copy(documentName = name) } },
-                    label = { Text("Document name (optional)") },
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                EnumChips("Format", ExportFormat.entries, options.format) { f -> onUpdate { it.copy(format = f) } }
-                EnumChips("Quality", ExportQuality.entries, options.quality) { q -> onUpdate { it.copy(quality = q) } }
-                EnumChips("Compression", ExportCompression.entries, options.compression) { c ->
-                    onUpdate { it.copy(compression = c) }
-                }
-                EnumChips("Page size", ExportPageSize.entries, options.pageSize) { s -> onUpdate { it.copy(pageSize = s) } }
-                EnumChips("Margins", ExportMargins.entries, options.margins) { m -> onUpdate { it.copy(margins = m) } }
-                EnumChips("Orientation", ExportOrientation.entries, options.orientation) { o ->
-                    onUpdate { it.copy(orientation = o) }
-                }
-                EnumChips("Watermark", WatermarkMode.entries, options.watermarkMode) { mode ->
-                    onUpdate { it.copy(watermarkMode = mode, useTimestampWatermark = mode == WatermarkMode.TIMESTAMP) }
-                }
-                if (options.watermarkMode == WatermarkMode.CUSTOM) {
-                    OutlinedTextField(
-                        value = options.watermark,
-                        onValueChange = { w -> onUpdate { it.copy(watermark = w) } },
-                        label = { Text("Custom watermark text") },
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                }
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Switch(checked = options.passwordEnabled, onCheckedChange = { enabled ->
-                        onUpdate { it.copy(passwordEnabled = enabled) }
-                    })
-                    Text("Password protect PDF", modifier = Modifier.padding(start = 8.dp))
-                }
-                if (options.passwordEnabled) {
-                    OutlinedTextField(
-                        value = options.password,
-                        onValueChange = { p -> onUpdate { it.copy(password = p) } },
-                        label = { Text("PDF password") },
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                }
-                OutlinedTextField(
-                    value = options.author,
-                    onValueChange = { v -> onUpdate { it.copy(author = v) } },
-                    label = { Text("Author") },
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                OutlinedTextField(
-                    value = options.title,
-                    onValueChange = { v -> onUpdate { it.copy(title = v) } },
-                    label = { Text("Title") },
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                OutlinedTextField(
-                    value = options.subject,
-                    onValueChange = { v -> onUpdate { it.copy(subject = v) } },
-                    label = { Text("Subject") },
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                OutlinedTextField(
-                    value = options.keywords,
-                    onValueChange = { v -> onUpdate { it.copy(keywords = v) } },
-                    label = { Text("Keywords") },
-                    modifier = Modifier.fillMaxWidth(),
-                )
+                ScanExportOptionsPanel(options = options, onUpdate = onUpdate)
             }
         },
-        confirmButton = { Button(onClick = onExport) { Text("Save") } },
+        confirmButton = {
+            Button(onClick = onExport) {
+                Icon(Icons.Default.Save, contentDescription = null, modifier = Modifier.padding(end = 6.dp))
+                Text("Save")
+            }
+        },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
 }

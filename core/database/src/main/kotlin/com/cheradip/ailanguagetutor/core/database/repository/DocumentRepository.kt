@@ -93,11 +93,13 @@ class DocumentRepository @Inject constructor(
         width: Int,
         height: Int,
         editStateJson: String?,
+        originalImagePath: String? = null,
     ) = withContext(Dispatchers.IO) {
         documentPageDao.getById(pageId)?.let { page ->
             documentPageDao.update(
                 page.copy(
                     imagePath = imagePath,
+                    originalImagePath = originalImagePath ?: page.originalImagePath,
                     width = width,
                     height = height,
                     editStateJson = editStateJson,

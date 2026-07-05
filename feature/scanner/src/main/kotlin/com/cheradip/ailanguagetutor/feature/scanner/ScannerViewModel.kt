@@ -118,6 +118,7 @@ data class ScannerUiState(
     val customFilters: List<CustomFilterSlot> = defaultCustomFilterSlots(),
     val showCustomFilterRenameDialog: Boolean = false,
     val renamingCustomSlotId: String? = null,
+    val isDocumentReady: Boolean = false,
 )
 
 @HiltViewModel
@@ -169,6 +170,7 @@ class ScannerViewModel @Inject constructor(
                 _uiState.update { it.copy(documentId = id) }
                 persistWorkflow(stage = ScanWorkflowStage.SCANNER)
             }
+            _uiState.update { it.copy(isDocumentReady = true) }
         }
     }
 
@@ -283,7 +285,72 @@ class ScannerViewModel @Inject constructor(
 
     fun onGalleryImage(bytes: ByteArray) = onPhotoCaptured(bytes)
 
+    fun replaceSelectedPage(bytes: ByteArray) {
+        val pageId = _uiState.value.selectedPageId ?: return
+        val docId = _uiState.value.documentId ?: return
+        val item = _uiState.value.pages.find { it.id == pageId } ?: return
+        viewModelScope.launch {
+            captureMutex.withLock {
+                _uiState.update { it.copy(isSaving = true, error = null) }
+                runCatching {
+                    val saved = imageStorage.saveCapturedBytes(docId, item.pageIndex, bytes)
+                    val freshState = PageEditState(
+                        pageId = pageId,
+                        originalPath = saved.originalPath,
+                        workingPath = saved.path,
+                        customFilterSlots = _uiState.value.customFilters.map { it.toSaved() },
+                        history = listOf(
+                            EditHistoryEntry(
+                                stage = EditStage.ORIGINAL,
+                                label = "Original",
+                                snapshot = EditHistorySnapshot(),
+                            ),
+                        ),
+                        historyIndex = 0,
+                    )
+                    editStates[pageId] = freshState
+                    documentRepository.updatePageImage(
+                        pageId = pageId,
+                        imagePath = saved.path,
+                        width = saved.width,
+                        height = saved.height,
+                        editStateJson = freshState.toJson(),
+                        originalImagePath = saved.originalPath,
+                    )
+                    _uiState.update { ui ->
+                        ui.copy(
+                            isSaving = false,
+                            pages = ui.pages.map { page ->
+                                if (page.id == pageId) {
+                                    page.copy(
+                                        imagePath = saved.path,
+                                        originalPath = saved.originalPath,
+                                        width = saved.width,
+                                        height = saved.height,
+                                    )
+                                } else {
+                                    page
+                                }
+                            },
+                        )
+                    }
+                    syncDraftFromState(pageId)
+                    refreshPreview(pageId)
+                    persistWorkflow()
+                }.onFailure { e ->
+                    _uiState.update { it.copy(isSaving = false, error = e.message) }
+                }
+            }
+        }
+    }
+
+    fun remainingPageSlots(): Int = (MAX_SCAN_PAGES - _uiState.value.pageCount).coerceAtLeast(0)
+
     fun pageThumbnailPath(page: ScannerPageItem): String = page.imagePath
+
+    companion object {
+        private const val MAX_SCAN_PAGES = 20
+    }
 
     private suspend fun addCapturedPage(
         bytes: ByteArray,

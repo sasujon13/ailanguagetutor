@@ -8,6 +8,9 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -88,6 +91,9 @@ fun ScannerScreen(
             viewModel.onGalleryImage(stream.readBytes())
         }
     }
+    var importGalleryOpened by remember { mutableStateOf(false) }
+    var initialScanLaunched by remember { mutableStateOf(false) }
+    var mlKitReplaceSelectedPage by remember { mutableStateOf(false) }
     val mlKitScannerLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartIntentSenderForResult(),
     ) { result ->
@@ -100,23 +106,40 @@ fun ScannerScreen(
                 }
             }
             when (outcome) {
-                is MlKitDocumentScannerHelper.ScanActivityOutcome.Success ->
-                    viewModel.onPhotosCaptured(outcome.pages)
+                is MlKitDocumentScannerHelper.ScanActivityOutcome.Success -> {
+                    if (mlKitReplaceSelectedPage) {
+                        outcome.pages.firstOrNull()?.let { viewModel.replaceSelectedPage(it) }
+                    } else {
+                        viewModel.onPhotosCaptured(outcome.pages)
+                    }
+                    mlKitReplaceSelectedPage = false
+                }
                 is MlKitDocumentScannerHelper.ScanActivityOutcome.Cancelled -> Unit
                 is MlKitDocumentScannerHelper.ScanActivityOutcome.Failed ->
                     snackbarHostState.showSnackbar(outcome.message)
             }
         }
     }
-    var importGalleryOpened by remember { mutableStateOf(false) }
-    var initialScanLaunched by remember { mutableStateOf(false) }
 
-    val launchMlKitScan: () -> Unit = {
+    val launchMlKitScan: (replaceSelectedPage: Boolean) -> Unit = { replaceSelectedPage ->
+        mlKitReplaceSelectedPage = replaceSelectedPage
         val activity = context.findHostActivity()
         if (activity != null) {
             scope.launch {
                 runCatching {
-                    val sender = MlKitDocumentScannerHelper.getScanIntentSender(activity)
+                    val pageLimit = if (replaceSelectedPage) {
+                        1
+                    } else {
+                        viewModel.remainingPageSlots().coerceIn(1, 20)
+                    }
+                    if (!replaceSelectedPage && pageLimit <= 0) {
+                        snackbarHostState.showSnackbar("Maximum 20 pages per document")
+                        return@launch
+                    }
+                    val sender = MlKitDocumentScannerHelper.getScanIntentSender(
+                        activity = activity,
+                        pageLimit = pageLimit,
+                    )
                     mlKitScannerLauncher.launch(IntentSenderRequest.Builder(sender).build())
                 }.onFailure {
                     snackbarHostState.showSnackbar("Document scanner unavailable — opening gallery")
@@ -151,15 +174,16 @@ fun ScannerScreen(
         }
     }
 
-    LaunchedEffect(hasCameraPermission, launchMode, uiState.pages.isEmpty()) {
+    LaunchedEffect(hasCameraPermission, launchMode, uiState.isDocumentReady, uiState.pages.isEmpty()) {
         if (
             launchMode == ScannerLaunchMode.CAMERA &&
             hasCameraPermission &&
+            uiState.isDocumentReady &&
             uiState.pages.isEmpty() &&
             !initialScanLaunched
         ) {
             initialScanLaunched = true
-            launchMlKitScan()
+            launchMlKitScan(false)
         }
     }
 
@@ -207,7 +231,7 @@ fun ScannerScreen(
             CheradipTopBar(
                 title = if (isImportMode) "Import" else "Scanner",
                 subtitle = when {
-                    showScanOnlyStage -> "Preview · export options · Save"
+                    showScanOnlyStage -> "Pages kept until Save · tap thumbnail to switch"
                     showLearningReview -> "Review pages · then Process & Read"
                     isImportMode -> "Gallery import"
                     else -> "ML Kit document scan"
@@ -222,7 +246,7 @@ fun ScannerScreen(
                     if (isImportMode) {
                         galleryLauncher.launch("image/*")
                     } else {
-                        launchMlKitScan()
+                        launchMlKitScan(false)
                     }
                 }) {
                     Icon(
@@ -254,10 +278,29 @@ fun ScannerScreen(
                     onSelectPage = viewModel::selectPage,
                 )
                 Text(
-                    text = "${uiState.pageCount} page(s) · tap a thumbnail to switch page",
+                    text = "${uiState.pageCount} page(s) · tap a thumbnail to switch · camera adds more",
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                     style = MaterialTheme.typography.bodySmall,
                 )
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    OutlinedButton(
+                        onClick = { launchMlKitScan(true) },
+                        modifier = Modifier.weight(1f),
+                        enabled = uiState.selectedPageId != null && !uiState.isSaving,
+                    ) {
+                        Icon(
+                            Icons.Default.Edit,
+                            contentDescription = null,
+                            modifier = Modifier.padding(end = 6.dp).size(18.dp),
+                        )
+                        Text("Rescan page")
+                    }
+                }
                 ScanExportOptionsPanel(
                     options = uiState.exportOptions,
                     onUpdate = viewModel::updateExportOptions,
@@ -321,7 +364,7 @@ fun ScannerScreen(
                     title = "Scan documents",
                     subtitle = "Auto edge detection, perspective correction, and multi-page capture.",
                     primaryLabel = "Scan document",
-                    onPrimary = launchMlKitScan,
+                    onPrimary = { launchMlKitScan(false) },
                     icon = Icons.Default.Camera,
                     secondaryLabel = "Import from gallery",
                     onSecondary = { galleryLauncher.launch("image/*") },

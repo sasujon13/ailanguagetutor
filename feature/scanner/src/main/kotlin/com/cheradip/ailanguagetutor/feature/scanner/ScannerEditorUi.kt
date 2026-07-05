@@ -10,11 +10,13 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -292,20 +294,48 @@ private fun <T : Enum<T>> EnumChips(
     selected: T,
     onSelect: (T) -> Unit,
 ) {
-    Text(label, style = MaterialTheme.typography.labelMedium)
-    Row(
-        modifier = Modifier.horizontalScroll(rememberScrollState()),
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-    ) {
+    ExportLabelOptionsRow(label = label) {
         values.forEach { value ->
             FilterChip(
                 selected = selected == value,
                 onClick = { onSelect(value) },
                 label = {
-                    Text(value.name.lowercase().replace('_', ' ').replaceFirstChar { it.uppercase() })
+                    Text(
+                        text = value.name.lowercase().replace('_', ' ').replaceFirstChar { it.uppercase() },
+                        style = MaterialTheme.typography.labelSmall,
+                    )
                 },
             )
         }
+    }
+}
+
+@Composable
+private fun ExportLabelOptionsRow(
+    label: String,
+    modifier: Modifier = Modifier,
+    content: @Composable RowScope.() -> Unit,
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(vertical = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelMedium,
+            modifier = Modifier.width(88.dp),
+        )
+        Row(
+            modifier = Modifier
+                .weight(1f)
+                .horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            content = content,
+        )
     }
 }
 

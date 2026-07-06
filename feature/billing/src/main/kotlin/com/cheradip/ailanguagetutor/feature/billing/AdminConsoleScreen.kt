@@ -726,7 +726,7 @@ private fun AiProviderCard(
                 )
             } else {
                 Text(
-                    "${provider.requestsToday} requests today (paid — no free cap)",
+                    "${provider.requestsToday} requests today (unlimited)",
                     style = MaterialTheme.typography.bodySmall,
                     modifier = Modifier.padding(top = 8.dp),
                 )

@@ -6,3 +6,6 @@ __pycache__/
 models/**/*
 !models/manifest.json
 !models/.gitkeep
+!models/scan/README.md
+!models/scan/manifest.json
+reports/

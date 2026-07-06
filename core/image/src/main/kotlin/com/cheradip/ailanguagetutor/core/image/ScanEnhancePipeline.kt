@@ -61,7 +61,7 @@ object ScanEnhancePipeline {
         if (working !== source && working !== enhanced) working.recycle()
 
         var rolledBack = false
-        if (readabilityScore(enhanced) < beforeScore * 0.92f) {
+        if (readabilityScore(enhanced) < beforeScore * ScanEnhanceStandards.READABILITY_ROLLBACK_RATIO) {
             if (enhanced !== source) enhanced.recycle()
             enhanced = CleanFilterRenderer.applyStack(
                 source,

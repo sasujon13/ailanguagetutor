@@ -2,6 +2,8 @@ package com.cheradip.ailanguagetutor.feature.scanner
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.cheradip.ailanguagetutor.core.ai.ScanAnalyzeSource
+import com.cheradip.ailanguagetutor.core.ai.ScanEnhanceAnalyzeService
 import com.cheradip.ailanguagetutor.core.ai.ScanEnhanceService
 import com.cheradip.ailanguagetutor.core.database.repository.DocumentRepository
 import com.cheradip.ailanguagetutor.core.device.ScanWorkflowRepository
@@ -22,15 +24,16 @@ import com.cheradip.ailanguagetutor.core.image.EditStage
 import com.cheradip.ailanguagetutor.core.image.ExportConflictResolution
 import com.cheradip.ailanguagetutor.core.image.ExportOptions
 import com.cheradip.ailanguagetutor.core.image.ScanExportProfile
-import com.cheradip.ailanguagetutor.core.image.ScanEnhanceRecommender
-import com.cheradip.ailanguagetutor.core.image.ScanDocumentAnalyzer
+import com.cheradip.ailanguagetutor.core.image.ScanEnhanceStandards
 import com.cheradip.ailanguagetutor.core.image.withEnhanceChoice
 import com.cheradip.ailanguagetutor.core.image.enhanceChoice
 import com.cheradip.ailanguagetutor.core.image.PageEnhanceChoice
 import com.cheradip.ailanguagetutor.core.image.withProfile
 import com.cheradip.ailanguagetutor.core.image.ScanEnhanceMode
 import com.cheradip.ailanguagetutor.core.image.GrayParams
+import com.cheradip.ailanguagetutor.core.image.LiveScanBoundaryDetector
 import com.cheradip.ailanguagetutor.core.image.PageEditState
+import com.cheradip.ailanguagetutor.core.image.PointF
 import com.cheradip.ailanguagetutor.core.image.QuadPoints
 import com.cheradip.ailanguagetutor.core.image.ScanEditEngine
 import com.cheradip.ailanguagetutor.core.image.ScanExportService
@@ -140,8 +143,13 @@ data class ScannerUiState(
     val enhancePreviewRevision: Long = 0L,
     val isEnhancePreviewLoading: Boolean = false,
     val enhanceRecommendationLabel: String? = null,
+    val enhanceRecommendationFromHomeAi: Boolean = false,
+    val enhanceDocumentClass: String? = null,
     val isPremiumUser: Boolean = true,
     val exportProfile: ScanExportProfile = ScanExportProfile.DOCUMENT,
+    /** Normalized polygon on selected page original (post-capture review overlay). */
+    val pageBoundaryPolygon: List<PointF> = emptyList(),
+    val pageBoundaryIsCurved: Boolean = false,
 )
 
 @HiltViewModel
@@ -153,6 +161,7 @@ class ScannerViewModel @Inject constructor(
     private val scanExportService: ScanExportService,
     private val scanWorkflowRepository: ScanWorkflowRepository,
     private val scanEnhanceService: ScanEnhanceService,
+    private val scanEnhanceAnalyzeService: ScanEnhanceAnalyzeService,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(ScannerUiState())
@@ -160,8 +169,10 @@ class ScannerViewModel @Inject constructor(
 
     private val editStates = mutableMapOf<Long, PageEditState>()
     private val enhanceChoices = mutableMapOf<Long, PageEnhanceChoice>()
+    private val pageDocumentClass = mutableMapOf<Long, String>()
     private var previewJob: Job? = null
     private var enhancePreviewJob: Job? = null
+    private var boundaryJob: Job? = null
     private var previewGeneration = 0L
     private val captureMutex = Mutex()
     private var documentSourceType: String = "scan"
@@ -357,6 +368,7 @@ class ScannerViewModel @Inject constructor(
                     if (scanOnly) {
                         _uiState.update { it.copy(scanInReview = true) }
                         lastId?.let { applyEnhancePreviewForPage(it) }
+                        lastId?.let { refreshPageBoundary(it) }
                         persistWorkflow()
                     }
                 }.onFailure { e ->
@@ -425,6 +437,7 @@ class ScannerViewModel @Inject constructor(
                     syncDraftFromState(pageId)
                     refreshPreview(pageId)
                     applyEnhancePreviewForPage(pageId)
+                    refreshPageBoundary(pageId)
                     persistWorkflow()
                 }.onFailure { e ->
                     _uiState.update { it.copy(isSaving = false, error = e.message) }
@@ -520,7 +533,31 @@ class ScannerViewModel @Inject constructor(
         syncDraftFromState(pageId)
         refreshPreview(pageId)
         applyEnhancePreviewForPage(pageId)
+        refreshPageBoundary(pageId)
         persistWorkflow()
+    }
+
+    /** Detect document boundary on page original for review overlay (flat vs curved). */
+    private fun refreshPageBoundary(pageId: Long) {
+        boundaryJob?.cancel()
+        boundaryJob = viewModelScope.launch {
+            val page = _uiState.value.pages.find { it.id == pageId } ?: return@launch
+            val path = page.originalPath.ifBlank { page.imagePath }
+            runCatching {
+                val bitmap = BitmapUtils.load(path, maxEdge = 640)
+                try {
+                    val boundary = LiveScanBoundaryDetector.detect(bitmap)
+                    _uiState.update {
+                        it.copy(
+                            pageBoundaryPolygon = boundary.polygonNorm,
+                            pageBoundaryIsCurved = boundary.isCurved,
+                        )
+                    }
+                } finally {
+                    bitmap.recycle()
+                }
+            }
+        }
     }
 
     /** Level 0 → L1/L7 compare; levels 1–7 → single preview at that level. */
@@ -546,19 +583,24 @@ class ScannerViewModel @Inject constructor(
         val page = _uiState.value.pages.find { it.id == pageId } ?: return
         viewModelScope.launch {
             val premium = scanEnhanceService.isPremium()
-            val rec = withContext(Dispatchers.Default) {
-                val bitmap = BitmapUtils.load(page.originalPath, maxEdge = 640)
-                val metrics = ScanDocumentAnalyzer.analyze(bitmap)
-                bitmap.recycle()
-                ScanEnhanceRecommender.recommend(metrics, premium)
-            }
+            val result = scanEnhanceAnalyzeService.analyze(page.originalPath, premium)
+            val rec = result.recommendation
+            val docClass = rec.documentClass.name.lowercase().replace('_', '-')
+            pageDocumentClass[pageId] = docClass
             _uiState.update {
                 it.copy(
                     isPremiumUser = premium,
-                    enhanceRecommendationLabel = "Recommended: ${rec.label}",
+                    enhanceRecommendationLabel = formatRecommendationLabel(rec.label, result.source),
+                    enhanceRecommendationFromHomeAi = result.source == ScanAnalyzeSource.HOME_AI,
+                    enhanceDocumentClass = docClass,
                 )
             }
         }
+    }
+
+    private fun formatRecommendationLabel(label: String, source: ScanAnalyzeSource): String {
+        val suffix = if (source == ScanAnalyzeSource.HOME_AI) " · Home AI" else ""
+        return "Recommended: $label$suffix"
     }
 
     fun applyRecommendedEnhance() {
@@ -566,29 +608,36 @@ class ScannerViewModel @Inject constructor(
         viewModelScope.launch {
             val premium = scanEnhanceService.isPremium()
             val page = _uiState.value.pages.find { it.id == pageId } ?: return@launch
-            val rec = withContext(Dispatchers.Default) {
-                val bitmap = BitmapUtils.load(page.originalPath, maxEdge = 640)
-                val metrics = ScanDocumentAnalyzer.analyze(bitmap)
-                bitmap.recycle()
-                ScanEnhanceRecommender.recommend(metrics, premium)
-            }
-            val mode = if (premium) rec.recommendedMode else ScanEnhanceMode.CLEAN
+            val result = scanEnhanceAnalyzeService.analyze(page.originalPath, premium)
+            val rec = result.recommendation
+            val mode = rec.recommendedMode
+            val docClass = rec.documentClass.name.lowercase().replace('_', '-')
+            pageDocumentClass[pageId] = docClass
             enhanceChoices[pageId] = PageEnhanceChoice(mode, rec.recommendedLevel)
             persistEnhanceChoice(pageId)
+            val label = formatRecommendationLabel(rec.label, result.source)
             if (rec.recommendedLevel == 0) {
                 _uiState.update {
                     it.copy(
                         enhanceMode = mode,
                         selectedExportLevel = 0,
                         showLevelCompare = true,
+                        enhanceDocumentClass = docClass,
+                        enhanceRecommendationLabel = label,
+                        enhanceRecommendationFromHomeAi = result.source == ScanAnalyzeSource.HOME_AI,
                     )
                 }
                 refreshComparePreviews(pageId)
             } else {
+                _uiState.update {
+                    it.copy(
+                        enhanceMode = mode,
+                        enhanceDocumentClass = docClass,
+                        enhanceRecommendationLabel = label,
+                        enhanceRecommendationFromHomeAi = result.source == ScanAnalyzeSource.HOME_AI,
+                    )
+                }
                 setEnhanceLevel(rec.recommendedLevel)
-                _uiState.update { it.copy(enhanceMode = mode) }
-                enhanceChoices[pageId] = PageEnhanceChoice(mode, rec.recommendedLevel)
-                persistEnhanceChoice(pageId)
             }
         }
     }
@@ -695,16 +744,18 @@ class ScannerViewModel @Inject constructor(
                     scanEnhanceService.renderToFile(
                         page.originalPath,
                         mode,
-                        1,
+                        ScanEnhanceStandards.COMPARE_PREVIEW_LOW,
                         File(cacheDir, "p${pageId}_${mode.name}_L1.jpg"),
+                        documentClass = pageDocumentClass[pageId],
                     )
                 }
                 val path7 = withContext(Dispatchers.Default) {
                     scanEnhanceService.renderToFile(
                         page.originalPath,
                         mode,
-                        7,
+                        ScanEnhanceStandards.COMPARE_PREVIEW_HIGH,
                         File(cacheDir, "p${pageId}_${mode.name}_L7.jpg"),
+                        documentClass = pageDocumentClass[pageId],
                     )
                 }
                 path1 to path7
@@ -750,6 +801,7 @@ class ScannerViewModel @Inject constructor(
                         mode,
                         level,
                         File(cacheDir, "p${pageId}_${mode.name}_L${level}.jpg"),
+                        documentClass = pageDocumentClass[pageId],
                     )
                 }
             }.onSuccess { path ->
@@ -777,6 +829,7 @@ class ScannerViewModel @Inject constructor(
                 mode = choice.mode,
                 level = choice.exportLevel,
                 outFile = File(cacheDir, "page_${page.pageIndex}_${choice.mode}_${choice.exportLevel}.jpg"),
+                documentClass = pageDocumentClass[page.id],
             )
         }
     }

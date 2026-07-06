@@ -60,6 +60,8 @@ class ScanPipeline:
         # 3–6 curve + dewarp
         image = perspective_correct(image, dewarp)
         if level >= 5 and dewarp > 0.4:
+            if self._models is not None:
+                image = self._models.dewarp(image, level, dewarp)
             image = self._book_center_unwarp(image, dewarp, doc_class)
 
         # 7 artifact (finger/skin heuristic at higher cleanup)

@@ -27,4 +27,5 @@ async def health(request: Request):
         cache_hit_rate=cache.stats().get("hit_rate_pct"),
         ollama_models=status.get("ollama_models"),
         models_on_disk=status.get("models_on_disk"),
+        scan_models=status.get("scan_models"),
     )

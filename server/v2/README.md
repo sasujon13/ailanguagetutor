@@ -41,6 +41,22 @@ Downloads Qwen, Mistral, NLLB, Whisper → OpenVINO INT8/INT4 → verifies → s
 | POST | `/tts` | Piper (manual) |
 | GET | `/admin/status` | ✅ |
 
+| POST | `/scan-enhance` | AI Clean levels 0–7 (ONNX + OpenCV) |
+| POST | `/scan-analyze` | Pre-process metrics + recommendation |
+
+## Scan enhancement ONNX
+
+```bash
+pip install -e ".[scan]"
+python scripts/download_scan_models.py          # u2net (~5 MB)
+python scripts/export_scan_onnx.py yolov8       # optional, needs ultralytics
+python scripts/export_scan_onnx.py realesrgan   # optional, needs torch+basicsr
+python scripts/validate_scan_levels.py photo.jpg --out reports/scan_validation
+python -m pytest tests/test_scan_levels_validation.py -v
+```
+
+Weights live in `models/scan/` — see [models/scan/README.md](models/scan/README.md).
+
 ## Scripts
 
 | Script | Purpose |
@@ -50,6 +66,9 @@ Downloads Qwen, Mistral, NLLB, Whisper → OpenVINO INT8/INT4 → verifies → s
 | `model_setup/download_models.py` | HF snapshots |
 | `model_setup/convert_openvino.py` | Optimum export |
 | `model_setup/verify_models.py` | Health check |
+| `download_scan_models.py` | Scan ONNX weights (u2net) |
+| `export_scan_onnx.py` | Export yolov8 / realesrgan ONNX |
+| `validate_scan_levels.py` | Level 0/4/5/6/7 comparison report |
 
 ## Docs
 

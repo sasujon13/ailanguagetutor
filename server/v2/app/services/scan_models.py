@@ -18,35 +18,50 @@ except ImportError:
     cv2 = None  # type: ignore
     np = None  # type: ignore
 
-_ORT_SESSION: dict[str, Any] = {}
+from app.services.scan_onnx import (  # noqa: E402
+    OrtRunner,
+    dewarpnet_unwarp,
+    realesrgan_enhance,
+    u2net_white_background,
+    yolov8_document_box,
+)
 
 
 class ScanModelRegistry:
     def __init__(self, models_dir: Path | None = None) -> None:
         self.models_dir = models_dir or settings.models_dir
         self._loaded: dict[str, str] = {}
+        self._runners: dict[str, OrtRunner] = {}
 
     def load_optional(self) -> None:
         scan_dir = self.models_dir / "scan"
-        if not scan_dir.is_dir():
-            scan_dir.mkdir(parents=True, exist_ok=True)
-            return
-        for name in ("yolov8", "u2net", "dewarpnet", "realesrgan"):
-            path = scan_dir / f"{name}.onnx"
-            if path.is_file():
-                self._loaded[name] = str(path)
-                self._try_load_ort(name, path)
+        scan_dir.mkdir(parents=True, exist_ok=True)
+        aliases = {
+            "u2net": ("u2net.onnx", "u2netp.onnx"),
+            "realesrgan": ("realesrgan.onnx",),
+            "dewarpnet": ("dewarpnet.onnx",),
+            "yolov8": ("yolov8.onnx", "yolov8n.onnx"),
+        }
+        for name, filenames in aliases.items():
+            path = self._resolve_model(scan_dir, filenames)
+            if path is None:
+                continue
+            self._loaded[name] = str(path)
+            self._try_load_ort(name, path)
+
+    @staticmethod
+    def _resolve_model(scan_dir: Path, filenames: tuple[str, ...]) -> Path | None:
+        for filename in filenames:
+            path = scan_dir / filename
+            if path.is_file() and path.stat().st_size > 1024:
+                return path
+        return None
 
     def _try_load_ort(self, name: str, path: Path) -> None:
         try:
-            import onnxruntime as ort  # type: ignore
-
-            _ORT_SESSION[name] = ort.InferenceSession(
-                str(path),
-                providers=["CPUExecutionProvider"],
-            )
+            self._runners[name] = OrtRunner(path)
         except Exception:
-            pass
+            self._loaded.pop(name, None)
 
     def available_for_level(self, level: int) -> list[str]:
         names: list[str] = []
@@ -63,19 +78,57 @@ class ScanModelRegistry:
     def preprocess(self, image: Any, level: int, profile: LevelProfile) -> Any:
         if not _CV:
             return image
-        if "u2net" in self._loaded and level >= 1:
+        if "yolov8" in self._runners and level >= 1:
+            image = self._yolov8_crop(image)
+        if "u2net" in self._runners and level >= 1:
             image = self._u2net_mask_blend(image)
+        return image
+
+    def dewarp(self, image: Any, level: int, strength: float) -> Any:
+        """Production uses OpenCV dewarp in scan_pipeline; DewarpNet ONNX is not deployed."""
+        if not _CV or level < 5 or strength <= 0.05:
+            return image
+        if "dewarpnet" in self._runners:
+            try:
+                return dewarpnet_unwarp(image, self._runners["dewarpnet"], strength=strength)
+            except Exception:
+                pass
         return image
 
     def postprocess(self, image: Any, level: int, profile: LevelProfile) -> Any:
         if not _CV:
             return image
-        if "realesrgan" in self._loaded and level >= 4:
-            image = self._realesrgan_upscale(image, scale=1.25 if level < 7 else 1.5)
+        if "realesrgan" in self._runners and level >= 4:
+            scale = 1.25 if level < 7 else 1.5
+            try:
+                return realesrgan_enhance(image, self._runners["realesrgan"], target_scale=scale)
+            except Exception:
+                return self._realesrgan_upscale_fallback(image, scale)
         return image
 
+    def _yolov8_crop(self, image: np.ndarray) -> np.ndarray:
+        runner = self._runners.get("yolov8")
+        if runner is None:
+            return image
+        try:
+            box = yolov8_document_box(image, runner)
+            if box is None:
+                return image
+            x1, y1, x2, y2 = box
+            return image[y1:y2, x1:x2]
+        except Exception:
+            return image
+
     def _u2net_mask_blend(self, image: np.ndarray) -> np.ndarray:
-        """Placeholder U-2-Net: use GrabCut document mask until ONNX wired."""
+        runner = self._runners.get("u2net")
+        if runner is not None:
+            try:
+                return u2net_white_background(image, runner)
+            except Exception:
+                pass
+        return self._u2net_grabcut_fallback(image)
+
+    def _u2net_grabcut_fallback(self, image: np.ndarray) -> np.ndarray:
         h, w = image.shape[:2]
         mask = np.zeros((h, w), np.uint8)
         rect = (int(w * 0.05), int(h * 0.05), int(w * 0.9), int(h * 0.9))
@@ -92,7 +145,7 @@ class ScanModelRegistry:
         except Exception:
             return image
 
-    def _realesrgan_upscale(self, image: np.ndarray, scale: float) -> np.ndarray:
+    def _realesrgan_upscale_fallback(self, image: np.ndarray, scale: float) -> np.ndarray:
         h, w = image.shape[:2]
         nh, nw = int(h * scale), int(w * scale)
         up = cv2.resize(image, (nw, nh), interpolation=cv2.INTER_CUBIC)

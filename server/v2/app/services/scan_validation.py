@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from app.services.scan_standards import READABILITY_ROLLBACK_RATIO
+
 try:
     import cv2
     import numpy as np
@@ -23,7 +25,7 @@ def readability_score(image_bgr: np.ndarray) -> float:
     return float(lap / 500.0 + contrast / 64.0)
 
 
-def should_rollback(before_bgr: np.ndarray, after_bgr: np.ndarray, min_ratio: float = 0.92) -> bool:
+def should_rollback(before_bgr: np.ndarray, after_bgr: np.ndarray, min_ratio: float = READABILITY_ROLLBACK_RATIO) -> bool:
     before = readability_score(before_bgr)
     after = readability_score(after_bgr)
     if before <= 0.01:

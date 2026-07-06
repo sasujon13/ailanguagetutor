@@ -64,6 +64,7 @@ class HealthResponse(BaseModel):
     cache_hit_rate: float | None = None
     ollama_models: list[str] | None = None
     models_on_disk: list[str] | None = None
+    scan_models: list[str] | None = None
 
 
 class CleanOcrResponse(BaseModel):

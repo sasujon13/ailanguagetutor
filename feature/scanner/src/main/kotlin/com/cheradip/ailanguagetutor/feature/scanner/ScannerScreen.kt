@@ -91,6 +91,8 @@ fun ScannerScreen(
     var importGalleryOpened by remember { mutableStateOf(false) }
     var initialScanLaunched by remember { mutableStateOf(false) }
     var mlKitReplaceSelectedPage by remember { mutableStateOf(false) }
+    var showLiveScanCapture by remember { mutableStateOf(false) }
+    var liveScanReplaceSelectedPage by remember { mutableStateOf(false) }
     val mlKitScannerLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartIntentSenderForResult(),
     ) { result ->
@@ -246,6 +248,35 @@ fun ScannerScreen(
         }
     }
 
+    val launchLiveScan: (replaceSelectedPage: Boolean) -> Unit = { replaceSelectedPage ->
+        liveScanReplaceSelectedPage = replaceSelectedPage
+        showLiveScanCapture = true
+    }
+
+    if (showLiveScanCapture && hasCameraPermission) {
+        LiveScanCaptureScreen(
+            onCaptured = { bytes ->
+                showLiveScanCapture = false
+                if (liveScanReplaceSelectedPage) {
+                    viewModel.replaceSelectedPage(bytes)
+                } else {
+                    viewModel.onPhotosCaptured(listOf(bytes))
+                }
+                liveScanReplaceSelectedPage = false
+            },
+            onCancel = {
+                showLiveScanCapture = false
+                liveScanReplaceSelectedPage = false
+                if (scanOnly && uiState.pages.isEmpty()) viewModel.onScanCaptureFinished()
+            },
+        )
+        return
+    }
+
+    val selectedPage = uiState.pages.firstOrNull { it.id == uiState.selectedPageId }
+    val boundaryOriginalPath = selectedPage?.originalPath?.takeIf { it.isNotBlank() }
+        ?: selectedPage?.imagePath
+
     Scaffold(
         topBar = {
             CheradipTopBar(
@@ -304,11 +335,17 @@ fun ScannerScreen(
                     onDeletePage = viewModel::deleteSelectedPage,
                     onRescanPage = { launchMlKitScan(true) },
                     rescanEnabled = uiState.selectedPageId != null && !uiState.isSaving,
+                    boundaryPolygon = uiState.pageBoundaryPolygon,
+                    boundaryIsCurved = uiState.pageBoundaryIsCurved,
+                    boundaryImageWidth = selectedPage?.width ?: 0,
+                    boundaryImageHeight = selectedPage?.height ?: 0,
+                    originalPreviewPath = boundaryOriginalPath,
                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                 )
                 ScanEnhanceLevelSelector(
                     selectedLevel = uiState.selectedExportLevel,
                     onLevelSelected = viewModel::setEnhanceLevel,
+                    mode = uiState.enhanceMode,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                 )
                 ScanExportOptionsPanel(
@@ -367,11 +404,17 @@ fun ScannerScreen(
                     onDeletePage = viewModel::deleteSelectedPage,
                     onRescanPage = { launchMlKitScan(true) },
                     rescanEnabled = uiState.selectedPageId != null && !uiState.isSaving,
+                    boundaryPolygon = uiState.pageBoundaryPolygon,
+                    boundaryIsCurved = uiState.pageBoundaryIsCurved,
+                    boundaryImageWidth = selectedPage?.width ?: 0,
+                    boundaryImageHeight = selectedPage?.height ?: 0,
+                    originalPreviewPath = boundaryOriginalPath,
                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                 )
                 ScanEnhanceLevelSelector(
                     selectedLevel = uiState.selectedExportLevel,
                     onLevelSelected = viewModel::setEnhanceLevel,
+                    mode = uiState.enhanceMode,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                 )
                 Button(
@@ -403,8 +446,10 @@ fun ScannerScreen(
                     primaryLabel = "Scan document",
                     onPrimary = { launchMlKitScan(false) },
                     icon = Icons.Default.Camera,
-                    secondaryLabel = "Import from gallery",
-                    onSecondary = { galleryLauncher.launch("image/*") },
+                    secondaryLabel = "Live scan (boundary guide)",
+                    onSecondary = { launchLiveScan(false) },
+                    tertiaryLabel = "Import from gallery",
+                    onTertiary = { galleryLauncher.launch("image/*") },
                 )
             } else {
                 Box(
@@ -442,6 +487,8 @@ private fun MlKitScanPrompt(
     subtitle: String? = null,
     secondaryLabel: String? = null,
     onSecondary: (() -> Unit)? = null,
+    tertiaryLabel: String? = null,
+    onTertiary: (() -> Unit)? = null,
 ) {
     Box(
         modifier = Modifier
@@ -467,6 +514,11 @@ private fun MlKitScanPrompt(
             if (secondaryLabel != null && onSecondary != null) {
                 OutlinedButton(onClick = onSecondary, modifier = Modifier.padding(top = 8.dp)) {
                     Text(secondaryLabel)
+                }
+            }
+            if (tertiaryLabel != null && onTertiary != null) {
+                TextButton(onClick = onTertiary, modifier = Modifier.padding(top = 4.dp)) {
+                    Text(tertiaryLabel)
                 }
             }
         }

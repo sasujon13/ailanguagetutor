@@ -17,6 +17,7 @@ import com.cheradip.ailanguagetutor.core.network.HomeAiGrammarPrefetchRequest
 import com.cheradip.ailanguagetutor.core.network.HomeAiPrefetchRequest
 import com.cheradip.ailanguagetutor.core.network.HomeAiPrefetchResponse
 import com.cheradip.ailanguagetutor.core.network.HomeAiRequest
+import com.cheradip.ailanguagetutor.core.network.HomeAiScanAnalyzeResponse
 import com.squareup.moshi.Moshi
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.withTimeout
@@ -328,6 +329,17 @@ class HomeAiService @Inject constructor(
             outFile.outputStream().use { out -> body.byteStream().copyTo(out) }
         }
         outFile.absolutePath
+    }
+
+    suspend fun scanAnalyze(imagePath: String, premium: Boolean): HomeAiScanAnalyzeResponse = withHomeAi {
+        val imageFile = File(imagePath)
+        val imagePart = MultipartBody.Part.createFormData(
+            "image",
+            imageFile.name,
+            imageFile.asRequestBody("image/jpeg".toMediaType()),
+        )
+        val premiumPart = premium.toString().toRequestBody("text/plain".toMediaType())
+        api().scanAnalyze(imagePart, premiumPart)
     }
 
     private fun buildRequest(

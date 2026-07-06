@@ -8,7 +8,30 @@
   },
   "resident_models": ["translation/nllb-600m", "llm/mistral-7b-int4"],
   "lazy_llm_models": ["llm/qwen2.5-7b-int8", "llm/qwen2.5-14b-int4", "llm/llama3-8b-int4"],
-  "on_demand": ["stt/whisper-small", "tts/piper-en"],
+  "on_demand": ["stt/whisper-small", "tts/piper-en", "scan/u2net"],
+  "scan_models_optional": [
+    {
+      "id": "u2net",
+      "path": "scan/u2net.onnx",
+      "size_mb": 5,
+      "required_for": "AI Clean segmentation boost on Home AI server",
+      "install": "python scripts/download_scan_models.py --only u2net",
+      "fallback": "OpenCV GrabCut + edge crop (standard for all users)"
+    },
+    {
+      "id": "yolov8",
+      "path": "scan/yolov8.onnx",
+      "optional": true,
+      "fallback": "OpenCV contour detection"
+    },
+    {
+      "id": "realesrgan",
+      "path": "scan/realesrgan.onnx",
+      "optional": true,
+      "fallback": "OpenCV sharpen at L4-7"
+    }
+  ],
+  "scan_dewarp": "opencv-l5-plus",
   "models": [
     {
       "id": "qwen2.5-7b-int8",

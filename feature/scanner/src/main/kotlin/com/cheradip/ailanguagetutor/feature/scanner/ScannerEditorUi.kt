@@ -58,7 +58,9 @@ import com.cheradip.ailanguagetutor.core.image.ExportOptions
 import com.cheradip.ailanguagetutor.core.image.ExportOrientation
 import com.cheradip.ailanguagetutor.core.image.ExportPageSize
 import com.cheradip.ailanguagetutor.core.image.ExportQuality
+import com.cheradip.ailanguagetutor.core.image.ScanCleanLevelProfiles
 import com.cheradip.ailanguagetutor.core.image.ScanEnhanceMode
+import com.cheradip.ailanguagetutor.core.image.ScanEnhanceStandards
 import com.cheradip.ailanguagetutor.core.image.ScanExportProfile
 import com.cheradip.ailanguagetutor.core.image.WatermarkMode
 import com.cheradip.ailanguagetutor.ui.theme.CheradipTeal
@@ -594,20 +596,29 @@ private fun ScanEnhanceModeChip(
 fun ScanEnhanceLevelSelector(
     selectedLevel: Int,
     onLevelSelected: (Int) -> Unit,
+    mode: ScanEnhanceMode = ScanEnhanceMode.CLEAN,
     modifier: Modifier = Modifier,
 ) {
-    Row(
-        modifier = modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        (0..7).forEach { level ->
-            ScanEnhanceLevelCircle(
-                level = level,
-                selected = selectedLevel == level,
-                onClick = { onLevelSelected(level) },
-            )
+    Column(modifier = modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            (ScanEnhanceStandards.MIN_LEVEL..ScanEnhanceStandards.MAX_LEVEL).forEach { level ->
+                ScanEnhanceLevelCircle(
+                    level = level,
+                    selected = selectedLevel == level,
+                    onClick = { onLevelSelected(level) },
+                )
+            }
         }
+        Text(
+            text = ScanCleanLevelProfiles.label(mode, selectedLevel),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = 6.dp),
+        )
     }
 }
 
@@ -663,9 +674,37 @@ fun ScanEnhancePreviewSection(
     onDeletePage: () -> Unit,
     onRescanPage: (() -> Unit)? = null,
     rescanEnabled: Boolean = true,
+    boundaryPolygon: List<com.cheradip.ailanguagetutor.core.image.PointF> = emptyList(),
+    boundaryIsCurved: Boolean = false,
+    boundaryImageWidth: Int = 0,
+    boundaryImageHeight: Int = 0,
+    originalPreviewPath: String? = null,
     modifier: Modifier = Modifier,
 ) {
+    val boundaryAspect = if (boundaryImageWidth > 0 && boundaryImageHeight > 0) {
+        boundaryImageWidth.toFloat() / boundaryImageHeight
+    } else {
+        null
+    }
     Column(modifier = modifier.fillMaxWidth()) {
+        if (showCompare && originalPreviewPath != null && boundaryPolygon.size >= 3) {
+            Text(
+                text = if (boundaryIsCurved) "Detected area (curved page)" else "Detected document area",
+                style = MaterialTheme.typography.labelMedium,
+                modifier = Modifier.padding(bottom = 4.dp),
+            )
+            BoundaryPreviewBox(
+                imagePath = originalPreviewPath,
+                cacheKey = "boundary-$cacheKey",
+                boundaryPolygon = boundaryPolygon,
+                boundaryIsCurved = boundaryIsCurved,
+                imageAspectRatio = boundaryAspect,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(100.dp)
+                    .padding(bottom = 8.dp),
+            )
+        }
         if (showCompare) {
             Row(
                 modifier = Modifier
@@ -713,6 +752,14 @@ fun ScanEnhancePreviewSection(
                         modifier = Modifier.fillMaxSize(),
                         contentScale = ContentScale.Fit,
                     )
+                    if (boundaryPolygon.size >= 3) {
+                        DocumentBoundaryOverlay(
+                            polygonNorm = boundaryPolygon,
+                            isCurved = boundaryIsCurved,
+                            imageAspectRatio = boundaryAspect,
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    }
                 }
             }
         }
@@ -782,6 +829,43 @@ private fun ComparePreviewPane(
                     RoundedCornerShape(4.dp),
                 )
                 .padding(horizontal = 6.dp, vertical = 2.dp),
+        )
+    }
+}
+
+@Composable
+private fun BoundaryPreviewBox(
+    imagePath: String,
+    cacheKey: String,
+    boundaryPolygon: List<com.cheradip.ailanguagetutor.core.image.PointF>,
+    boundaryIsCurved: Boolean,
+    imageAspectRatio: Float?,
+    modifier: Modifier = Modifier,
+) {
+    val context = LocalContext.current
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(8.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant),
+    ) {
+        val model = remember(imagePath, cacheKey) {
+            ImageRequest.Builder(context)
+                .data(File(imagePath))
+                .memoryCacheKey(cacheKey)
+                .diskCacheKey(cacheKey)
+                .build()
+        }
+        AsyncImage(
+            model = model,
+            contentDescription = "Document boundary on original",
+            modifier = Modifier.fillMaxSize(),
+            contentScale = ContentScale.Fit,
+        )
+        DocumentBoundaryOverlay(
+            polygonNorm = boundaryPolygon,
+            isCurved = boundaryIsCurved,
+            imageAspectRatio = imageAspectRatio,
+            modifier = Modifier.fillMaxSize(),
         )
     }
 }

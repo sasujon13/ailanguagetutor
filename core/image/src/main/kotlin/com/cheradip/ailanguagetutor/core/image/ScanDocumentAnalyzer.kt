@@ -151,39 +151,39 @@ object ScanEnhanceRecommender {
 
     fun recommend(metrics: ScanAnalysisMetrics, premium: Boolean): ScanEnhanceRecommendation {
         val docClass = classify(metrics)
-        var mode = if (premium && docClass != ScanDocumentClass.OFFICIAL_ID &&
-            docClass != ScanDocumentClass.MACHINE_READABLE
-        ) {
-            ScanEnhanceMode.AI_CLEAN
-        } else {
-            ScanEnhanceMode.CLEAN
+        val route = ScanEnhanceStandards.route(docClass, premium)
+        var level = route.level
+        val dewarpCap = route.dewarpCap
+        val mode = ScanEnhanceStandards.recommendMode(docClass, premium, route.forceClean)
+        if (metrics.shadowSeverity > ScanEnhanceStandards.Recommend.SHADOW_BOOST_THRESHOLD) {
+            level = min(ScanEnhanceStandards.MAX_LEVEL, level + 1)
         }
-        var level = 3
-        var dewarpCap = 0.7f
-        when (docClass) {
-            ScanDocumentClass.TEXT_HEAVY -> { level = 5; dewarpCap = 0.85f }
-            ScanDocumentClass.VISUAL_HEAVY -> { level = 4; dewarpCap = 0.5f }
-            ScanDocumentClass.MIXED -> { level = if (premium) 5 else 4; dewarpCap = 0.65f }
-            ScanDocumentClass.OFFICIAL_ID -> { level = 2; dewarpCap = 0.25f; mode = ScanEnhanceMode.CLEAN }
-            ScanDocumentClass.MACHINE_READABLE -> { level = 3; dewarpCap = 0.2f; mode = ScanEnhanceMode.CLEAN }
-            ScanDocumentClass.HANDWRITTEN -> { level = 3; dewarpCap = 0.45f }
-            ScanDocumentClass.DAMAGED -> { level = if (premium) 7 else 6; dewarpCap = 0.95f }
+        if (metrics.blurScore < ScanEnhanceStandards.Recommend.BLUR_BOOST_THRESHOLD) {
+            level = min(ScanEnhanceStandards.MAX_LEVEL, level + 1)
         }
-        if (metrics.shadowSeverity > 0.4f) level = min(7, level + 1)
-        if (metrics.blurScore < 0.15f) level = min(7, level + 1)
         val label = "${if (mode == ScanEnhanceMode.AI_CLEAN) "AI Clean" else "Clean"} Level $level"
         return ScanEnhanceRecommendation(docClass, mode, level, dewarpCap, label)
     }
 
     private fun classify(metrics: ScanAnalysisMetrics): ScanDocumentClass {
+        val c = ScanEnhanceStandards.Classify
         if (metrics.hasMachineReadable) return ScanDocumentClass.MACHINE_READABLE
-        if (metrics.aspectRatio in 0.55f..1.8f && metrics.edgeDensity > 0.08f && metrics.colorRichness < 0.25f) {
+        if (metrics.aspectRatio in c.OFFICIAL_ID_ASPECT_MIN..c.OFFICIAL_ID_ASPECT_MAX &&
+            metrics.edgeDensity > c.OFFICIAL_ID_EDGE_MIN &&
+            metrics.colorRichness < c.OFFICIAL_ID_COLOR_MAX
+        ) {
             return ScanDocumentClass.OFFICIAL_ID
         }
-        if (metrics.damageScore > 0.35f || metrics.wrinkleScore > 0.45f) return ScanDocumentClass.DAMAGED
-        if (metrics.colorRichness > 0.35f && metrics.edgeDensity < 0.12f) return ScanDocumentClass.VISUAL_HEAVY
-        if (metrics.edgeDensity > 0.14f && metrics.colorRichness < 0.2f) return ScanDocumentClass.TEXT_HEAVY
-        if (metrics.edgeDensity < 0.06f) return ScanDocumentClass.HANDWRITTEN
+        if (metrics.damageScore > c.DAMAGE_SCORE_MIN || metrics.wrinkleScore > c.WRINKLE_SCORE_MIN) {
+            return ScanDocumentClass.DAMAGED
+        }
+        if (metrics.colorRichness > c.VISUAL_COLOR_MIN && metrics.edgeDensity < c.VISUAL_EDGE_MAX) {
+            return ScanDocumentClass.VISUAL_HEAVY
+        }
+        if (metrics.edgeDensity > c.TEXT_EDGE_MIN && metrics.colorRichness < c.TEXT_COLOR_MAX) {
+            return ScanDocumentClass.TEXT_HEAVY
+        }
+        if (metrics.edgeDensity < c.HANDWRITTEN_EDGE_MAX) return ScanDocumentClass.HANDWRITTEN
         return ScanDocumentClass.MIXED
     }
 }

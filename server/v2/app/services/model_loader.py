@@ -34,6 +34,13 @@ def _openvino_models_present(models_dir: Path) -> bool:
     return any(models_dir.rglob("*.xml"))
 
 
+def _scan_onnx_models(models_dir: Path) -> list[str]:
+    scan_dir = models_dir / "scan"
+    if not scan_dir.is_dir():
+        return []
+    return sorted(p.stem for p in scan_dir.glob("*.onnx") if p.stat().st_size > 1024)
+
+
 async def _ollama_reachable(base_url: str) -> bool:
     try:
         async with httpx.AsyncClient(timeout=3.0) as client:
@@ -59,6 +66,7 @@ class ModelLoader:
         self._loaded: set[str] = set()
         self.ollama_models: list[str] = []
         self.models_on_disk: list[str] = []
+        self.scan_models: list[str] = _scan_onnx_models(settings.models_dir)
         self.gpu_status: GpuStatus = GpuStatus()
 
     async def refresh_gpu_status(self) -> GpuStatus:
@@ -91,6 +99,7 @@ class ModelLoader:
                 self.backend_name = "stub"
 
         await self.refresh_gpu_status()
+        self.scan_models = _scan_onnx_models(self.settings.models_dir)
 
         if self.backend_name == "openvino" and not self.models_on_disk:
             self.models_on_disk = [p.parent.name for p in self.settings.models_dir.rglob("*.xml")]
@@ -160,4 +169,5 @@ class ModelLoader:
             "loaded_models": sorted(self._loaded),
             "ollama_models": self.ollama_models,
             "models_on_disk": self.models_on_disk,
+            "scan_models": self.scan_models,
         }

@@ -20,10 +20,13 @@ import com.cheradip.ailanguagetutor.core.audio.PronunciationEngine
 import com.cheradip.ailanguagetutor.core.database.repository.LearningActivityRepository
 import com.cheradip.ailanguagetutor.core.database.repository.LearningActivitySyncRepository
 import com.cheradip.ailanguagetutor.core.device.NetworkConnectivityMonitor
+import com.cheradip.ailanguagetutor.core.device.ScanPracticePrefill
+import com.cheradip.ailanguagetutor.core.device.ScanPracticePrefillRepository
 import com.cheradip.ailanguagetutor.core.model.GrammarDepth
 import com.cheradip.ailanguagetutor.core.model.InputSource
 import com.cheradip.ailanguagetutor.core.model.PracticeLanguageRules
 import com.cheradip.ailanguagetutor.core.model.ProcessingIntent
+import com.cheradip.ailanguagetutor.core.model.ScannedContentType
 import com.cheradip.ailanguagetutor.core.ai.UnifiedTextResult
 import com.cheradip.ailanguagetutor.core.model.GuestAiLimitReachedException
 import com.cheradip.ailanguagetutor.core.model.LanguageCatalogEntry
@@ -71,6 +74,13 @@ data class CalibrationUiState(
 
 enum class PracticeGrammarTarget { INPUT, OUTPUT }
 
+data class ScanPrefillBanner(
+    val previewImagePath: String?,
+    val contentType: ScannedContentType,
+    val documentClass: String?,
+    val structureBackend: String,
+)
+
 data class PracticeHubUiState(
     val typedInput: String = "",
     val aiOutput: String? = null,
@@ -93,6 +103,7 @@ data class PracticeHubUiState(
     val wordSheet: WordSheetState? = null,
     val lastInputSource: InputSource = InputSource.TYPED,
     val grammarStudyMessage: String? = null,
+    val scanPrefillBanner: ScanPrefillBanner? = null,
 )
 
 @HiltViewModel
@@ -115,6 +126,7 @@ class PracticeHubViewModel @Inject constructor(
     private val dictionaryRepository: DictionaryRepository,
     private val wordMapBuilder: WordMapBuilder,
     private val savedWordRepository: SavedWordRepository,
+    private val scanPracticePrefillRepository: ScanPracticePrefillRepository,
 ) : ViewModel() {
     private val _uiState = MutableStateFlow(PracticeHubUiState())
     val uiState: StateFlow<PracticeHubUiState> = _uiState.asStateFlow()
@@ -143,6 +155,7 @@ class PracticeHubViewModel @Inject constructor(
 
     init {
         pronunciationEngine.init()
+        consumeScanPrefillIfPending()
         viewModelScope.launch {
             speechEngine.state.collect(::handleListeningState)
         }
@@ -275,6 +288,7 @@ class PracticeHubViewModel @Inject constructor(
     }
 
     fun onPracticeResumed() {
+        consumeScanPrefillIfPending()
         if (!dismissCalibrationErrorOnReturn) return
         dismissCalibrationErrorOnReturn = false
         dismissCalibrationSpeechError()
@@ -351,6 +365,27 @@ class PracticeHubViewModel @Inject constructor(
                 processError = null,
                 inputWords = emptyList(),
                 wordSheet = null,
+                scanPrefillBanner = null,
+            )
+        }
+    }
+
+    private fun consumeScanPrefillIfPending() {
+        val prefill = scanPracticePrefillRepository.consume() ?: return
+        applyScanPrefill(prefill)
+    }
+
+    /** Scan → OCR → AI structure: prefill Practice input only; user taps Process manually. */
+    fun applyScanPrefill(prefill: ScanPracticePrefill) {
+        applyExternalInput(prefill.structuredText, InputSource.OCR_SCAN)
+        _uiState.update {
+            it.copy(
+                scanPrefillBanner = ScanPrefillBanner(
+                    previewImagePath = prefill.previewImagePath,
+                    contentType = prefill.contentType,
+                    documentClass = prefill.documentClass,
+                    structureBackend = prefill.structureBackend,
+                ),
             )
         }
     }

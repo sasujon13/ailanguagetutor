@@ -1,5 +1,6 @@
 package com.cheradip.ailanguagetutor.feature.practice
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -11,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
@@ -31,6 +33,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -40,10 +43,15 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import coil.compose.AsyncImage
+import com.cheradip.ailanguagetutor.core.model.ScannedContentType
 import com.cheradip.ailanguagetutor.core.locale.appString
 import com.cheradip.ailanguagetutor.core.speech.CalibrationContent
 import com.cheradip.ailanguagetutor.core.speech.CalibrationTier
@@ -267,6 +275,9 @@ fun PracticeInputCard(
 
     Card(modifier = modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            hubState.scanPrefillBanner?.let { banner ->
+                ScanPrefillBannerRow(banner = banner)
+            }
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.End,
@@ -281,6 +292,9 @@ fun PracticeInputCard(
                     }
                 }
             }
+            val scanBanner = hubState.scanPrefillBanner
+            val useMonospace = scanBanner?.contentType == ScannedContentType.CODE ||
+                scanBanner?.contentType == ScannedContentType.MATH
             OutlinedTextField(
                 value = textFieldValue,
                 onValueChange = { updated ->
@@ -289,8 +303,23 @@ fun PracticeInputCard(
                 },
                 label = {
                     Text(
-                        if (hubState.isListening) "Listening… speak now" else "Type or use the mic button",
+                        when {
+                            hubState.isListening -> "Listening… speak now"
+                            scanBanner != null -> "Scanned text · edit or use mic"
+                            else -> "Type or use the mic button"
+                        },
                     )
+                },
+                textStyle = MaterialTheme.typography.bodyMedium.copy(
+                    fontFamily = if (useMonospace) FontFamily.Monospace else FontFamily.Default,
+                ),
+                colors = if (scanBanner != null) {
+                    OutlinedTextFieldDefaults.colors(
+                        focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+                        unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+                    )
+                } else {
+                    OutlinedTextFieldDefaults.colors()
                 },
                 modifier = Modifier
                     .fillMaxWidth()
@@ -438,6 +467,58 @@ fun PracticeInputCard(
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun ScanPrefillBannerRow(banner: ScanPrefillBanner) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(MaterialTheme.colorScheme.secondaryContainer)
+            .padding(12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        banner.previewImagePath?.let { path ->
+            AsyncImage(
+                model = path,
+                contentDescription = "Scan preview",
+                modifier = Modifier
+                    .size(56.dp)
+                    .clip(RoundedCornerShape(8.dp)),
+                contentScale = ContentScale.Crop,
+            )
+        }
+        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilterChip(
+                    selected = true,
+                    onClick = {},
+                    enabled = false,
+                    label = { Text(banner.contentType.displayLabel()) },
+                )
+                banner.documentClass?.let { docClass ->
+                    Text(
+                        text = docClass.replace('-', ' '),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSecondaryContainer,
+                    )
+                }
+            }
+            Text(
+                text = "Structured via ${banner.structureBackend}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSecondaryContainer,
+            )
+        }
+        Icon(
+            Icons.Default.QrCodeScanner,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSecondaryContainer,
+            modifier = Modifier.size(24.dp),
+        )
     }
 }
 

@@ -16,6 +16,8 @@ data class OcrResult(
     val fullText: String,
     val words: List<WordSpan>,
     val wordMapJson: String,
+    /** Mean element confidence from ML Kit when available (0..1). */
+    val confidence: Float = 0f,
 )
 
 @Singleton
@@ -31,7 +33,22 @@ class MlKitOcrEngine @Inject constructor(
         val fullText = visionText.text
         val words = wordMapBuilder.buildFromMlKit(visionText, fullText)
         val wordMapJson = wordMapBuilder.toJson(words)
-        return OcrResult(fullText = fullText, words = words, wordMapJson = wordMapJson)
+        val confidence = meanElementConfidence(visionText)
+        return OcrResult(fullText = fullText, words = words, wordMapJson = wordMapJson, confidence = confidence)
+    }
+
+    private fun meanElementConfidence(visionText: com.google.mlkit.vision.text.Text): Float {
+        var sum = 0f
+        var count = 0
+        for (block in visionText.textBlocks) {
+            for (line in block.lines) {
+                for (element in line.elements) {
+                    sum += element.confidence
+                    count++
+                }
+            }
+        }
+        return if (count > 0) sum / count else 0f
     }
 
     private fun loadScaledBitmap(path: String): Bitmap {

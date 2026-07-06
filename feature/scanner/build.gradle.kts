@@ -23,6 +23,7 @@ dependencies {
     implementation(project(":core:image"))
     implementation(project(":core:database"))
     implementation(project(":core:device"))
+    implementation(project(":core:ocr"))
     implementation(project(":core:pack"))
     implementation(project(":core:ai"))
     implementation(project(":core:model"))

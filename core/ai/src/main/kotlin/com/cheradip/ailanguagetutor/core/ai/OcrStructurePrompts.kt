@@ -4,12 +4,18 @@ import com.cheradip.ailanguagetutor.core.model.ScannedContentType
 
 internal object OcrStructurePrompts {
 
-    fun build(contentType: ScannedContentType, rawOcr: String, languageCode: String): String {
+    fun build(
+        contentType: ScannedContentType,
+        rawOcr: String,
+        languageCode: String,
+        scanDocumentClass: String? = null,
+    ): String {
         val clipped = rawOcr.take(6000)
+        val classHint = scanDocumentClass?.let { "\nDetected scan document class: $it (from image analysis)." } ?: ""
         return when (contentType) {
             ScannedContentType.MATH -> """
                 You are an expert at reconstructing mathematics from noisy OCR scans.
-                Language context: $languageCode.
+                Language context: $languageCode.$classHint
                 
                 Raw OCR text:
                 ---
@@ -100,7 +106,13 @@ internal object OcrStructurePrompts {
 
             ScannedContentType.PROSE -> """
                 Fix OCR errors and structure this scanned document text.
-                Language: $languageCode.
+                Language: $languageCode.$classHint
+                
+                Document-class guidance:
+                - text-heavy / book / damaged: preserve all paragraphs; fix broken lines only
+                - official-id / machine-readable: do NOT alter numbers, IDs, or codes; minimal edits
+                - handwritten: preserve stroke character; light fixes only
+                - receipt / visual-heavy: keep labels and amounts exact
                 
                 Raw OCR:
                 ---

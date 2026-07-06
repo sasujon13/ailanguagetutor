@@ -186,7 +186,7 @@ fun AppNavHost(
             }
             ScanWorkflowStage.OCR -> {
                 if (!documentRepository.isOcrComplete(session.documentId)) {
-                    navController.navigate(Routes.ocrProcessing(session.documentId)) {
+                    navController.navigate(Routes.ocrProcessing(session.documentId, toPractice = !session.scanOnly)) {
                         launchSingleTop = true
                     }
                 } else {
@@ -539,7 +539,7 @@ fun AppNavHost(
                     scanOnly = false,
                     onBack = { navController.popBackStack() },
                     onDone = { id ->
-                        navController.navigate(Routes.ocrProcessing(id)) {
+                        navController.navigate(Routes.ocrProcessing(id, toPractice = true)) {
                             popUpTo(Routes.scannerDoc(docId)) { inclusive = true }
                         }
                     },
@@ -572,7 +572,7 @@ fun AppNavHost(
                     launchCapture = launchCapture,
                     onBack = { navController.popBackStack() },
                     onDone = { docId ->
-                        navController.navigate(Routes.ocrProcessing(docId)) {
+                        navController.navigate(Routes.ocrProcessing(docId, toPractice = true)) {
                             popUpTo(Routes.scanner(mode, scanOnly)) { inclusive = true }
                         }
                     },
@@ -580,14 +580,27 @@ fun AppNavHost(
             }
             composable(
                 route = Routes.OCR_PROCESSING,
-                arguments = listOf(navArgument("documentId") { type = NavType.LongType }),
+                arguments = listOf(
+                    navArgument("documentId") { type = NavType.LongType },
+                    navArgument("toPractice") {
+                        type = NavType.BoolType
+                        defaultValue = false
+                    },
+                ),
             ) { entry ->
                 val docId = entry.arguments?.getLong("documentId") ?: return@composable
+                val toPractice = entry.arguments?.getBoolean("toPractice") ?: false
                 OcrProcessingScreen(
                     documentId = docId,
                     onComplete = { id ->
-                        navController.navigate(Routes.reader(id)) {
-                            popUpTo(Routes.HOME)
+                        if (toPractice) {
+                            navController.navigate(Routes.practiceHub()) {
+                                popUpTo(Routes.HOME)
+                            }
+                        } else {
+                            navController.navigate(Routes.reader(id)) {
+                                popUpTo(Routes.HOME)
+                            }
                         }
                     },
                 )

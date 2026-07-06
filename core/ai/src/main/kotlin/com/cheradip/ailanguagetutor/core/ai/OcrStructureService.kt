@@ -51,6 +51,7 @@ class OcrStructureService @Inject constructor(
         rawOcrText: String,
         contentType: ScannedContentType,
         languageCode: String,
+        scanDocumentClass: String? = null,
     ): OcrStructureResult = withContext(Dispatchers.IO) {
         val tier = checkAppAccess.subscriptionTier()
         if (tier == SubscriptionTier.FREE || rawOcrText.isBlank()) {
@@ -69,19 +70,19 @@ class OcrStructureService @Inject constructor(
             if (!online) {
                 return@withContext offlineResult(rawOcrText, contentType, "offline")
             }
-            return@withContext structureViaCloud(rawOcrText, contentType, languageCode, cacheKey)
+            return@withContext structureViaCloud(rawOcrText, contentType, languageCode, cacheKey, scanDocumentClass)
                 ?: offlineResult(rawOcrText, contentType, "offline")
         }
 
         if (!online) {
-            return@withContext tryHomeCleanOcr(rawOcrText, languageCode, tier, contentType, cacheKey)
+            return@withContext tryHomeCleanOcr(rawOcrText, languageCode, tier, contentType, cacheKey, scanDocumentClass)
                 ?: offlineResult(rawOcrText, contentType, "offline")
         }
 
         // Prose: home clean-ocr first, then cloud structure
-        tryHomeCleanOcr(rawOcrText, languageCode, tier, contentType, cacheKey)?.let { return@withContext it }
+        tryHomeCleanOcr(rawOcrText, languageCode, tier, contentType, cacheKey, scanDocumentClass)?.let { return@withContext it }
 
-        structureViaCloud(rawOcrText, contentType, languageCode, cacheKey)?.let { return@withContext it }
+        structureViaCloud(rawOcrText, contentType, languageCode, cacheKey, scanDocumentClass)?.let { return@withContext it }
 
         offlineResult(rawOcrText, contentType, "offline")
     }
@@ -92,6 +93,7 @@ class OcrStructureService @Inject constructor(
         tier: SubscriptionTier,
         contentType: ScannedContentType,
         cacheKey: String,
+        scanDocumentClass: String? = null,
     ): OcrStructureResult? {
         if (!developerOptions.shouldTryHomeAi()) return null
         return runCatching {
@@ -129,9 +131,10 @@ class OcrStructureService @Inject constructor(
         contentType: ScannedContentType,
         languageCode: String,
         cacheKey: String,
+        scanDocumentClass: String? = null,
     ): OcrStructureResult? = runCatching {
         guestAiUsageRepository.ensureGuestCanUseAi()
-        val prompt = OcrStructurePrompts.build(contentType, rawOcrText, languageCode)
+        val prompt = OcrStructurePrompts.build(contentType, rawOcrText, languageCode, scanDocumentClass)
         val response = cloudAiService.structureOcr(
             AiStructureOcrRequest(
                 rawText = rawOcrText,

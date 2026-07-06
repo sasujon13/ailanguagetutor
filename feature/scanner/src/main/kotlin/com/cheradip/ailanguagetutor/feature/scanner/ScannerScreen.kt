@@ -283,7 +283,7 @@ fun ScannerScreen(
                 title = if (isImportMode) "Import" else "Scanner",
                 subtitle = when {
                     showScanOnlyStage -> "Pages kept until Save · tap thumbnail to switch"
-                    showLearningReview -> "Review pages · then Process & Read"
+                    showLearningReview -> "Review pages · then Next"
                     isImportMode -> "Gallery import"
                     else -> "ML Kit document scan"
                 },
@@ -377,7 +377,7 @@ fun ScannerScreen(
                     addPageEnabled = canAddMorePages,
                 )
                 Text(
-                    text = "${uiState.pageCount} page(s) · enhance before Process & Read",
+                    text = "${uiState.pageCount} page(s) · level 1 used for OCR on Next",
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                     style = MaterialTheme.typography.bodySmall,
                 )
@@ -419,18 +419,24 @@ fun ScannerScreen(
                 )
                 Button(
                     onClick = {
-                        viewModel.prepareForOcr()
-                        uiState.documentId?.let(onDone)
+                        viewModel.prepareForOcr { id ->
+                            id?.let(onDone)
+                        }
                     },
                     modifier = Modifier.fillMaxWidth().padding(16.dp),
                     enabled = uiState.pageCount > 0 && !uiState.isSaving,
                 ) {
-                    Icon(
-                        Icons.Default.Camera,
-                        contentDescription = null,
-                        modifier = Modifier.padding(end = 8.dp),
-                    )
-                    Text("Process & Read")
+                    if (uiState.isSaving) {
+                        CircularProgressIndicator(
+                            modifier = Modifier
+                                .padding(end = 8.dp)
+                                .size(20.dp),
+                            strokeWidth = 2.dp,
+                        )
+                        Text("Preparing…")
+                    } else {
+                        Text("Next")
+                    }
                 }
             } else if (isImportMode) {
                 MlKitScanPrompt(

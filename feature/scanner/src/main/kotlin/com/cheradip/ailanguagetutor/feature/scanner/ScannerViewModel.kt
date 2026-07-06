@@ -9,6 +9,7 @@ import com.cheradip.ailanguagetutor.core.database.repository.DocumentRepository
 import com.cheradip.ailanguagetutor.core.device.ScanWorkflowRepository
 import com.cheradip.ailanguagetutor.core.device.ScanWorkflowSession
 import com.cheradip.ailanguagetutor.core.device.ScanWorkflowStage
+import com.cheradip.ailanguagetutor.core.ocr.ScanOcrQualityGate
 import com.cheradip.ailanguagetutor.core.image.BitmapUtils
 import com.cheradip.ailanguagetutor.core.image.CleanParams
 import com.cheradip.ailanguagetutor.core.image.CropParams
@@ -162,6 +163,7 @@ class ScannerViewModel @Inject constructor(
     private val scanWorkflowRepository: ScanWorkflowRepository,
     private val scanEnhanceService: ScanEnhanceService,
     private val scanEnhanceAnalyzeService: ScanEnhanceAnalyzeService,
+    private val scanOcrQualityGate: ScanOcrQualityGate,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(ScannerUiState())
@@ -228,38 +230,45 @@ class ScannerViewModel @Inject constructor(
         persistWorkflow()
     }
 
-    fun prepareForOcr() {
+    fun prepareForOcr(onReady: (Long?) -> Unit = {}) {
         viewModelScope.launch {
             _uiState.update { it.copy(isSaving = true, error = null) }
-            runCatching {
+            val docId = runCatching {
                 val pages = _uiState.value.pages
-                if (pages.isNotEmpty()) {
-                    val paths = resolvedExportPaths()
-                    pages.forEachIndexed { index, page ->
-                        val enhancedPath = paths.getOrNull(index) ?: page.originalPath
-                        if (enhancedPath != page.imagePath) {
-                            documentRepository.updatePageImage(
-                                pageId = page.id,
-                                imagePath = enhancedPath,
-                                width = page.width,
-                                height = page.height,
-                                editStateJson = editStates[page.id]?.toJson(),
-                            )
-                        }
-                    }
-                    _uiState.update { ui ->
-                        ui.copy(
-                            pages = ui.pages.mapIndexed { index, page ->
-                                paths.getOrNull(index)?.let { page.copy(imagePath = it) } ?: page
-                            },
+                if (pages.isEmpty()) error("No pages to process")
+                val paths = if (scanOnly) {
+                    resolvedExportPaths()
+                } else {
+                    pages.forEach { page -> ensureLearningOcrLevel(page.id) }
+                    resolvedLearningOcrPaths()
+                }
+                pages.forEachIndexed { index, page ->
+                    val ocrPath = paths.getOrNull(index) ?: page.originalPath
+                    if (ocrPath != page.imagePath) {
+                        documentRepository.updatePageImage(
+                            pageId = page.id,
+                            imagePath = ocrPath,
+                            width = page.width,
+                            height = page.height,
+                            editStateJson = editStates[page.id]?.toJson(),
                         )
                     }
                 }
+                _uiState.update { ui ->
+                    ui.copy(
+                        pages = ui.pages.mapIndexed { index, page ->
+                            paths.getOrNull(index)?.let { page.copy(imagePath = it) } ?: page
+                        },
+                    )
+                }
                 persistWorkflow(stage = ScanWorkflowStage.OCR)
+                _uiState.value.documentId
             }.onFailure { e ->
                 _uiState.update { it.copy(error = e.message) }
-            }
+                null
+            }.getOrNull()
             _uiState.update { it.copy(isSaving = false) }
+            onReady(docId)
         }
     }
 
@@ -342,7 +351,11 @@ class ScannerViewModel @Inject constructor(
         items.lastOrNull()?.id?.let { pageId ->
             syncDraftFromState(pageId)
             refreshPreview(pageId)
-            applyEnhancePreviewForPage(pageId)
+            if (!scanOnly) {
+                ensureLearningEnhanceDefault(pageId)
+            } else {
+                applyEnhancePreviewForPage(pageId)
+            }
         }
         restoreCustomFiltersFromEditStates()
         persistWorkflow(stage = ScanWorkflowStage.SCANNER)
@@ -370,6 +383,8 @@ class ScannerViewModel @Inject constructor(
                         lastId?.let { applyEnhancePreviewForPage(it) }
                         lastId?.let { refreshPageBoundary(it) }
                         persistWorkflow()
+                    } else {
+                        lastId?.let { ensureLearningEnhanceDefault(it) }
                     }
                 }.onFailure { e ->
                     _uiState.update { it.copy(error = e.message) }
@@ -452,6 +467,8 @@ class ScannerViewModel @Inject constructor(
 
     companion object {
         private const val MAX_SCAN_PAGES = 20
+        /** Learning mode: level 1 enhance before ML Kit OCR quality gate. */
+        private const val LEARNING_OCR_LEVEL = 1
     }
 
     private suspend fun addCapturedPage(
@@ -816,6 +833,38 @@ class ScannerViewModel @Inject constructor(
                 _uiState.update { it.copy(isEnhancePreviewLoading = false) }
             }
         }
+    }
+
+    private suspend fun resolvedLearningOcrPaths(): List<String> = withContext(Dispatchers.Default) {
+        val pages = _uiState.value.pages
+        if (pages.isEmpty()) return@withContext emptyList()
+        val cacheDir = File(pages.first().originalPath).parentFile ?: return@withContext emptyList()
+        pages.map { page ->
+            val choice = enhanceChoices[page.id] ?: PageEnhanceChoice(exportLevel = LEARNING_OCR_LEVEL)
+            val enhancedPath = scanEnhanceService.renderToFile(
+                originalPath = page.originalPath,
+                mode = choice.mode,
+                level = LEARNING_OCR_LEVEL,
+                outFile = File(cacheDir, "page_${page.pageIndex}_${choice.mode}_L${LEARNING_OCR_LEVEL}_ocr.jpg"),
+                documentClass = pageDocumentClass[page.id],
+            )
+            scanOcrQualityGate.pickBestPathForOcr(page.originalPath, enhancedPath)
+        }
+    }
+
+    private fun ensureLearningOcrLevel(pageId: Long) {
+        val current = enhanceChoices[pageId] ?: PageEnhanceChoice()
+        if (current.exportLevel != LEARNING_OCR_LEVEL) {
+            enhanceChoices[pageId] = current.copy(exportLevel = LEARNING_OCR_LEVEL)
+            persistEnhanceChoice(pageId)
+        }
+    }
+
+    private fun ensureLearningEnhanceDefault(pageId: Long) {
+        ensureLearningOcrLevel(pageId)
+        applyEnhancePreviewForPage(pageId)
+        refreshPageBoundary(pageId)
+        persistWorkflow()
     }
 
     private suspend fun resolvedExportPaths(): List<String> = withContext(Dispatchers.Default) {

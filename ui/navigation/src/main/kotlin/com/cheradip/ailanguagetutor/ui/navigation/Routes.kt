@@ -11,7 +11,7 @@ object Routes {
     const val SETTINGS = "settings"
     const val SCANNER = "scanner?mode={mode}&scanOnly={scanOnly}&launchCapture={launchCapture}"
     const val SCANNER_DOC = "scanner/{documentId}"
-    const val OCR_PROCESSING = "ocr/{documentId}"
+    const val OCR_PROCESSING = "ocr/{documentId}?toPractice={toPractice}"
     const val READER = "reader/{documentId}"
     const val STUDY_LIST = "study"
     const val LOGIN = "login?returnTo={returnTo}"
@@ -45,7 +45,8 @@ object Routes {
     fun login(returnTo: String = "") = "login?returnTo=$returnTo"
     fun register(returnTo: String = "") = "register?returnTo=$returnTo"
     fun scannerDoc(documentId: Long) = "scanner/$documentId"
-    fun ocrProcessing(documentId: Long) = "ocr/$documentId"
+    fun ocrProcessing(documentId: Long, toPractice: Boolean = false) =
+        "ocr/$documentId?toPractice=$toPractice"
     fun reader(documentId: Long) = "reader/$documentId"
 
     /** Routes that show the bottom navigation bar (main tabs + paywall escape hatch). */

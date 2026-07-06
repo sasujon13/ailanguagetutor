@@ -9,7 +9,8 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.cheradip.ailanguagetutor.core.common.AppConfig
 import com.cheradip.ailanguagetutor.core.common.CLOUD_API_TIMEOUT_MS
-import com.cheradip.ailanguagetutor.core.common.HOME_AI_TIMEOUT_MS
+import com.cheradip.ailanguagetutor.core.common.HOME_AI_REACHABILITY_TIMEOUT_MS
+import com.cheradip.ailanguagetutor.core.common.HOME_AI_RESPONSE_TIMEOUT_MS
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
@@ -27,13 +28,16 @@ class ApiSettingsRepository @Inject constructor(
     @ApplicationContext private val context: Context,
     private val appConfig: AppConfig,
 ) {
-    private val keyHomeAiFallbackMs = longPreferencesKey("home_ai_fallback_timeout_ms")
+    private val keyHomeAiReachabilityMs = longPreferencesKey("home_ai_fallback_timeout_ms")
     private val keyCloudApiTimeoutMs = longPreferencesKey("cloud_api_timeout_ms")
     private val keyApiBaseUrl = stringPreferencesKey("api_base_url_override")
 
-    val homeAiFallbackTimeoutMs: Flow<Long> = context.apiSettingsDataStore.data.map { prefs ->
-        prefs[keyHomeAiFallbackMs] ?: appConfig.homeAiTimeoutMs
+    val homeAiReachabilityTimeoutMs: Flow<Long> = context.apiSettingsDataStore.data.map { prefs ->
+        prefs[keyHomeAiReachabilityMs] ?: appConfig.homeAiReachabilityTimeoutMs
     }
+
+    /** @deprecated use [homeAiReachabilityTimeoutMs] */
+    val homeAiFallbackTimeoutMs: Flow<Long> = homeAiReachabilityTimeoutMs
 
     val cloudApiTimeoutMs: Flow<Long> = context.apiSettingsDataStore.data.map { prefs ->
         prefs[keyCloudApiTimeoutMs] ?: appConfig.cloudApiTimeoutMs
@@ -44,17 +48,25 @@ class ApiSettingsRepository @Inject constructor(
         ApiBaseUrlNormalizer.normalize(raw)
     }
 
-    suspend fun getHomeAiFallbackTimeoutMs(): Long = homeAiFallbackTimeoutMs.first()
+    suspend fun getHomeAiReachabilityTimeoutMs(): Long = homeAiReachabilityTimeoutMs.first()
+
+    suspend fun getHomeAiResponseTimeoutMs(): Long = HOME_AI_RESPONSE_TIMEOUT_MS
+
+    /** @deprecated use [getHomeAiReachabilityTimeoutMs] */
+    suspend fun getHomeAiFallbackTimeoutMs(): Long = getHomeAiReachabilityTimeoutMs()
 
     suspend fun getCloudApiTimeoutMs(): Long = cloudApiTimeoutMs.first()
 
     suspend fun getEffectiveApiBaseUrl(): String = effectiveApiBaseUrl.first()
 
-    suspend fun setHomeAiFallbackTimeoutMs(ms: Long) {
+    suspend fun setHomeAiReachabilityTimeoutMs(ms: Long) {
         context.apiSettingsDataStore.edit {
-            it[keyHomeAiFallbackMs] = ms.coerceAtLeast(0L)
+            it[keyHomeAiReachabilityMs] = ms.coerceAtLeast(0L)
         }
     }
+
+    /** @deprecated use [setHomeAiReachabilityTimeoutMs] */
+    suspend fun setHomeAiFallbackTimeoutMs(ms: Long) = setHomeAiReachabilityTimeoutMs(ms)
 
     suspend fun setCloudApiTimeoutMs(ms: Long) {
         context.apiSettingsDataStore.edit {
@@ -85,10 +97,22 @@ class ApiSettingsRepository @Inject constructor(
         }
     }
 
+    /** One-time: legacy 30s default was answer timeout; reachability probe is now 7s. */
+    suspend fun migrateLegacyHomeAiReachabilityTimeoutIfNeeded() {
+        val stored = context.apiSettingsDataStore.data.first()[keyHomeAiReachabilityMs] ?: return
+        if (stored == 30_000L) {
+            setHomeAiReachabilityTimeoutMs(HOME_AI_REACHABILITY_TIMEOUT_MS)
+        }
+    }
+
     private fun normalizeBaseUrl(url: String): String = ApiBaseUrlNormalizer.normalize(url)
 
     companion object {
         const val DEFAULT_CLOUD_API_TIMEOUT_MS = CLOUD_API_TIMEOUT_MS
-        const val DEFAULT_HOME_AI_TIMEOUT_MS = HOME_AI_TIMEOUT_MS
+        const val DEFAULT_HOME_AI_REACHABILITY_TIMEOUT_MS = HOME_AI_REACHABILITY_TIMEOUT_MS
+        const val DEFAULT_HOME_AI_RESPONSE_TIMEOUT_MS = HOME_AI_RESPONSE_TIMEOUT_MS
+
+        @Deprecated("Use DEFAULT_HOME_AI_REACHABILITY_TIMEOUT_MS")
+        const val DEFAULT_HOME_AI_TIMEOUT_MS = DEFAULT_HOME_AI_REACHABILITY_TIMEOUT_MS
     }
 }

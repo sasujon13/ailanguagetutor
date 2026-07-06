@@ -239,13 +239,14 @@ class AdminDeveloperOptionsViewModel @Inject constructor(
     }
 
     private suspend fun load() {
-        _homeAiFallbackMs.value = developerOptions.getHomeAiFallbackTimeoutMs().toString()
+        _homeAiFallbackMs.value = developerOptions.getHomeAiReachabilityTimeoutMs().toString()
         _cloudApiTimeoutMs.value = developerOptions.getCloudApiTimeoutMs().toString()
         _apiBaseUrl.value = developerOptions.getEffectiveApiBaseUrl()
         _preferredBackend.value = homeAiSettings.preferredBackend.first()
         _buildDefaults.value =
             "Build: API ${appConfig.apiBaseUrl} · Home AI ${appConfig.homeAiBaseUrl} · " +
-                "fallback ${appConfig.homeAiTimeoutMs} ms"
+                "reachability ${appConfig.homeAiReachabilityTimeoutMs} ms · " +
+                "response ${appConfig.homeAiResponseTimeoutMs} ms"
     }
 
     fun updateHomeAiFallbackMs(value: String) {
@@ -266,10 +267,10 @@ class AdminDeveloperOptionsViewModel @Inject constructor(
 
     fun save() {
         viewModelScope.launch {
-            val homeMs = _homeAiFallbackMs.value.toLongOrNull() ?: appConfig.homeAiTimeoutMs
+            val homeMs = _homeAiFallbackMs.value.toLongOrNull() ?: appConfig.homeAiReachabilityTimeoutMs
             val cloudMs = _cloudApiTimeoutMs.value.toLongOrNull()
                 ?: com.cheradip.ailanguagetutor.core.network.ApiSettingsRepository.DEFAULT_CLOUD_API_TIMEOUT_MS
-            developerOptions.setHomeAiFallbackTimeoutMs(homeMs)
+            developerOptions.setHomeAiReachabilityTimeoutMs(homeMs)
             developerOptions.setCloudApiTimeoutMs(cloudMs)
             val override = _apiBaseUrl.value.trim()
             if (override == appConfig.apiBaseUrl.trim().trimEnd('/') ||
@@ -285,7 +286,7 @@ class AdminDeveloperOptionsViewModel @Inject constructor(
             _message.value = if (homeMs == 0L) {
                 "Saved — Home AI skipped; cloud APIs used immediately"
             } else {
-                "Saved — Home AI waits ${homeMs}ms before cloud fallback"
+                "Saved — probe Home AI for ${homeMs}ms, then wait up to 120s for answers"
             }
         }
     }
@@ -874,7 +875,7 @@ fun AdminDeveloperOptionsTab(
     ) {
         Text("Developer options", style = MaterialTheme.typography.headlineSmall)
         Text(
-            "Admin-only runtime tuning. Set Home AI fallback to 0 ms to use cloud APIs immediately (your current setup).",
+            "Admin-only runtime tuning. Home AI is probed via /health (default 7s); answers may take up to 120s.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(top = 4.dp),
@@ -888,8 +889,8 @@ fun AdminDeveloperOptionsTab(
         OutlinedTextField(
             value = homeMs,
             onValueChange = viewModel::updateHomeAiFallbackMs,
-            label = { Text("Home AI fallback timeout (ms)") },
-            supportingText = { Text("0 = skip Home AI, use cloud immediately") },
+            label = { Text("Home AI reachability timeout (ms)") },
+            supportingText = { Text("0 = skip Home AI. Default 7000 — GET /health only, not answer time.") },
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(top = 12.dp),

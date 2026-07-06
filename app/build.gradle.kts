@@ -42,7 +42,8 @@ android {
         ndk {
             abiFilters += listOf("arm64-v8a", "armeabi-v7a")
         }
-        buildConfigField("long", "HOME_AI_TIMEOUT_MS", "30000L")
+        buildConfigField("long", "HOME_AI_REACHABILITY_TIMEOUT_MS", "7000L")
+        buildConfigField("long", "HOME_AI_RESPONSE_TIMEOUT_MS", "120000L")
         buildConfigField("long", "CLOUD_API_TIMEOUT_MS", "30000L")
     }
 

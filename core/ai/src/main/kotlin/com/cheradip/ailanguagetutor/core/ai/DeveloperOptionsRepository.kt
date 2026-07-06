@@ -13,11 +13,15 @@ class DeveloperOptionsRepository @Inject constructor(
     private val apiSettings: ApiSettingsRepository,
     private val homeAiSettings: HomeAiSettingsRepository,
 ) {
-    val homeAiFallbackTimeoutMs: Flow<Long> = apiSettings.homeAiFallbackTimeoutMs
+    val homeAiReachabilityTimeoutMs: Flow<Long> = apiSettings.homeAiReachabilityTimeoutMs
     val cloudApiTimeoutMs: Flow<Long> = apiSettings.cloudApiTimeoutMs
     val effectiveApiBaseUrl: Flow<String> = apiSettings.effectiveApiBaseUrl
 
-    suspend fun getHomeAiFallbackTimeoutMs(): Long = apiSettings.getHomeAiFallbackTimeoutMs()
+    suspend fun getHomeAiReachabilityTimeoutMs(): Long = apiSettings.getHomeAiReachabilityTimeoutMs()
+
+    suspend fun getHomeAiResponseTimeoutMs(): Long = apiSettings.getHomeAiResponseTimeoutMs()
+
+    suspend fun getHomeAiFallbackTimeoutMs(): Long = getHomeAiReachabilityTimeoutMs()
 
     suspend fun getCloudApiTimeoutMs(): Long = apiSettings.getCloudApiTimeoutMs()
 
@@ -25,10 +29,12 @@ class DeveloperOptionsRepository @Inject constructor(
 
     suspend fun shouldTryHomeAi(): Boolean {
         if (homeAiSettings.preferredBackend.first() != AiBackend.LOCAL_HOME) return false
-        return getHomeAiFallbackTimeoutMs() > 0L
+        return getHomeAiReachabilityTimeoutMs() > 0L
     }
 
-    suspend fun setHomeAiFallbackTimeoutMs(ms: Long) = apiSettings.setHomeAiFallbackTimeoutMs(ms)
+    suspend fun setHomeAiReachabilityTimeoutMs(ms: Long) = apiSettings.setHomeAiReachabilityTimeoutMs(ms)
+
+    suspend fun setHomeAiFallbackTimeoutMs(ms: Long) = setHomeAiReachabilityTimeoutMs(ms)
 
     suspend fun setCloudApiTimeoutMs(ms: Long) = apiSettings.setCloudApiTimeoutMs(ms)
 

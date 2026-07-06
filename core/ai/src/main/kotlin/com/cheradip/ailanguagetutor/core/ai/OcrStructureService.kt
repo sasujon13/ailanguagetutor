@@ -94,10 +94,9 @@ class OcrStructureService @Inject constructor(
         cacheKey: String,
     ): OcrStructureResult? {
         if (!developerOptions.shouldTryHomeAi()) return null
-        val homeTimeoutMs = developerOptions.getHomeAiFallbackTimeoutMs()
         return runCatching {
             guestAiUsageRepository.ensureGuestCanUseAi()
-            withTimeout(homeTimeoutMs) {
+            homeAiService.withHomeAi {
                 homeAiService.cleanOcr(
                     text = rawOcrText,
                     languageCode = languageCode,
@@ -115,7 +114,8 @@ class OcrStructureService @Inject constructor(
             onFailure = { e ->
                 if (e is GuestAiLimitReachedException) throw e
                 val reason = when (e) {
-                    is TimeoutCancellationException -> "home_ai_timeout"
+                    is HomeAiUnreachableException -> "home_ai_unreachable"
+                    is HomeAiResponseTimeoutException -> "home_ai_response_timeout"
                     else -> "home_ai_clean_ocr: ${e.message}"
                 }
                 aiProviderRepository.recordFallback(reason)

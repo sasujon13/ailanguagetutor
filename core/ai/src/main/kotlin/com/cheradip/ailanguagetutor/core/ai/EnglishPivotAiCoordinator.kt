@@ -84,9 +84,8 @@ class EnglishPivotAiCoordinator @Inject constructor(
         if (!developerOptions.shouldTryHomeAi()) return null
         val tier = checkAppAccess.subscriptionTier()
         val mode = aiModePrefs.resolvedMode(inputSource, tier)
-        val homeTimeoutMs = developerOptions.getHomeAiFallbackTimeoutMs()
         return runCatching {
-            withTimeout(homeTimeoutMs) {
+            homeAiService.withHomeAi {
                 homeAiService.translateParagraph(
                     paragraph = text,
                     sourceLang = LanguageCodeResolver.normalizePackCode(sourceLang),
@@ -102,7 +101,8 @@ class EnglishPivotAiCoordinator @Inject constructor(
             },
             onFailure = { e ->
                 val reason = when (e) {
-                    is TimeoutCancellationException -> "home_ai_pivot_timeout"
+                    is HomeAiUnreachableException -> "home_ai_pivot_unreachable"
+                    is HomeAiResponseTimeoutException -> "home_ai_pivot_response_timeout"
                     else -> "home_ai_pivot_error: ${e.message}"
                 }
                 aiProviderRepository.recordFallback(reason)

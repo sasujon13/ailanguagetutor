@@ -170,9 +170,8 @@ class GrammarBookRepository @Inject constructor(
         displayName: String,
     ): GrammarBook? {
         if (!developerOptions.shouldTryHomeAi()) return null
-        val homeTimeoutMs = developerOptions.getHomeAiFallbackTimeoutMs()
         return runCatching {
-            withTimeout(homeTimeoutMs) {
+            homeAiService.withHomeAi {
                 homeAiService.fetchGrammarBook(
                     languageCode = aiLang,
                     languageName = languageName,
@@ -227,9 +226,8 @@ class GrammarBookRepository @Inject constructor(
         tier: SubscriptionTier,
     ): HomeAiGrammarBookEnrichResponse? {
         if (!developerOptions.shouldTryHomeAi()) return null
-        val homeTimeoutMs = developerOptions.getHomeAiFallbackTimeoutMs()
         return runCatching {
-            withTimeout(homeTimeoutMs) {
+            homeAiService.withHomeAi {
                 val enBody = englishPivotAi.toEnglish(section.body, code, InputSource.TYPED)
                 val enHeading = englishPivotAi.toEnglish(section.heading, code, InputSource.TYPED)
                 homeAiService.enrichGrammarBookSection(
@@ -281,7 +279,8 @@ class GrammarBookRepository @Inject constructor(
     }
 
     private fun homeFailureReason(e: Throwable, prefix: String): String = when (e) {
-        is TimeoutCancellationException -> "${prefix}_home_timeout"
+        is HomeAiUnreachableException -> "${prefix}_home_unreachable"
+        is HomeAiResponseTimeoutException -> "${prefix}_home_response_timeout"
         else -> "${prefix}_home_error: ${e.message}"
     }
 

@@ -1,6 +1,5 @@
 package com.cheradip.ailanguagetutor.core.ai
 
-import com.cheradip.ailanguagetutor.core.common.AppConfig
 import com.cheradip.ailanguagetutor.core.device.DeviceFingerprintProvider
 import com.cheradip.ailanguagetutor.core.model.AiEngineMode
 import com.cheradip.ailanguagetutor.core.model.GrammarDepth
@@ -19,6 +18,8 @@ import com.cheradip.ailanguagetutor.core.network.HomeAiPrefetchRequest
 import com.cheradip.ailanguagetutor.core.network.HomeAiPrefetchResponse
 import com.cheradip.ailanguagetutor.core.network.HomeAiRequest
 import com.squareup.moshi.Moshi
+import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.withTimeout
 import okhttp3.OkHttpClient
 import retrofit2.Retrofit
 import retrofit2.converter.moshi.MoshiConverterFactory
@@ -29,61 +30,76 @@ import javax.inject.Singleton
 @Singleton
 class HomeAiService @Inject constructor(
     private val settings: HomeAiSettingsRepository,
-    private val appConfig: AppConfig,
+    private val developerOptions: DeveloperOptionsRepository,
     deviceFingerprint: DeviceFingerprintProvider,
     private val moshi: Moshi,
-    baseClient: OkHttpClient,
+    private val baseClient: OkHttpClient,
 ) {
     private val deviceId = deviceFingerprint.deviceId()
 
-    private val homeClient = baseClient.newBuilder()
-        .connectTimeout(appConfig.homeAiTimeoutMs, TimeUnit.MILLISECONDS)
-        .readTimeout(appConfig.homeAiTimeoutMs, TimeUnit.MILLISECONDS)
-        .callTimeout(appConfig.homeAiTimeoutMs, TimeUnit.MILLISECONDS)
-        .addInterceptor { chain ->
-            chain.proceed(
-                chain.request().newBuilder()
-                    .header("X-Device-Id", deviceId)
-                    .build(),
-            )
-        }
-        .build()
-
-    /** Grammar book generation can exceed the default Home AI timeout. */
-    private val grammarBookClient = baseClient.newBuilder()
-        .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(120, TimeUnit.SECONDS)
-        .callTimeout(120, TimeUnit.SECONDS)
-        .addInterceptor { chain ->
-            chain.proceed(
-                chain.request().newBuilder()
-                    .header("X-Device-Id", deviceId)
-                    .build(),
-            )
-        }
-        .build()
-
     private val retrofitBuilder = Retrofit.Builder()
-        .client(homeClient)
         .addConverterFactory(MoshiConverterFactory.create(moshi))
 
-    private suspend fun api(): HomeAiApi {
-        val base = settings.getBaseUrl()
-        return retrofitBuilder.baseUrl(base).build().create(HomeAiApi::class.java)
-    }
+    private fun clientWithTimeouts(timeoutMs: Long): OkHttpClient =
+        baseClient.newBuilder()
+            .connectTimeout(timeoutMs, TimeUnit.MILLISECONDS)
+            .readTimeout(timeoutMs, TimeUnit.MILLISECONDS)
+            .callTimeout(timeoutMs, TimeUnit.MILLISECONDS)
+            .addInterceptor { chain ->
+                chain.proceed(
+                    chain.request().newBuilder()
+                        .header("X-Device-Id", deviceId)
+                        .build(),
+                )
+            }
+            .build()
 
-    private suspend fun grammarBookApi(): HomeAiApi {
+    private suspend fun healthApi(): HomeAiApi {
+        val reachMs = developerOptions.getHomeAiReachabilityTimeoutMs()
         val base = settings.getBaseUrl()
-        return Retrofit.Builder()
-            .client(grammarBookClient)
+        return retrofitBuilder
+            .client(clientWithTimeouts(reachMs))
             .baseUrl(base)
-            .addConverterFactory(MoshiConverterFactory.create(moshi))
             .build()
             .create(HomeAiApi::class.java)
     }
 
+    private suspend fun api(): HomeAiApi {
+        val responseMs = developerOptions.getHomeAiResponseTimeoutMs()
+        val base = settings.getBaseUrl()
+        return retrofitBuilder
+            .client(clientWithTimeouts(responseMs))
+            .baseUrl(base)
+            .build()
+            .create(HomeAiApi::class.java)
+    }
+
+    /**
+     * Probes GET /health within the reachability budget, then runs [block] with up to 120s for inference.
+     */
+    suspend fun <T> withHomeAi(block: suspend () -> T): T {
+        val reachMs = developerOptions.getHomeAiReachabilityTimeoutMs()
+        val responseMs = developerOptions.getHomeAiResponseTimeoutMs()
+        val reachable = runCatching {
+            withTimeout(reachMs) {
+                healthApi().health().status == "ok"
+            }
+        }.getOrDefault(false)
+        if (!reachable) {
+            throw HomeAiUnreachableException()
+        }
+        return try {
+            withTimeout(responseMs) { block() }
+        } catch (e: TimeoutCancellationException) {
+            throw HomeAiResponseTimeoutException(responseMs, e)
+        }
+    }
+
     suspend fun isReachable(): Boolean = runCatching {
-        api().health().status == "ok"
+        val reachMs = developerOptions.getHomeAiReachabilityTimeoutMs()
+        withTimeout(reachMs) {
+            healthApi().health().status == "ok"
+        }
     }.getOrDefault(false)
 
     suspend fun fetchAdminStatus(): HomeAiAdminDashboard? =
@@ -242,7 +258,7 @@ class HomeAiService @Inject constructor(
             aiEngineMode = mode.id,
             subscriptionTier = tier.name.lowercase(),
         )
-        return grammarBookApi().grammarBook(body)
+        return api().grammarBook(body)
     }
 
     suspend fun enrichGrammarBookSection(
@@ -267,7 +283,7 @@ class HomeAiService @Inject constructor(
             aiEngineMode = mode.id,
             subscriptionTier = tier.name.lowercase(),
         )
-        return grammarBookApi().grammarBookEnrichSection(body)
+        return api().grammarBookEnrichSection(body)
     }
 
     suspend fun cleanOcr(

@@ -21,7 +21,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeout
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -33,7 +32,8 @@ data class ActivityMetadata(
 )
 
 /**
- * Batch-only AI. Primary: home PC (LOCAL_HOME). If response takes >= 30s → free cloud APIs.
+ * Batch-only AI. Primary: home PC (LOCAL_HOME). Probes /health (7s), then up to 120s for inference;
+ * on failure → free cloud APIs.
  */
 @Singleton
 class AIManager @Inject constructor(
@@ -138,11 +138,10 @@ class AIManager @Inject constructor(
         }
 
         val mode = aiModePrefs.resolvedMode(inputSource, tier)
-        val homeTimeoutMs = developerOptions.getHomeAiFallbackTimeoutMs()
         if (developerOptions.shouldTryHomeAi()) {
             guestAiUsageRepository.ensureGuestCanUseAi()
             runCatching {
-                withTimeout(homeTimeoutMs) {
+                homeAiService.withHomeAi {
                     homeAiService.ask(
                         text = enPrompt,
                         mode = mode,
@@ -159,11 +158,7 @@ class AIManager @Inject constructor(
                 aiCacheDao.put(AiCacheEntity(enKey, result, System.currentTimeMillis()))
                 return@withContext englishPivotAi.fromEnglish(result, targetLang, inputSource)
             }.onFailure { e ->
-                val reason = when (e) {
-                    is TimeoutCancellationException -> "home_ai_timeout_${homeTimeoutMs}ms"
-                    else -> "home_ai_error: ${e.message}"
-                }
-                aiProviderRepository.recordFallback(reason)
+                aiProviderRepository.recordFallback(homeAiFailureReason(e))
             }
         }
 
@@ -213,17 +208,19 @@ class AIManager @Inject constructor(
 
         if (developerOptions.shouldTryHomeAi()) {
             runCatching {
-                homeAiService.prefetchAi(
-                    targets = grammarTargets,
-                    sourceLang = sourceLang,
-                    targetLangs = targetLangs,
-                    depth = depth,
-                    mode = mode,
-                    tier = tier,
-                    inputSource = inputSource,
-                    explainChunk = explainChunk,
-                    translateChunk = translateChunk,
-                )?.let { response ->
+                homeAiService.withHomeAi {
+                    homeAiService.prefetchAi(
+                        targets = grammarTargets,
+                        sourceLang = sourceLang,
+                        targetLangs = targetLangs,
+                        depth = depth,
+                        mode = mode,
+                        tier = tier,
+                        inputSource = inputSource,
+                        explainChunk = explainChunk,
+                        translateChunk = translateChunk,
+                    )
+                }?.let { response ->
                     cacheGrammarResults(
                         response.grammar.results,
                         grammarTargets,
@@ -392,11 +389,10 @@ class AIManager @Inject constructor(
         val key = "batch:$sourceLang:$targetLang:${intent.name}:${mode.id}:${inputSource.name}:${paragraph.hashCode()}"
         aiCacheDao.get(key)?.responseJson?.let { return formatAiOutput(it) }
 
-        val homeTimeoutMs = developerOptions.getHomeAiFallbackTimeoutMs()
         if (developerOptions.shouldTryHomeAi()) {
             guestAiUsageRepository.ensureGuestCanUseAi()
             runCatching {
-                withTimeout(homeTimeoutMs) {
+                homeAiService.withHomeAi {
                     callHomeAi(paragraph, sourceLang, targetLang, inputSource, intent, mode, tier)
                 }
             }.onSuccess { result ->
@@ -410,11 +406,7 @@ class AIManager @Inject constructor(
                     return formatted
                 }
             }.onFailure { e ->
-                val reason = when (e) {
-                    is TimeoutCancellationException -> "home_ai_timeout_${homeTimeoutMs}ms"
-                    else -> "home_ai_error: ${e.message}"
-                }
-                aiProviderRepository.recordFallback(reason)
+                aiProviderRepository.recordFallback(homeAiFailureReason(e))
             }
         }
 
@@ -485,6 +477,12 @@ class AIManager @Inject constructor(
 
     private fun offlineSummary(paragraph: String) =
         "Offline summary: ${paragraph.take(160)}…"
+
+    private fun homeAiFailureReason(e: Throwable): String = when (e) {
+        is HomeAiUnreachableException -> "home_ai_unreachable"
+        is HomeAiResponseTimeoutException -> "home_ai_response_timeout_${e.timeoutMs}ms"
+        else -> "home_ai_error: ${e.message}"
+    }
 
     companion object {
         private const val MAX_AI_CACHE_ENTRIES = 200

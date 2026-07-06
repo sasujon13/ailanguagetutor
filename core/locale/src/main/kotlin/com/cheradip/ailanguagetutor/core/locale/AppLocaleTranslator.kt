@@ -1,6 +1,7 @@
 package com.cheradip.ailanguagetutor.core.locale
 
 import com.cheradip.ailanguagetutor.core.common.AppConfig
+import com.cheradip.ailanguagetutor.core.network.HomeAiBaseUrlNormalizer
 import com.squareup.moshi.Json
 import com.squareup.moshi.JsonClass
 import com.squareup.moshi.Moshi
@@ -39,15 +40,15 @@ class AppLocaleTranslator @Inject constructor(
     private val responseAdapter = moshi.adapter(TranslateStringsResponse::class.java)
 
     private val client = baseClient.newBuilder()
-        .connectTimeout(appConfig.homeAiTimeoutMs, TimeUnit.MILLISECONDS)
-        .readTimeout(appConfig.homeAiTimeoutMs, TimeUnit.MILLISECONDS)
+        .connectTimeout(appConfig.homeAiReachabilityTimeoutMs, TimeUnit.MILLISECONDS)
+        .readTimeout(appConfig.homeAiResponseTimeoutMs, TimeUnit.MILLISECONDS)
         .build()
 
     suspend fun translateUiStrings(targetLanguage: String): Map<String, String> = withContext(Dispatchers.IO) {
         if (targetLanguage.equals(AppStrings.DEFAULT_LANG, ignoreCase = true)) {
             return@withContext AppStrings.english
         }
-        val base = appConfig.homeAiBaseUrl.trimEnd('/') + "/"
+        val base = HomeAiBaseUrlNormalizer.normalize(appConfig.homeAiBaseUrl)
         val body = requestAdapter.toJson(
             TranslateStringsRequest(
                 targetLanguage = targetLanguage,

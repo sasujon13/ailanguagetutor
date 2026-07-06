@@ -20,12 +20,23 @@ def select_model(
     | Simple Q&A        | Mistral 7B   |
     | Medium reasoning  | Qwen 7B      |
     | Complex reasoning | Qwen 14B (Plus + mode 5 only) |
+    | Coding (Plus)     | DeepSeek Coder V2; Qwen2.5-Coder 14B when complex / mode 5 |
     """
     if intent == TaskIntent.TRANSLATION:
         return ModelSlot.NLLB
 
     if intent == TaskIntent.OCR_CLEANUP:
         return ModelSlot.MISTRAL_7B
+
+    if intent == TaskIntent.CODING:
+        if req.subscription_tier != SubscriptionTier.PLUS:
+            intent = TaskIntent.ANSWER
+        else:
+            mode = req.ai_engine_mode
+            bucket = complexity.bucket if complexity else "MEDIUM"
+            if mode == 5 or bucket == "HIGH":
+                return ModelSlot.QWEN_CODER_14B
+            return ModelSlot.DEEPSEEK_CODER
 
     # Answer / tutor — respect curated user mode first
     mode = req.ai_engine_mode
@@ -54,7 +65,22 @@ def select_model(
 
 
 def fallback_chain(primary: ModelSlot) -> list[ModelSlot]:
-    """Qwen 14B → Qwen 7B → Mistral 7B → Llama 8B."""
+    """Qwen 14B → Qwen 7B → Mistral 7B → Llama 8B; coder slots fall back to general LLMs."""
+    if primary == ModelSlot.QWEN_CODER_14B:
+        return [
+            ModelSlot.QWEN_CODER_14B,
+            ModelSlot.DEEPSEEK_CODER,
+            ModelSlot.QWEN_14B,
+            ModelSlot.QWEN_7B,
+            ModelSlot.MISTRAL_7B,
+        ]
+    if primary == ModelSlot.DEEPSEEK_CODER:
+        return [
+            ModelSlot.DEEPSEEK_CODER,
+            ModelSlot.QWEN_CODER_14B,
+            ModelSlot.QWEN_7B,
+            ModelSlot.MISTRAL_7B,
+        ]
     if primary == ModelSlot.QWEN_14B:
         return [ModelSlot.QWEN_14B, ModelSlot.QWEN_7B, ModelSlot.MISTRAL_7B, ModelSlot.LLAMA_8B]
     if primary == ModelSlot.QWEN_7B:

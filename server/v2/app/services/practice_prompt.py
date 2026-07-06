@@ -20,6 +20,19 @@ def _mixed_language_rules(source_lang: str, target: str, is_mixed: bool = False)
     )
 
 
+def build_coding_prompt(text: str) -> str:
+    trimmed = text.strip()
+    return (
+        "You are an expert software engineer and coding tutor.\n\n"
+        "Answer the programming question clearly and correctly.\n"
+        "- Prefer working code examples in fenced ``` blocks with the right language tag.\n"
+        "- Explain bugs, fixes, algorithms, and best practices step by step.\n"
+        "- Keep syntax accurate; if unsure, say what to verify.\n"
+        f"{_FORMAT_RULES}\n\n"
+        f"Question / code:\n{trimmed}"
+    )
+
+
 def build_answer_prompt(
     text: str,
     source_lang: str,

@@ -21,6 +21,8 @@ class ModelSlot(str, Enum):
     QWEN_14B = "qwen2.5-14b-int4"
     MISTRAL_7B = "mistral-7b-int4"
     LLAMA_8B = "llama3-8b-int4"
+    DEEPSEEK_CODER = "deepseek-coder-v2"
+    QWEN_CODER_14B = "qwen2.5-coder-14b"
     NLLB = "nllb-600m"
     WHISPER = "whisper-small"
     PIPER = "piper-en"

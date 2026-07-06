@@ -45,7 +45,7 @@ from app.services.inference_engine import InferenceEngine
 from app.services.model_loader import ModelLoader, ModelSlot
 from app.services.model_selector import select_model
 from app.services.mixed_language import analyze_mixed
-from app.services.practice_prompt import build_answer_prompt
+from app.services.practice_prompt import build_answer_prompt, build_coding_prompt
 from app.services.rate_limit import RateLimiter
 from app.services.task_classifier import TaskIntent, classify_intent
 
@@ -170,14 +170,17 @@ class ModeRouter:
         cx = complexity_score(req.text, ocr_noise, lang_count)
         slot = select_model(intent, req, cx)
 
-        targets = req.target_languages or [req.language_code]
-        profile = analyze_mixed(req.text, req.language_code, targets[0])
-        prompt = build_answer_prompt(
-            req.text,
-            req.language_code,
-            targets,
-            is_mixed=profile["is_mixed"],
-        )
+        if intent == TaskIntent.CODING and req.subscription_tier == SubscriptionTier.PLUS:
+            prompt = build_coding_prompt(req.text)
+        else:
+            targets = req.target_languages or [req.language_code]
+            profile = analyze_mixed(req.text, req.language_code, targets[0])
+            prompt = build_answer_prompt(
+                req.text,
+                req.language_code,
+                targets,
+                is_mixed=profile["is_mixed"],
+            )
         explanation, used = await self.inference.run_llm(slot, prompt, max_tokens=2048)
         simple = explanation[:200] + ("…" if len(explanation) > 200 else "")
         payload = {"explanation": explanation, "simple": simple, "model": used.value}

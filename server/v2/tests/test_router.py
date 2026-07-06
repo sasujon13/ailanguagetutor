@@ -4,7 +4,7 @@ from app.schemas import AiRequest, InputSource, ProcessingIntent, SubscriptionTi
 from app.services.complexity import complexity_score
 from app.services.model_loader import ModelSlot
 from app.services.model_selector import fallback_chain, select_model
-from app.services.task_classifier import TaskIntent, classify_intent
+from app.services.task_classifier import TaskIntent, classify_intent, is_coding_question
 
 
 def _req(**kwargs) -> AiRequest:
@@ -100,6 +100,57 @@ def test_pro_mode5_high_uses_7b_without_plus():
     cx = complexity_score(req.text, True, lang_count=2)
     assert cx.bucket == "HIGH"
     assert select_model(TaskIntent.ANSWER, req, cx) == ModelSlot.QWEN_7B
+
+
+def test_classify_coding_intent():
+    req = _req(
+        text="```python\ndef fib(n):\n    return n\n```\nWhy does this fail?",
+        subscription_tier=SubscriptionTier.PLUS,
+    )
+    assert classify_intent(req) == TaskIntent.CODING
+
+
+def test_classify_coding_keywords():
+    req = _req(
+        text="Debug this Kotlin function — the compile error says unresolved reference",
+        subscription_tier=SubscriptionTier.PLUS,
+    )
+    assert classify_intent(req) == TaskIntent.CODING
+
+
+def test_select_coding_plus_deepseek():
+    req = _req(
+        text="Fix this Python function: def add(a,b): return a+b",
+        subscription_tier=SubscriptionTier.PLUS,
+        ai_engine_mode=1,
+    )
+    cx = complexity_score(req.text, False)
+    assert select_model(TaskIntent.CODING, req, cx) == ModelSlot.DEEPSEEK_CODER
+
+
+def test_select_coding_plus_high_uses_qwen_coder():
+    req = _req(
+        text="Implement a binary search in Java with tests:\n" + "line\n" * 80,
+        subscription_tier=SubscriptionTier.PLUS,
+        ai_engine_mode=5,
+    )
+    cx = complexity_score(req.text, False)
+    assert select_model(TaskIntent.CODING, req, cx) == ModelSlot.QWEN_CODER_14B
+
+
+def test_select_coding_pro_uses_general_answer_models():
+    req = _req(
+        text="```js\nfunction foo() {}\n``` explain",
+        subscription_tier=SubscriptionTier.PRO,
+    )
+    cx = complexity_score(req.text, False)
+    assert select_model(TaskIntent.CODING, req, cx) == ModelSlot.MISTRAL_7B
+
+
+def test_fallback_chain_coder():
+    chain = fallback_chain(ModelSlot.DEEPSEEK_CODER)
+    assert chain[0] == ModelSlot.DEEPSEEK_CODER
+    assert ModelSlot.QWEN_CODER_14B in chain
 
 
 def test_fallback_chain_14b():

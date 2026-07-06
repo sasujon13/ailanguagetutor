@@ -18,6 +18,20 @@ _GENERIC_TUTOR = (
 )
 
 _QWEN_OLLAMA = "qwen2.5:7b-instruct-q4_K_M"
+_DEEPSEEK_CODER_OLLAMA = "deepseek-coder-v2:latest"
+_QWEN_CODER_14B_OLLAMA = "qwen2.5-coder:14b"
+
+
+def _resolve_ollama_model(preferred: str, available: list[str]) -> str:
+    if not available:
+        return preferred
+    if preferred in available:
+        return preferred
+    base = preferred.split(":")[0]
+    for name in available:
+        if name == preferred or name.startswith(f"{base}:") or base in name:
+            return name
+    return preferred
 
 
 class InferenceEngine:
@@ -105,10 +119,15 @@ class InferenceEngine:
                 ModelSlot.QWEN_14B: "qwen2.5:14b-instruct-q4_K_M",
                 ModelSlot.MISTRAL_7B: "mistral:7b-instruct-q4_K_M",
                 ModelSlot.LLAMA_8B: "llama3:8b-instruct-q4_K_M",
+                ModelSlot.DEEPSEEK_CODER: _DEEPSEEK_CODER_OLLAMA,
+                ModelSlot.QWEN_CODER_14B: _QWEN_CODER_14B_OLLAMA,
             }
+            available = self.loader.ollama_models
+            preferred = model_map.get(slot, _QWEN_OLLAMA)
+            ollama_model = _resolve_ollama_model(preferred, available)
             ollama = OllamaBackend(self.loader.settings.ollama_base_url)
             return await ollama.generate(
-                model_map.get(slot, _QWEN_OLLAMA),
+                ollama_model,
                 prompt,
                 max_tokens,
             )

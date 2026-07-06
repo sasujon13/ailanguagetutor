@@ -46,16 +46,23 @@ Downloads Qwen, Mistral, NLLB, Whisper → OpenVINO INT8/INT4 → verifies → s
 
 ## Scan enhancement ONNX
 
-```bash
+**Windows setup:** `.\scripts\setup_scan_models.ps1` (venv repair + download/export + tests)
+
+```powershell
+cd server\v2
 pip install -e ".[scan]"
-python scripts/download_scan_models.py          # u2net (~5 MB)
-python scripts/export_scan_onnx.py yolov8       # optional, needs ultralytics
-python scripts/export_scan_onnx.py realesrgan   # optional, needs torch+basicsr
+.\scripts\setup_scan_models.ps1
+# or step by step:
+python scripts/download_scan_models.py --only u2net
+python scripts/export_scan_onnx.py yolov8       # pip install ultralytics
+python scripts/export_scan_onnx.py realesrgan   # pip install torch only
 python scripts/validate_scan_levels.py photo.jpg --out reports/scan_validation
 python -m pytest tests/test_scan_levels_validation.py -v
 ```
 
 Weights live in `models/scan/` — see [models/scan/README.md](models/scan/README.md).
+
+`/health` includes `scan_models`: loaded ONNX ids (e.g. `u2net`, `yolov8`, `realesrgan`). Home AI runs on **Windows** behind Cloudflare (`ai.cheradip.com`), not on Linux.
 
 ## Scripts
 
@@ -67,6 +74,7 @@ Weights live in `models/scan/` — see [models/scan/README.md](models/scan/READM
 | `model_setup/convert_openvino.py` | Optimum export |
 | `model_setup/verify_models.py` | Health check |
 | `download_scan_models.py` | Scan ONNX weights (u2net) |
+| `setup_scan_models.ps1` | One-click scan ONNX setup (Windows) |
 | `export_scan_onnx.py` | Export yolov8 / realesrgan ONNX |
 | `validate_scan_levels.py` | Level 0/4/5/6/7 comparison report |
 

@@ -67,33 +67,41 @@ See `docs/DEV_LOCAL_SETUP.md` and `docs/ANDROID_STUDIO_SETUP.md`.
 
 **Dev SMTP** — port 1025 — `server/mail/` — OTP emails (local)
 
-**Home AI** — port 8787 — `server/v2/` — Curated AI modes, OCR clean, grammar, NLLB
+**Home AI** — port **8787** — `server/v2/` — Runs on **your Windows PC** (Intel Arc). Exposed via **Cloudflare** as `https://ai.cheradip.com`. Curated AI modes, OCR clean, grammar, NLLB, **scan enhance** (`/scan-analyze`, `/scan-enhance`).
 
-**App API** — port 8790 — `server/ailt_api/` — Login, billing, packs, cloud LLM pool, admin reports
+**App API** — port **8790** — `bcheradip/ailt_api/` (not in this repo) — Login, billing, packs, cloud LLM pool, admin reports. Exposed as `https://cheradip.com/ailt/api/`.
 
-Production: Cloudflare tunnel exposes both APIs.
+Production: **Cloudflare tunnel** on your Windows PC exposes Home AI and App API (no Linux server required for inference).
 
-### Start locally
+### Start locally (Windows)
 
 ```powershell
 # SMTP (optional — auth OTP testing)
 cd server\mail
 .\run-dev-smtp.ps1
 
-# Home AI
+# Home AI (Windows — same machine as tunnel)
 cd server\v2
 .\scripts\run-dev.ps1
 
-# App API
-cd server\ailt_api
-.\scripts\init-db.ps1   # first time
+# App API (bcheradip repo)
+cd D:\VSCode\cheradip\bcheradip\ailt_api
 .\scripts\run-dev.ps1
 
 # Tunnel (optional)
 cloudflared tunnel run cheradip-ailt
 ```
 
-Verify: `.\scripts\verify-stack.ps1`
+Verify: `.\scripts\verify-stack.ps1` · `curl.exe https://ai.cheradip.com/health` (check `scan_models`)
+
+### Scan ONNX on Home AI (Windows)
+
+```powershell
+cd server\v2
+.\scripts\setup_scan_models.ps1
+```
+
+Models in `server/v2/models/scan/` — **u2net** (required), **yolov8** + **realesrgan** (optional ONNX). Dewarp at L5+ is OpenCV only. Health: `scan_models` array on `/health`.
 
 ---
 
@@ -160,21 +168,32 @@ ReaderScreen (tap word)
 
 ```
 ScannerScreen / ScannerViewModel
-  → MlKitDocumentScannerHelper (optional auto-capture)
-  → ScanEditEngine (crop, perspective, clean, gray, transition)
-  → DocumentFilterPresets (~40 named presets)
-  → CustomFilterSlot (Custom1/Custom2 saved in state JSON)
-  → ScanExportService (PDF / images / watermark)
+  → MlKitDocumentScannerHelper (multi-page ML Kit capture)
+  → LiveScanCaptureScreen + LiveScanAnalyzer (CameraX live boundary overlay)
+  → LiveScanBoundaryDetector + DocumentBoundaryOverlay (flat vs curved)
+  → ScanEnhancePipeline / ScanEnhanceStandards (levels 0–7)
+  → ScanEnhanceService + ScanEnhanceAnalyzeService
+      Clean → offline OpenCV on device
+      AI Clean → POST https://ai.cheradip.com/scan-enhance (Pro + online)
+      analyze → POST /scan-analyze (recommendation)
+  → ScanExportService (PDF / images / profiles)
+  → prepareForOcr() bakes enhanced bitmap before OCR
   → OcrProcessingViewModel
 ```
 
+Legacy crop/clean editor (`ScanEditEngine`, 40+ presets) remains in `core/image` for advanced edit state; primary user flow is **enhance review** after capture.
+
 Key files:
 
-- `feature/scanner/ScannerEditorUi.kt` — toolbar, crop handles, clean panel
-- `feature/scanner/ScannerViewModel.kt` — state, presets, edge detect
-- `core/image/ScanEditEngine.kt`
-- `core/image/DocumentFilterPresets.kt`
-- `core/image/ScanEditStateJson.kt`
+- `feature/scanner/ScannerScreen.kt` — ML Kit vs Live scan entry
+- `feature/scanner/LiveScanCaptureScreen.kt` — CameraX + boundary overlay
+- `feature/scanner/ScannerEditorUi.kt` — Clean | AI Clean, level selector, compare
+- `feature/scanner/ScannerViewModel.kt` — enhance state, boundary refresh
+- `core/image/ScanEnhancePipeline.kt` — offline Clean levels
+- `core/ai/ScanEnhanceService.kt` — Home AI enhance client
+- `server/v2/app/routers/scan_enhance.py` — `/scan-analyze`, `/scan-enhance`
+
+Web user manual: `docs/manuals/USER_MANUAL.md` → build with `bcheradip/ailt/scripts/build-manual.ps1` → [https://cheradip.com/ailt](https://cheradip.com/ailt)
 
 ---
 
@@ -387,4 +406,4 @@ Notable: `AiResponseFormatterTest.kt` — broken LaTeX + mixed-language detectio
 
 ---
 
-*Cheradip AI Language Tutor · Developer Guide · v2.1.0*
+*Cheradip AI Language Tutor · Developer Guide · v2.2.0*

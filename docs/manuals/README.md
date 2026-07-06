@@ -8,7 +8,7 @@ These markdown files are bundled in the Android app (`feature/help/src/main/asse
 | [ADMIN_MANUAL.md](ADMIN_MANUAL.md) | Administrators | Admin login only |
 | [DEVELOPER_MANUAL.md](DEVELOPER_MANUAL.md) | Developers | Admin login only |
 
-**Version:** v2.1.0 (updated for scanner editor, Practice hub, multilingual AI, auth/email, Admin Reports)
+**Version:** v2.2.0 (scan enhance levels 0–7, Live scan boundary, AI Clean, Home AI scan ONNX)
 
 When editing a manual, update **both** this folder and `feature/help/src/main/assets/manuals/`.
 

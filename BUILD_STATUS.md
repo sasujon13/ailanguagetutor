@@ -81,6 +81,20 @@ Pull scripts: `server/v2/scripts/pull-ollama-models.ps1`, `pull-nllb-model.ps1`
 
 **Cache:** L3 SQLite at `server/v2/data/ai_cache.db` (gitignored). Clear with `server/v2/scripts/clear-cache.ps1`.
 
+## Scan enhance (levels 0–7)
+
+| Item | Status |
+|------|--------|
+| Android Clean / AI Clean UI | ✅ Levels 0–7, L1/L7 compare, recommendation |
+| Live scan boundary (CameraX) | ✅ `LiveScanCaptureScreen` |
+| Home AI `/scan-analyze`, `/scan-enhance` | ✅ `server/v2/` on **Windows** + Cloudflare |
+| ONNX models | ✅ u2net, yolov8, realesrgan via `setup_scan_models.ps1` |
+| Dewarp L5+ | ✅ OpenCV (no DewarpNet) |
+
+Setup: `server/v2/scripts/setup_scan_models.ps1` · Health: `scan_models` on `https://ai.cheradip.com/health`
+
+Web manual: [cheradip.com/ailt](https://cheradip.com/ailt) — rebuild `bcheradip/ailt/scripts/build-manual.ps1`
+
 ## Verify stack
 
 ```powershell

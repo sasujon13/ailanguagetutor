@@ -25,6 +25,7 @@ dependencies {
     implementation(project(":core:pack"))
     implementation(project(":core:translation"))
     implementation(project(":core:ocr"))
+    implementation(project(":core:image"))
     implementation(libs.androidx.core.ktx)
     implementation(libs.datastore.preferences)
     implementation(libs.hilt.android)

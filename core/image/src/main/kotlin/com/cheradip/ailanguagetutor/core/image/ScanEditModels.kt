@@ -220,6 +220,8 @@ data class PageEditState(
     val draftGray: GrayParams = GrayParams(),
     val draftFilterSelection: CleanFilterSelection = CleanFilterSelection(),
     val customFilterSlots: List<SavedCustomFilterSlot> = emptyList(),
+    val enhanceModeName: String? = null,
+    val enhanceExportLevel: Int? = null,
 ) {
     fun appliedStages(): List<EditStage> = buildList {
         if (appliedCrop != null) add(EditStage.CROP)

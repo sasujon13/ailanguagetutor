@@ -24,6 +24,7 @@ dependencies {
     implementation(project(":core:database"))
     implementation(project(":core:device"))
     implementation(project(":core:pack"))
+    implementation(project(":core:ai"))
     implementation(project(":core:model"))
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.ui)

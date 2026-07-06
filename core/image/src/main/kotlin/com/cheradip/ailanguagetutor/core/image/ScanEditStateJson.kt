@@ -206,6 +206,8 @@ fun PageEditState.toJson(): String = JSONObject().apply {
     }
     put("historyIndex", historyIndex)
     put("history", JSONArray().apply { history.forEach { put(it.toJson()) } })
+    enhanceModeName?.let { put("enhanceMode", it) }
+    enhanceExportLevel?.let { put("enhanceExportLevel", it) }
 }.toString()
 
 fun parsePageEditStateJson(pageId: Long, json: String?, originalPath: String, workingPath: String): PageEditState {
@@ -230,6 +232,8 @@ fun parsePageEditStateJson(pageId: Long, json: String?, originalPath: String, wo
                     arr.optJSONObject(i)?.let { editHistoryFromJson(it) }
                 }
             } ?: emptyList(),
+            enhanceModeName = obj.optString("enhanceMode").takeIf { it.isNotBlank() },
+            enhanceExportLevel = if (obj.has("enhanceExportLevel")) obj.optInt("enhanceExportLevel") else null,
         )
     }.getOrElse {
         PageEditState(pageId = pageId, originalPath = originalPath, workingPath = workingPath)

@@ -20,7 +20,12 @@ import com.cheradip.ailanguagetutor.core.network.HomeAiRequest
 import com.squareup.moshi.Moshi
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.withTimeout
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.MultipartBody
+import okhttp3.RequestBody.Companion.asRequestBody
+import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.OkHttpClient
+import java.io.File
 import retrofit2.Retrofit
 import retrofit2.converter.moshi.MoshiConverterFactory
 import java.util.concurrent.TimeUnit
@@ -301,6 +306,28 @@ class HomeAiService @Inject constructor(
             targets = emptyList(),
         )
         return api().cleanOcr(body).cleanedText
+    }
+
+    suspend fun scanEnhanceToFile(
+        imagePath: String,
+        level: Int,
+        outFile: File,
+        premium: Boolean = true,
+        documentClass: String? = null,
+    ): String = withHomeAi {
+        val imageFile = File(imagePath)
+        val imagePart = MultipartBody.Part.createFormData(
+            "image",
+            imageFile.name,
+            imageFile.asRequestBody("image/jpeg".toMediaType()),
+        )
+        val levelPart = level.coerceIn(0, 7).toString().toRequestBody("text/plain".toMediaType())
+        val premiumPart = premium.toString().toRequestBody("text/plain".toMediaType())
+        val docClassPart = (documentClass ?: "").toRequestBody("text/plain".toMediaType())
+        api().scanEnhance(imagePart, levelPart, premiumPart, docClassPart).use { body ->
+            outFile.outputStream().use { out -> body.byteStream().copyTo(out) }
+        }
+        outFile.absolutePath
     }
 
     private fun buildRequest(

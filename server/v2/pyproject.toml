@@ -15,6 +15,12 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0", "pytest-asyncio>=0.24", "ruff>=0.8"]
+scan = [
+    "opencv-python-headless>=4.10.0",
+    "numpy>=1.26.0",
+    "onnxruntime>=1.19.0",
+    "pyzbar>=0.1.9; platform_system != 'Windows'",
+]
 openvino = [
     "openvino>=2024.4.0",
     "optimum[openvino]>=1.20.0",

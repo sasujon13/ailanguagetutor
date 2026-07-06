@@ -17,7 +17,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -59,7 +58,10 @@ import com.cheradip.ailanguagetutor.core.image.ExportOptions
 import com.cheradip.ailanguagetutor.core.image.ExportOrientation
 import com.cheradip.ailanguagetutor.core.image.ExportPageSize
 import com.cheradip.ailanguagetutor.core.image.ExportQuality
+import com.cheradip.ailanguagetutor.core.image.ScanEnhanceMode
+import com.cheradip.ailanguagetutor.core.image.ScanExportProfile
 import com.cheradip.ailanguagetutor.core.image.WatermarkMode
+import com.cheradip.ailanguagetutor.ui.theme.CheradipTeal
 import java.io.File
 
 @Composable
@@ -249,6 +251,8 @@ fun ScannerReadOnlyPreview(
 @Composable
 fun ScanExportOptionsPanel(
     options: ExportOptions,
+    exportProfile: ScanExportProfile,
+    onProfileSelected: (ScanExportProfile) -> Unit,
     onUpdate: ((ExportOptions) -> ExportOptions) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -261,6 +265,12 @@ fun ScanExportOptionsPanel(
             onValueChange = { name -> onUpdate { it.copy(documentName = name) } },
             label = { Text("Document name (optional)") },
             modifier = Modifier.fillMaxWidth(),
+        )
+        EnumChips(
+            "Export profile",
+            ScanExportProfile.entries,
+            exportProfile,
+            onProfileSelected,
         )
         Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
             EnumChips("Format", ExportFormat.entries, options.format) { f -> onUpdate { it.copy(format = f) } }
@@ -350,7 +360,12 @@ fun ScanExportDialog(
                         contentScale = ContentScale.Fit,
                     )
                 }
-                ScanExportOptionsPanel(options = options, onUpdate = onUpdate)
+                ScanExportOptionsPanel(
+                    options = options,
+                    exportProfile = ScanExportProfile.DOCUMENT,
+                    onProfileSelected = {},
+                    onUpdate = onUpdate,
+                )
             }
         },
         confirmButton = {
@@ -483,4 +498,290 @@ fun ScanExportPreviewDialog(
         },
         confirmButton = { Button(onClick = onDismiss) { Text("Done") } },
     )
+}
+
+@Composable
+fun ScanEnhanceRecommendationBar(
+    recommendationLabel: String?,
+    onApplyRecommended: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    if (recommendationLabel.isNullOrBlank()) return
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = recommendationLabel,
+            style = MaterialTheme.typography.bodySmall,
+            modifier = Modifier.weight(1f),
+        )
+        TextButton(onClick = onApplyRecommended) {
+            Text("Apply")
+        }
+    }
+}
+
+@Composable
+fun ScanEnhanceModeToggle(
+    selectedMode: ScanEnhanceMode,
+    onModeSelected: (ScanEnhanceMode) -> Unit,
+    aiCleanEnabled: Boolean = true,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        ScanEnhanceModeChip(
+            label = "Clean",
+            selected = selectedMode == ScanEnhanceMode.CLEAN,
+            onClick = { onModeSelected(ScanEnhanceMode.CLEAN) },
+            modifier = Modifier.weight(1f),
+        )
+        ScanEnhanceModeChip(
+            label = "AI Clean",
+            selected = selectedMode == ScanEnhanceMode.AI_CLEAN,
+            onClick = { if (aiCleanEnabled) onModeSelected(ScanEnhanceMode.AI_CLEAN) },
+            enabled = aiCleanEnabled,
+            modifier = Modifier.weight(1f),
+        )
+    }
+}
+
+@Composable
+private fun ScanEnhanceModeChip(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    enabled: Boolean = true,
+    modifier: Modifier = Modifier,
+) {
+    val borderColor = if (selected) CheradipTeal else MaterialTheme.colorScheme.outlineVariant
+    val containerColor = if (selected) {
+        CheradipTeal.copy(alpha = 0.12f)
+    } else {
+        MaterialTheme.colorScheme.surface
+    }
+    val contentColor = if (enabled) {
+        if (selected) CheradipTeal else MaterialTheme.colorScheme.onSurface
+    } else {
+        MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+    }
+    Box(
+        modifier = modifier
+            .height(44.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .border(1.5.dp, borderColor, RoundedCornerShape(8.dp))
+            .background(containerColor)
+            .clickable(enabled = enabled, onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.titleSmall,
+            color = contentColor,
+        )
+    }
+}
+
+@Composable
+fun ScanEnhanceLevelSelector(
+    selectedLevel: Int,
+    onLevelSelected: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        (0..7).forEach { level ->
+            ScanEnhanceLevelCircle(
+                level = level,
+                selected = selectedLevel == level,
+                onClick = { onLevelSelected(level) },
+            )
+        }
+    }
+}
+
+@Composable
+private fun ScanEnhanceLevelCircle(
+    level: Int,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier.clickable(onClick = onClick),
+    ) {
+        Box(
+            modifier = Modifier
+                .size(28.dp)
+                .clip(CircleShape)
+                .border(
+                    width = 2.dp,
+                    color = if (selected) CheradipTeal else MaterialTheme.colorScheme.outlineVariant,
+                    shape = CircleShape,
+                ),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (selected) {
+                Box(
+                    modifier = Modifier
+                        .size(14.dp)
+                        .clip(CircleShape)
+                        .background(CheradipTeal),
+                )
+            }
+        }
+        Text(
+            text = level.toString(),
+            style = MaterialTheme.typography.labelSmall,
+            color = if (selected) CheradipTeal else MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = 4.dp),
+        )
+    }
+}
+
+@Composable
+fun ScanEnhancePreviewSection(
+    showCompare: Boolean,
+    compareLevel1Path: String?,
+    compareLevel7Path: String?,
+    singlePreviewPath: String?,
+    selectedExportLevel: Int,
+    cacheKey: String,
+    isLoading: Boolean,
+    onSelectCompareLevel: (Int) -> Unit,
+    onDeletePage: () -> Unit,
+    onRescanPage: (() -> Unit)? = null,
+    rescanEnabled: Boolean = true,
+    modifier: Modifier = Modifier,
+) {
+    Column(modifier = modifier.fillMaxWidth()) {
+        if (showCompare) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(200.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                ComparePreviewPane(
+                    imagePath = compareLevel1Path,
+                    label = "1",
+                    selected = false,
+                    onClick = { onSelectCompareLevel(1) },
+                    modifier = Modifier.weight(1f),
+                )
+                ComparePreviewPane(
+                    imagePath = compareLevel7Path,
+                    label = "7",
+                    selected = false,
+                    onClick = { onSelectCompareLevel(7) },
+                    modifier = Modifier.weight(1f),
+                )
+            }
+        } else {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(280.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(MaterialTheme.colorScheme.surfaceVariant),
+                contentAlignment = Alignment.Center,
+            ) {
+                val path = singlePreviewPath
+                if (path != null) {
+                    val context = LocalContext.current
+                    val model = remember(path, cacheKey) {
+                        ImageRequest.Builder(context)
+                            .data(File(path))
+                            .memoryCacheKey(cacheKey)
+                            .diskCacheKey(cacheKey)
+                            .build()
+                    }
+                    AsyncImage(
+                        model = model,
+                        contentDescription = "Enhancement level $selectedExportLevel preview",
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Fit,
+                    )
+                }
+            }
+        }
+        if (isLoading) {
+            CircularProgressIndicator(
+                modifier = Modifier
+                    .padding(top = 8.dp)
+                    .size(28.dp)
+                    .align(Alignment.CenterHorizontally),
+            )
+        }
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 4.dp),
+            horizontalArrangement = Arrangement.End,
+        ) {
+            if (onRescanPage != null) {
+                TextButton(onClick = onRescanPage, enabled = rescanEnabled) {
+                    Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Text("Rescan", modifier = Modifier.padding(start = 4.dp))
+                }
+            }
+            TextButton(onClick = onDeletePage) {
+                Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(18.dp))
+                Text("Delete", modifier = Modifier.padding(start = 4.dp))
+            }
+        }
+    }
+}
+
+@Composable
+private fun ComparePreviewPane(
+    imagePath: String?,
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val borderColor = if (selected) CheradipTeal else MaterialTheme.colorScheme.outlineVariant
+    val borderWidth = if (selected) 2.5.dp else 1.dp
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .clip(RoundedCornerShape(8.dp))
+            .border(borderWidth, borderColor, RoundedCornerShape(8.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .clickable(onClick = onClick),
+    ) {
+        if (imagePath != null) {
+            AsyncImage(
+                model = File(imagePath),
+                contentDescription = "Clean level $label preview",
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Fit,
+            )
+        }
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .padding(8.dp)
+                .background(
+                    MaterialTheme.colorScheme.surface.copy(alpha = 0.85f),
+                    RoundedCornerShape(4.dp),
+                )
+                .padding(horizontal = 6.dp, vertical = 2.dp),
+        )
+    }
 }

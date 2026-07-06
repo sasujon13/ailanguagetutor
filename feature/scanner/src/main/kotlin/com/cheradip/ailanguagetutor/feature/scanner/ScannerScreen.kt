@@ -268,15 +268,6 @@ fun ScannerScreen(
                 .verticalScroll(rememberScrollState()),
         ) {
             if (showScanOnlyStage) {
-                ScannerReadOnlyPreview(
-                    imagePath = previewPath,
-                    cacheKey = "scan-preview-${uiState.selectedPageId}-${uiState.previewRevision}",
-                    isLoading = uiState.isProcessingPreview,
-                    onDeletePage = viewModel::deleteSelectedPage,
-                    onRescanPage = { launchMlKitScan(true) },
-                    rescanEnabled = uiState.selectedPageId != null && !uiState.isSaving,
-                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                )
                 ScannerPageThumbnailStrip(
                     pages = uiState.pages,
                     selectedPageId = uiState.selectedPageId,
@@ -290,8 +281,40 @@ fun ScannerScreen(
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                     style = MaterialTheme.typography.bodySmall,
                 )
+                ScanEnhanceRecommendationBar(
+                    recommendationLabel = uiState.enhanceRecommendationLabel,
+                    onApplyRecommended = viewModel::applyRecommendedEnhance,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                )
+                ScanEnhanceModeToggle(
+                    selectedMode = uiState.enhanceMode,
+                    onModeSelected = viewModel::setEnhanceMode,
+                    aiCleanEnabled = uiState.isPremiumUser,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                )
+                ScanEnhancePreviewSection(
+                    showCompare = uiState.showLevelCompare,
+                    compareLevel1Path = uiState.compareLevel1Path,
+                    compareLevel7Path = uiState.compareLevel7Path,
+                    singlePreviewPath = uiState.enhancePreviewPath,
+                    selectedExportLevel = uiState.selectedExportLevel,
+                    cacheKey = "enhance-${uiState.selectedPageId}-${uiState.enhanceMode}-${uiState.selectedExportLevel}-${uiState.enhancePreviewRevision}",
+                    isLoading = uiState.isEnhancePreviewLoading,
+                    onSelectCompareLevel = viewModel::selectCompareLevel,
+                    onDeletePage = viewModel::deleteSelectedPage,
+                    onRescanPage = { launchMlKitScan(true) },
+                    rescanEnabled = uiState.selectedPageId != null && !uiState.isSaving,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                )
+                ScanEnhanceLevelSelector(
+                    selectedLevel = uiState.selectedExportLevel,
+                    onLevelSelected = viewModel::setEnhanceLevel,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                )
                 ScanExportOptionsPanel(
                     options = uiState.exportOptions,
+                    exportProfile = uiState.exportProfile,
+                    onProfileSelected = viewModel::setExportProfile,
                     onUpdate = viewModel::updateExportOptions,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                 )
@@ -308,13 +331,6 @@ fun ScannerScreen(
                     Text("Save")
                 }
             } else if (showLearningReview) {
-                ScannerReadOnlyPreview(
-                    imagePath = previewPath,
-                    cacheKey = "scan-preview-${uiState.selectedPageId}-${uiState.previewRevision}",
-                    isLoading = uiState.isProcessingPreview,
-                    onDeletePage = viewModel::deleteSelectedPage,
-                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                )
                 ScannerPageThumbnailStrip(
                     pages = uiState.pages,
                     selectedPageId = uiState.selectedPageId,
@@ -324,9 +340,39 @@ fun ScannerScreen(
                     addPageEnabled = canAddMorePages,
                 )
                 Text(
-                    text = "${uiState.pageCount} page(s) · tap a thumbnail to switch · + to add more",
+                    text = "${uiState.pageCount} page(s) · enhance before Process & Read",
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                     style = MaterialTheme.typography.bodySmall,
+                )
+                ScanEnhanceRecommendationBar(
+                    recommendationLabel = uiState.enhanceRecommendationLabel,
+                    onApplyRecommended = viewModel::applyRecommendedEnhance,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                )
+                ScanEnhanceModeToggle(
+                    selectedMode = uiState.enhanceMode,
+                    onModeSelected = viewModel::setEnhanceMode,
+                    aiCleanEnabled = uiState.isPremiumUser,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                )
+                ScanEnhancePreviewSection(
+                    showCompare = uiState.showLevelCompare,
+                    compareLevel1Path = uiState.compareLevel1Path,
+                    compareLevel7Path = uiState.compareLevel7Path,
+                    singlePreviewPath = uiState.enhancePreviewPath,
+                    selectedExportLevel = uiState.selectedExportLevel,
+                    cacheKey = "enhance-${uiState.selectedPageId}-${uiState.enhanceMode}-${uiState.selectedExportLevel}-${uiState.enhancePreviewRevision}",
+                    isLoading = uiState.isEnhancePreviewLoading,
+                    onSelectCompareLevel = viewModel::selectCompareLevel,
+                    onDeletePage = viewModel::deleteSelectedPage,
+                    onRescanPage = { launchMlKitScan(true) },
+                    rescanEnabled = uiState.selectedPageId != null && !uiState.isSaving,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                )
+                ScanEnhanceLevelSelector(
+                    selectedLevel = uiState.selectedExportLevel,
+                    onLevelSelected = viewModel::setEnhanceLevel,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                 )
                 Button(
                     onClick = {

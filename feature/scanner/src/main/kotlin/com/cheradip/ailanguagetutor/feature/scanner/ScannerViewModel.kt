@@ -2,6 +2,7 @@ package com.cheradip.ailanguagetutor.feature.scanner
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.cheradip.ailanguagetutor.core.ai.ScanEnhanceService
 import com.cheradip.ailanguagetutor.core.database.repository.DocumentRepository
 import com.cheradip.ailanguagetutor.core.device.ScanWorkflowRepository
 import com.cheradip.ailanguagetutor.core.device.ScanWorkflowSession
@@ -20,6 +21,14 @@ import com.cheradip.ailanguagetutor.core.image.DocumentFilterPresets
 import com.cheradip.ailanguagetutor.core.image.EditStage
 import com.cheradip.ailanguagetutor.core.image.ExportConflictResolution
 import com.cheradip.ailanguagetutor.core.image.ExportOptions
+import com.cheradip.ailanguagetutor.core.image.ScanExportProfile
+import com.cheradip.ailanguagetutor.core.image.ScanEnhanceRecommender
+import com.cheradip.ailanguagetutor.core.image.ScanDocumentAnalyzer
+import com.cheradip.ailanguagetutor.core.image.withEnhanceChoice
+import com.cheradip.ailanguagetutor.core.image.enhanceChoice
+import com.cheradip.ailanguagetutor.core.image.PageEnhanceChoice
+import com.cheradip.ailanguagetutor.core.image.withProfile
+import com.cheradip.ailanguagetutor.core.image.ScanEnhanceMode
 import com.cheradip.ailanguagetutor.core.image.GrayParams
 import com.cheradip.ailanguagetutor.core.image.PageEditState
 import com.cheradip.ailanguagetutor.core.image.QuadPoints
@@ -121,6 +130,18 @@ data class ScannerUiState(
     val isDocumentReady: Boolean = false,
     /** Scan-only: true after ML Kit Next — show export UI instead of forcing capture. */
     val scanInReview: Boolean = false,
+    val enhanceMode: ScanEnhanceMode = ScanEnhanceMode.CLEAN,
+    val selectedExportLevel: Int = 0,
+    /** Default true on thumbnail select — side-by-side L1/L7 until user picks a level. */
+    val showLevelCompare: Boolean = true,
+    val compareLevel1Path: String? = null,
+    val compareLevel7Path: String? = null,
+    val enhancePreviewPath: String? = null,
+    val enhancePreviewRevision: Long = 0L,
+    val isEnhancePreviewLoading: Boolean = false,
+    val enhanceRecommendationLabel: String? = null,
+    val isPremiumUser: Boolean = true,
+    val exportProfile: ScanExportProfile = ScanExportProfile.DOCUMENT,
 )
 
 @HiltViewModel
@@ -131,13 +152,16 @@ class ScannerViewModel @Inject constructor(
     private val scanEditEngine: ScanEditEngine,
     private val scanExportService: ScanExportService,
     private val scanWorkflowRepository: ScanWorkflowRepository,
+    private val scanEnhanceService: ScanEnhanceService,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(ScannerUiState())
     val uiState: StateFlow<ScannerUiState> = _uiState.asStateFlow()
 
     private val editStates = mutableMapOf<Long, PageEditState>()
+    private val enhanceChoices = mutableMapOf<Long, PageEnhanceChoice>()
     private var previewJob: Job? = null
+    private var enhancePreviewJob: Job? = null
     private var previewGeneration = 0L
     private val captureMutex = Mutex()
     private var documentSourceType: String = "scan"
@@ -178,6 +202,10 @@ class ScannerViewModel @Inject constructor(
                 persistWorkflow(stage = ScanWorkflowStage.SCANNER)
             }
             _uiState.update { it.copy(isDocumentReady = true) }
+            viewModelScope.launch {
+                val premium = scanEnhanceService.isPremium()
+                _uiState.update { it.copy(isPremiumUser = premium) }
+            }
         }
     }
 
@@ -185,12 +213,42 @@ class ScannerViewModel @Inject constructor(
     fun onScanCaptureFinished() {
         if (!scanOnly || _uiState.value.pages.isEmpty()) return
         _uiState.update { it.copy(scanInReview = true) }
+        _uiState.value.selectedPageId?.let { applyEnhancePreviewForPage(it) }
         persistWorkflow()
     }
 
     fun prepareForOcr() {
         viewModelScope.launch {
-            persistWorkflow(stage = ScanWorkflowStage.OCR)
+            _uiState.update { it.copy(isSaving = true, error = null) }
+            runCatching {
+                val pages = _uiState.value.pages
+                if (pages.isNotEmpty()) {
+                    val paths = resolvedExportPaths()
+                    pages.forEachIndexed { index, page ->
+                        val enhancedPath = paths.getOrNull(index) ?: page.originalPath
+                        if (enhancedPath != page.imagePath) {
+                            documentRepository.updatePageImage(
+                                pageId = page.id,
+                                imagePath = enhancedPath,
+                                width = page.width,
+                                height = page.height,
+                                editStateJson = editStates[page.id]?.toJson(),
+                            )
+                        }
+                    }
+                    _uiState.update { ui ->
+                        ui.copy(
+                            pages = ui.pages.mapIndexed { index, page ->
+                                paths.getOrNull(index)?.let { page.copy(imagePath = it) } ?: page
+                            },
+                        )
+                    }
+                }
+                persistWorkflow(stage = ScanWorkflowStage.OCR)
+            }.onFailure { e ->
+                _uiState.update { it.copy(error = e.message) }
+            }
+            _uiState.update { it.copy(isSaving = false) }
         }
     }
 
@@ -259,6 +317,7 @@ class ScannerViewModel @Inject constructor(
                 originalPath = original,
                 workingPath = page.imagePath,
             )
+            enhanceChoices[page.id] = editStates[page.id]?.enhanceChoice() ?: PageEnhanceChoice()
             ScannerPageItem(page.id, page.imagePath, original, page.pageIndex, page.width, page.height)
         }
         _uiState.update {
@@ -272,6 +331,7 @@ class ScannerViewModel @Inject constructor(
         items.lastOrNull()?.id?.let { pageId ->
             syncDraftFromState(pageId)
             refreshPreview(pageId)
+            applyEnhancePreviewForPage(pageId)
         }
         restoreCustomFiltersFromEditStates()
         persistWorkflow(stage = ScanWorkflowStage.SCANNER)
@@ -292,9 +352,11 @@ class ScannerViewModel @Inject constructor(
                 _uiState.update { it.copy(isSaving = true, error = null) }
                 runCatching {
                     bytesList.forEach { bytes -> addCapturedPage(bytes, batchMode = true) }
-                    _uiState.value.pages.lastOrNull()?.id?.let { refreshPreview(it) }
+                    val lastId = _uiState.value.pages.lastOrNull()?.id
+                    lastId?.let { refreshPreview(it) }
                     if (scanOnly) {
                         _uiState.update { it.copy(scanInReview = true) }
+                        lastId?.let { applyEnhancePreviewForPage(it) }
                         persistWorkflow()
                     }
                 }.onFailure { e ->
@@ -331,6 +393,10 @@ class ScannerViewModel @Inject constructor(
                         historyIndex = 0,
                     )
                     editStates[pageId] = freshState
+                    enhanceChoices[pageId] = PageEnhanceChoice(
+                        mode = enhanceChoices[pageId]?.mode ?: ScanEnhanceMode.CLEAN,
+                        exportLevel = 0,
+                    )
                     documentRepository.updatePageImage(
                         pageId = pageId,
                         imagePath = saved.path,
@@ -358,6 +424,7 @@ class ScannerViewModel @Inject constructor(
                     }
                     syncDraftFromState(pageId)
                     refreshPreview(pageId)
+                    applyEnhancePreviewForPage(pageId)
                     persistWorkflow()
                 }.onFailure { e ->
                     _uiState.update { it.copy(isSaving = false, error = e.message) }
@@ -444,10 +511,274 @@ class ScannerViewModel @Inject constructor(
     }
 
     fun selectPage(pageId: Long) {
-        _uiState.update { it.copy(selectedPageId = pageId, activeTool = null) }
+        _uiState.update {
+            it.copy(
+                selectedPageId = pageId,
+                activeTool = null,
+            )
+        }
         syncDraftFromState(pageId)
         refreshPreview(pageId)
+        applyEnhancePreviewForPage(pageId)
         persistWorkflow()
+    }
+
+    /** Level 0 → L1/L7 compare; levels 1–7 → single preview at that level. */
+    private fun applyEnhancePreviewForPage(pageId: Long) {
+        val choice = enhanceChoices[pageId] ?: PageEnhanceChoice()
+        val showCompare = choice.exportLevel == 0
+        _uiState.update {
+            it.copy(
+                enhanceMode = choice.mode,
+                selectedExportLevel = choice.exportLevel,
+                showLevelCompare = showCompare,
+            )
+        }
+        analyzePageRecommendation(pageId)
+        if (showCompare) {
+            refreshComparePreviews(pageId)
+        } else {
+            refreshSinglePreview(pageId, choice.exportLevel)
+        }
+    }
+
+    private fun analyzePageRecommendation(pageId: Long) {
+        val page = _uiState.value.pages.find { it.id == pageId } ?: return
+        viewModelScope.launch {
+            val premium = scanEnhanceService.isPremium()
+            val rec = withContext(Dispatchers.Default) {
+                val bitmap = BitmapUtils.load(page.originalPath, maxEdge = 640)
+                val metrics = ScanDocumentAnalyzer.analyze(bitmap)
+                bitmap.recycle()
+                ScanEnhanceRecommender.recommend(metrics, premium)
+            }
+            _uiState.update {
+                it.copy(
+                    isPremiumUser = premium,
+                    enhanceRecommendationLabel = "Recommended: ${rec.label}",
+                )
+            }
+        }
+    }
+
+    fun applyRecommendedEnhance() {
+        val pageId = _uiState.value.selectedPageId ?: return
+        viewModelScope.launch {
+            val premium = scanEnhanceService.isPremium()
+            val page = _uiState.value.pages.find { it.id == pageId } ?: return@launch
+            val rec = withContext(Dispatchers.Default) {
+                val bitmap = BitmapUtils.load(page.originalPath, maxEdge = 640)
+                val metrics = ScanDocumentAnalyzer.analyze(bitmap)
+                bitmap.recycle()
+                ScanEnhanceRecommender.recommend(metrics, premium)
+            }
+            val mode = if (premium) rec.recommendedMode else ScanEnhanceMode.CLEAN
+            enhanceChoices[pageId] = PageEnhanceChoice(mode, rec.recommendedLevel)
+            persistEnhanceChoice(pageId)
+            if (rec.recommendedLevel == 0) {
+                _uiState.update {
+                    it.copy(
+                        enhanceMode = mode,
+                        selectedExportLevel = 0,
+                        showLevelCompare = true,
+                    )
+                }
+                refreshComparePreviews(pageId)
+            } else {
+                setEnhanceLevel(rec.recommendedLevel)
+                _uiState.update { it.copy(enhanceMode = mode) }
+                enhanceChoices[pageId] = PageEnhanceChoice(mode, rec.recommendedLevel)
+                persistEnhanceChoice(pageId)
+            }
+        }
+    }
+
+    fun setExportProfile(profile: ScanExportProfile) {
+        _uiState.update {
+            it.copy(
+                exportProfile = profile,
+                exportOptions = it.exportOptions.withProfile(profile),
+            )
+        }
+    }
+
+    private fun persistEnhanceChoice(pageId: Long) {
+        val choice = enhanceChoices[pageId] ?: return
+        val state = editStates[pageId] ?: return
+        val updated = state.withEnhanceChoice(choice)
+        editStates[pageId] = updated
+        viewModelScope.launch {
+            documentRepository.updatePageEditState(pageId, updated.toJson())
+        }
+    }
+
+    fun setEnhanceMode(mode: ScanEnhanceMode) {
+        val pageId = _uiState.value.selectedPageId ?: return
+        val effectiveMode = if (mode == ScanEnhanceMode.AI_CLEAN && !_uiState.value.isPremiumUser) {
+            ScanEnhanceMode.CLEAN
+        } else {
+            mode
+        }
+        val updated = (enhanceChoices[pageId] ?: PageEnhanceChoice()).copy(mode = effectiveMode)
+        enhanceChoices[pageId] = updated
+        _uiState.update { it.copy(enhanceMode = effectiveMode) }
+        persistEnhanceChoice(pageId)
+        if (_uiState.value.showLevelCompare) {
+            refreshComparePreviews(pageId)
+        } else {
+            refreshSinglePreview(pageId, _uiState.value.selectedExportLevel)
+        }
+    }
+
+    fun setEnhanceLevel(level: Int) {
+        val pageId = _uiState.value.selectedPageId ?: return
+        val clamped = level.coerceIn(0, 7)
+        val current = enhanceChoices[pageId] ?: PageEnhanceChoice(mode = _uiState.value.enhanceMode)
+        enhanceChoices[pageId] = current.copy(exportLevel = clamped)
+        if (clamped == 0) {
+            _uiState.update {
+                it.copy(
+                    selectedExportLevel = 0,
+                    showLevelCompare = true,
+                )
+            }
+            refreshComparePreviews(pageId)
+        } else {
+            _uiState.update {
+                it.copy(
+                    selectedExportLevel = clamped,
+                    showLevelCompare = false,
+                )
+            }
+            refreshSinglePreview(pageId, clamped)
+        }
+        persistEnhanceChoice(pageId)
+    }
+
+    fun selectCompareLevel(level: Int) {
+        val pageId = _uiState.value.selectedPageId ?: return
+        val clamped = level.coerceIn(1, 7)
+        val current = enhanceChoices[pageId] ?: PageEnhanceChoice(mode = _uiState.value.enhanceMode)
+        enhanceChoices[pageId] = current.copy(exportLevel = clamped)
+        val cachedPath = when (clamped) {
+            1 -> _uiState.value.compareLevel1Path
+            7 -> _uiState.value.compareLevel7Path
+            else -> null
+        }
+        _uiState.update {
+            it.copy(
+                selectedExportLevel = clamped,
+                showLevelCompare = false,
+                enhancePreviewPath = cachedPath,
+                enhancePreviewRevision = it.enhancePreviewRevision + if (cachedPath != null) 1 else 0,
+            )
+        }
+        if (cachedPath == null) {
+            refreshSinglePreview(pageId, clamped)
+        }
+        persistEnhanceChoice(pageId)
+    }
+
+    private fun refreshComparePreviews(pageId: Long) {
+        enhancePreviewJob?.cancel()
+        val page = _uiState.value.pages.find { it.id == pageId } ?: return
+        val cacheDir = File(page.originalPath).parentFile
+        if (cacheDir == null) {
+            _uiState.update { it.copy(isEnhancePreviewLoading = false) }
+            return
+        }
+        val mode = enhanceChoices[pageId]?.mode ?: ScanEnhanceMode.CLEAN
+        enhancePreviewJob = viewModelScope.launch {
+            _uiState.update { it.copy(isEnhancePreviewLoading = true) }
+            runCatching {
+                val path1 = withContext(Dispatchers.Default) {
+                    scanEnhanceService.renderToFile(
+                        page.originalPath,
+                        mode,
+                        1,
+                        File(cacheDir, "p${pageId}_${mode.name}_L1.jpg"),
+                    )
+                }
+                val path7 = withContext(Dispatchers.Default) {
+                    scanEnhanceService.renderToFile(
+                        page.originalPath,
+                        mode,
+                        7,
+                        File(cacheDir, "p${pageId}_${mode.name}_L7.jpg"),
+                    )
+                }
+                path1 to path7
+            }.onSuccess { (path1, path7) ->
+                _uiState.update {
+                    it.copy(
+                        compareLevel1Path = path1,
+                        compareLevel7Path = path7,
+                        isEnhancePreviewLoading = false,
+                    )
+                }
+            }.onFailure {
+                _uiState.update { it.copy(isEnhancePreviewLoading = false) }
+            }
+        }
+    }
+
+    private fun refreshSinglePreview(pageId: Long, level: Int) {
+        enhancePreviewJob?.cancel()
+        val page = _uiState.value.pages.find { it.id == pageId } ?: return
+        val mode = enhanceChoices[pageId]?.mode ?: ScanEnhanceMode.CLEAN
+        if (level <= 0) {
+            _uiState.update {
+                it.copy(
+                    enhancePreviewPath = page.originalPath,
+                    isEnhancePreviewLoading = false,
+                    enhancePreviewRevision = it.enhancePreviewRevision + 1,
+                )
+            }
+            return
+        }
+        val cacheDir = File(page.originalPath).parentFile
+        if (cacheDir == null) {
+            _uiState.update { it.copy(isEnhancePreviewLoading = false) }
+            return
+        }
+        enhancePreviewJob = viewModelScope.launch {
+            _uiState.update { it.copy(isEnhancePreviewLoading = true) }
+            runCatching {
+                withContext(Dispatchers.Default) {
+                    scanEnhanceService.renderToFile(
+                        page.originalPath,
+                        mode,
+                        level,
+                        File(cacheDir, "p${pageId}_${mode.name}_L${level}.jpg"),
+                    )
+                }
+            }.onSuccess { path ->
+                _uiState.update {
+                    it.copy(
+                        enhancePreviewPath = path,
+                        isEnhancePreviewLoading = false,
+                        enhancePreviewRevision = it.enhancePreviewRevision + 1,
+                    )
+                }
+            }.onFailure {
+                _uiState.update { it.copy(isEnhancePreviewLoading = false) }
+            }
+        }
+    }
+
+    private suspend fun resolvedExportPaths(): List<String> = withContext(Dispatchers.Default) {
+        val pages = _uiState.value.pages
+        if (pages.isEmpty()) return@withContext emptyList()
+        val cacheDir = File(pages.first().originalPath).parentFile ?: return@withContext emptyList()
+        pages.map { page ->
+            val choice = enhanceChoices[page.id] ?: PageEnhanceChoice()
+            scanEnhanceService.renderToFile(
+                originalPath = page.originalPath,
+                mode = choice.mode,
+                level = choice.exportLevel,
+                outFile = File(cacheDir, "page_${page.pageIndex}_${choice.mode}_${choice.exportLevel}.jpg"),
+            )
+        }
     }
 
     fun openTool(tool: ScanTool) {
@@ -512,6 +843,7 @@ class ScannerViewModel @Inject constructor(
             _uiState.update { it.copy(isSaving = true, error = null) }
             runCatching {
                 editStates.remove(pageId)
+                enhanceChoices.remove(pageId)
                 documentRepository.deletePage(pageId)
                 val pages = documentRepository.getPages(docId)
                 val items = pages.map { page ->
@@ -540,6 +872,7 @@ class ScannerViewModel @Inject constructor(
                 nextSelected?.let {
                     syncDraftFromState(it)
                     refreshPreview(it)
+                    applyEnhancePreviewForPage(it)
                 } ?: _uiState.update { it.copy(previewPath = null) }
                 persistWorkflow()
             }.onFailure { e ->
@@ -1068,11 +1401,12 @@ class ScannerViewModel @Inject constructor(
 
     fun exportDocument() {
         val options = _uiState.value.exportOptions
-        val paths = _uiState.value.pages.map { it.imagePath }
-        if (paths.isEmpty()) return
+        if (_uiState.value.pages.isEmpty()) return
         viewModelScope.launch {
             _uiState.update { it.copy(isSaving = true, error = null) }
             runCatching {
+                val paths = resolvedExportPaths()
+                if (paths.isEmpty()) return@runCatching
                 val plan = withContext(Dispatchers.IO) { scanExportService.planExport(paths.size, options) }
                 if (plan.hasConflict) {
                     _uiState.update {
@@ -1094,10 +1428,10 @@ class ScannerViewModel @Inject constructor(
 
     fun confirmExportReplace() {
         val options = _uiState.value.exportOptions
-        val paths = _uiState.value.pages.map { it.imagePath }
         viewModelScope.launch {
             _uiState.update { it.copy(showExportConflictDialog = false, isSaving = true) }
             runCatching {
+                val paths = resolvedExportPaths()
                 performExport(paths, options, ExportConflictResolution.REPLACE)
             }.onFailure { e ->
                 _uiState.update { it.copy(isSaving = false, error = e.message) }
@@ -1107,10 +1441,10 @@ class ScannerViewModel @Inject constructor(
 
     fun confirmExportRename() {
         val options = _uiState.value.exportOptions
-        val paths = _uiState.value.pages.map { it.imagePath }
         viewModelScope.launch {
             _uiState.update { it.copy(showExportConflictDialog = false, isSaving = true) }
             runCatching {
+                val paths = resolvedExportPaths()
                 performExport(paths, options, ExportConflictResolution.RENAME)
             }.onFailure { e ->
                 _uiState.update { it.copy(isSaving = false, error = e.message) }

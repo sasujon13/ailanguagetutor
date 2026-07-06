@@ -355,10 +355,12 @@ class PracticeHubViewModel @Inject constructor(
         }
     }
 
-    /** For scan/OCR text injected into Practice — processes immediately (AI first, offline fallback). */
+    /** For scan/OCR text injected into Practice — prefill only; user taps Process manually. */
     fun applyExternalInput(text: String, inputSource: InputSource = InputSource.OCR_SCAN) {
         val trimmed = text.trim()
         if (trimmed.isBlank()) return
+        cancelVoiceAutoAiTimer()
+        lastTypedInput = trimmed
         _uiState.update {
             it.copy(
                 typedInput = trimmed,
@@ -368,11 +370,11 @@ class PracticeHubViewModel @Inject constructor(
                 inputWords = wordMapBuilder.buildFromPlainText(trimmed),
                 lastInputSource = inputSource,
                 wordSheet = null,
+                aiOutput = "",
+                outputOffline = false,
+                aiLoading = false,
             )
         }
-        cancelVoiceAutoAiTimer()
-        lastTypedInput = trimmed
-        runProcess { processAuto(inputSource) }
     }
 
     fun processOfflineInput() {

@@ -2,9 +2,14 @@ package com.cheradip.ailanguagetutor.core.network
 
 import com.squareup.moshi.Json
 import com.squareup.moshi.JsonClass
+import okhttp3.MultipartBody
+import okhttp3.RequestBody
+import okhttp3.ResponseBody
 import retrofit2.http.Body
 import retrofit2.http.GET
+import retrofit2.http.Multipart
 import retrofit2.http.POST
+import retrofit2.http.Part
 import retrofit2.http.Query
 
 interface HomeAiApi {
@@ -22,6 +27,22 @@ interface HomeAiApi {
 
     @POST("clean-ocr")
     suspend fun cleanOcr(@Body body: HomeAiRequest): HomeAiCleanOcrResponse
+
+    @Multipart
+    @POST("scan-enhance")
+    suspend fun scanEnhance(
+        @Part image: MultipartBody.Part,
+        @Part("level") level: RequestBody,
+        @Part("premium") premium: RequestBody,
+        @Part("document_class") documentClass: RequestBody,
+    ): ResponseBody
+
+    @Multipart
+    @POST("scan-analyze")
+    suspend fun scanAnalyze(
+        @Part image: MultipartBody.Part,
+        @Part("premium") premium: RequestBody,
+    ): HomeAiScanAnalyzeResponse
 
     @POST("prefetch-grammar")
     suspend fun prefetchGrammar(@Body body: HomeAiGrammarPrefetchRequest): HomeAiGrammarPrefetchResponse
@@ -72,6 +93,14 @@ data class HomeAiCleanOcrResponse(
     @Json(name = "cleaned_text") val cleanedText: String,
     val mode: Int = 4,
     val cached: Boolean = false,
+)
+
+@JsonClass(generateAdapter = true)
+data class HomeAiScanAnalyzeResponse(
+    @Json(name = "document_class") val documentClass: String,
+    @Json(name = "recommended_mode") val recommendedMode: String,
+    @Json(name = "recommended_level") val recommendedLevel: Int,
+    @Json(name = "recommended_label") val recommendedLabel: String,
 )
 
 @JsonClass(generateAdapter = true)

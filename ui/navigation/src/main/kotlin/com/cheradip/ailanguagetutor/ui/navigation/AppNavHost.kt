@@ -15,6 +15,7 @@ import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.ScaffoldDefaults
+import androidx.compose.material3.Snackbar
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.MaterialTheme
@@ -28,6 +29,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -80,8 +82,13 @@ import com.cheradip.ailanguagetutor.feature.scanner.ScannerScreen
 import com.cheradip.ailanguagetutor.feature.settings.SettingsScreen
 import com.cheradip.ailanguagetutor.ui.components.AppMenuDestination
 import com.cheradip.ailanguagetutor.ui.components.AppMenuNavigation
+import com.cheradip.ailanguagetutor.ui.components.CheradipAuthSuccessSnackbar
 import com.cheradip.ailanguagetutor.ui.components.LocalAppMenuNavigation
 import com.cheradip.ailanguagetutor.ui.components.LocalNavBack
+import com.cheradip.ailanguagetutor.ui.components.authSnackbarDisplayMessage
+import com.cheradip.ailanguagetutor.ui.components.isAuthSuccessSnackbar
+import com.cheradip.ailanguagetutor.ui.components.showAuthSuccessSnackbar
+import kotlinx.coroutines.launch
 
 @Composable
 fun AppNavHost(
@@ -108,6 +115,7 @@ fun AppNavHost(
     val hasLearningAccess = accessState.grantsLearningAccess()
     val localeUi by appLocaleManager.uiState.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
 
     LaunchedEffect(localeUi.snackbarMessage) {
         localeUi.snackbarMessage?.let { msg ->
@@ -130,6 +138,15 @@ fun AppNavHost(
         if (currentUser != null) {
             referralRepository.refresh()
             learningActivitySyncRepository.syncIfLoggedIn()
+        }
+    }
+
+    var autoLoginAttempted by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(showOnboarding, autoLoginAttempted, currentUser) {
+        if (showOnboarding || autoLoginAttempted) return@LaunchedEffect
+        autoLoginAttempted = true
+        if (currentUser == null) {
+            authRepository.tryAutoLoginIfNeeded()
         }
     }
 
@@ -185,6 +202,20 @@ fun AppNavHost(
 
     val routeBase = currentRoute?.substringBefore('?')
     val showBottomBar = Routes.showsBottomNavigation(routeBase)
+
+    fun onManualAuthSuccess() {
+        scope.launch {
+            snackbarHostState.showAuthSuccessSnackbar("Welcome! You're signed in successfully.")
+        }
+        val authRoute = when (routeBase) {
+            Routes.REGISTER -> Routes.REGISTER
+            else -> Routes.LOGIN
+        }
+        navController.navigate(Routes.PAYWALL) {
+            popUpTo(authRoute) { inclusive = true }
+            launchSingleTop = true
+        }
+    }
     val nestedNavBack: (() -> Unit)? = remember(routeBase, navController) {
         if (
             routeBase != null &&
@@ -299,7 +330,19 @@ fun AppNavHost(
         contentWindowInsets = ScaffoldDefaults.contentWindowInsets.only(
             WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom,
         ),
-        snackbarHost = { SnackbarHost(snackbarHostState) },
+        snackbarHost = {
+            SnackbarHost(snackbarHostState) { data ->
+                val message = data.visuals.message
+                if (isAuthSuccessSnackbar(message)) {
+                    CheradipAuthSuccessSnackbar(
+                        message = authSnackbarDisplayMessage(message),
+                        onDismiss = { data.dismiss() },
+                    )
+                } else {
+                    Snackbar(snackbarData = data)
+                }
+            }
+        },
         bottomBar = {
             if (showBottomBar) {
                 val menuTeal = MaterialTheme.colorScheme.primary
@@ -571,15 +614,7 @@ fun AppNavHost(
                 val returnTo = entry.arguments?.getString("returnTo").orEmpty()
                 LoginScreen(
                     authRepository = authRepository,
-                    onLoggedIn = {
-                        if (returnTo == "paywall") {
-                            navController.navigate(Routes.PAYWALL) {
-                                popUpTo(Routes.LOGIN) { inclusive = true }
-                            }
-                        } else {
-                            navController.popBackStack()
-                        }
-                    },
+                    onLoggedIn = { onManualAuthSuccess() },
                     onBack = { navController.popBackStack() },
                     onNavigateSignUp = {
                         navController.navigate(Routes.register(returnTo)) {
@@ -608,15 +643,7 @@ fun AppNavHost(
                 val returnTo = entry.arguments?.getString("returnTo").orEmpty()
                 SignUpScreen(
                     authRepository = authRepository,
-                    onSignedUp = {
-                        if (returnTo == "paywall") {
-                            navController.navigate(Routes.PAYWALL) {
-                                popUpTo(Routes.REGISTER) { inclusive = true }
-                            }
-                        } else {
-                            navController.popBackStack()
-                        }
-                    },
+                    onSignedUp = { onManualAuthSuccess() },
                     onNavigateLogin = {
                         navController.navigate(Routes.login(returnTo)) {
                             popUpTo(Routes.register(returnTo))

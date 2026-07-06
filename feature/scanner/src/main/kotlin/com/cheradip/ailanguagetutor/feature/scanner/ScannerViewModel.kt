@@ -119,7 +119,6 @@ data class ScannerUiState(
     val showCustomFilterRenameDialog: Boolean = false,
     val renamingCustomSlotId: String? = null,
     val isDocumentReady: Boolean = false,
-    val appAutoEnhanceOnScan: Boolean = false,
     /** Scan-only: true after ML Kit Next — show export UI instead of forcing capture. */
     val scanInReview: Boolean = false,
 )
@@ -156,8 +155,6 @@ class ScannerViewModel @Inject constructor(
         launchMode = mode
         scanOnly = scanOnlyMode
         viewModelScope.launch {
-            val autoEnhance = scanWorkflowRepository.loadAppAutoEnhanceOnScan()
-            _uiState.update { it.copy(appAutoEnhanceOnScan = autoEnhance) }
             var saved = scanWorkflowRepository.currentSession()
             if (scanOnlyMode && launchCapture && saved != null) {
                 saved = saved.copy(inReview = false)
@@ -181,13 +178,6 @@ class ScannerViewModel @Inject constructor(
                 persistWorkflow(stage = ScanWorkflowStage.SCANNER)
             }
             _uiState.update { it.copy(isDocumentReady = true) }
-        }
-    }
-
-    fun setAppAutoEnhanceOnScan(enabled: Boolean) {
-        _uiState.update { it.copy(appAutoEnhanceOnScan = enabled) }
-        viewModelScope.launch {
-            scanWorkflowRepository.saveAppAutoEnhanceOnScan(enabled)
         }
     }
 
@@ -302,9 +292,7 @@ class ScannerViewModel @Inject constructor(
                 _uiState.update { it.copy(isSaving = true, error = null) }
                 runCatching {
                     bytesList.forEach { bytes -> addCapturedPage(bytes, batchMode = true) }
-                    if (!_uiState.value.appAutoEnhanceOnScan) {
-                        _uiState.value.pages.lastOrNull()?.id?.let { refreshPreview(it) }
-                    }
+                    _uiState.value.pages.lastOrNull()?.id?.let { refreshPreview(it) }
                     if (scanOnly) {
                         _uiState.update { it.copy(scanInReview = true) }
                         persistWorkflow()
@@ -369,11 +357,7 @@ class ScannerViewModel @Inject constructor(
                         )
                     }
                     syncDraftFromState(pageId)
-                    if (_uiState.value.appAutoEnhanceOnScan) {
-                        autoEnhanceCapturedPage(pageId, openCropTool = false)
-                    } else {
-                        refreshPreview(pageId)
-                    }
+                    refreshPreview(pageId)
                     persistWorkflow()
                 }.onFailure { e ->
                     _uiState.update { it.copy(isSaving = false, error = e.message) }
@@ -440,9 +424,7 @@ class ScannerViewModel @Inject constructor(
                 )
             }
             syncDraftFromState(item.id)
-            if (_uiState.value.appAutoEnhanceOnScan) {
-                autoEnhanceCapturedPage(item.id, openCropTool = false)
-            } else if (!batchMode) {
+            if (!batchMode) {
                 refreshPreview(item.id)
             }
             persistWorkflow()

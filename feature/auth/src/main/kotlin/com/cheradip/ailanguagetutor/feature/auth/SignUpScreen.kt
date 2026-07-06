@@ -22,7 +22,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.cheradip.ailanguagetutor.core.auth.AuthRepository
 import com.cheradip.ailanguagetutor.core.auth.SignupDetails
@@ -30,6 +29,7 @@ import com.cheradip.ailanguagetutor.core.network.AUTH_PASSWORD_CONFIRM_MISMATCH_
 import com.cheradip.ailanguagetutor.ui.components.CheradipFormError
 import com.cheradip.ailanguagetutor.ui.components.CheradipScrollScreen
 import com.cheradip.ailanguagetutor.ui.components.IconTextButton
+import com.cheradip.ailanguagetutor.ui.components.PasswordOutlinedTextField
 import kotlinx.coroutines.launch
 
 @Composable
@@ -93,24 +93,20 @@ fun SignUpScreen(
             )
         }
         item {
-            OutlinedTextField(
+            PasswordOutlinedTextField(
                 value = password,
                 onValueChange = { password = it },
                 label = { Text("Password (8+ chars, letter + number) *") },
                 modifier = Modifier.fillMaxWidth(),
-                visualTransformation = PasswordVisualTransformation(),
-                singleLine = true,
                 leadingIcon = { androidx.compose.material3.Icon(Icons.Default.Lock, null) },
             )
         }
         item {
-            OutlinedTextField(
+            PasswordOutlinedTextField(
                 value = confirmPassword,
                 onValueChange = { confirmPassword = it },
                 label = { Text("Confirm password *") },
                 modifier = Modifier.fillMaxWidth(),
-                visualTransformation = PasswordVisualTransformation(),
-                singleLine = true,
             )
         }
         item {

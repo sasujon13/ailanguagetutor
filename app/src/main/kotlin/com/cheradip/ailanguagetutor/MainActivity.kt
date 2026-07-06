@@ -58,6 +58,7 @@ class MainActivity : ComponentActivity() {
         }
         lifecycleScope.launch {
             authRepository.syncSessionFromStore()
+            authRepository.tryAutoLoginIfNeeded()
         }
         lifecycleScope.launch {
             onboardingPreferences.isComplete()

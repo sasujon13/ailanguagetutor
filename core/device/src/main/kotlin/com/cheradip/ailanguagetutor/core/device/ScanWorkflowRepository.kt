@@ -46,16 +46,6 @@ class ScanWorkflowRepository @Inject constructor(
     private val keySelectedPageId = longPreferencesKey("selected_page_id")
     private val keyActiveTool = stringPreferencesKey("active_tool")
     private val keyInReview = booleanPreferencesKey("in_review")
-    private val keyAppAutoEnhanceOnScan = booleanPreferencesKey("app_auto_enhance_on_scan")
-
-    suspend fun loadAppAutoEnhanceOnScan(): Boolean =
-        context.scanWorkflowDataStore.data.first()[keyAppAutoEnhanceOnScan] ?: false
-
-    suspend fun saveAppAutoEnhanceOnScan(enabled: Boolean) {
-        context.scanWorkflowDataStore.edit { prefs ->
-            prefs[keyAppAutoEnhanceOnScan] = enabled
-        }
-    }
 
     val session: Flow<ScanWorkflowSession?> = context.scanWorkflowDataStore.data.map { prefs ->
         val docId = prefs[keyDocumentId] ?: return@map null
@@ -97,12 +87,6 @@ class ScanWorkflowRepository @Inject constructor(
     }
 
     suspend fun clear() {
-        context.scanWorkflowDataStore.edit { prefs ->
-            val keepAutoEnhance = prefs[keyAppAutoEnhanceOnScan]
-            prefs.clear()
-            if (keepAutoEnhance != null) {
-                prefs[keyAppAutoEnhanceOnScan] = keepAutoEnhance
-            }
-        }
+        context.scanWorkflowDataStore.edit { it.clear() }
     }
 }

@@ -247,34 +247,6 @@ fun ScannerReadOnlyPreview(
 }
 
 @Composable
-fun AppAutoEnhanceOnScanToggle(
-    enabled: Boolean,
-    onEnabledChange: (Boolean) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
-            Text("App auto-enhance", style = MaterialTheme.typography.bodyMedium)
-            Text(
-                if (enabled) {
-                    "On — crop, perspective & document filter after each capture"
-                } else {
-                    "Off — keep ML Kit image as captured"
-                },
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        Switch(checked = enabled, onCheckedChange = onEnabledChange)
-    }
-}
-
-@Composable
 fun ScanExportOptionsPanel(
     options: ExportOptions,
     onUpdate: ((ExportOptions) -> ExportOptions) -> Unit,

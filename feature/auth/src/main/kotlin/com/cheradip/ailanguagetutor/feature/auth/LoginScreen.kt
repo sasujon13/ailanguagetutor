@@ -13,18 +13,19 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.cheradip.ailanguagetutor.core.auth.AuthRepository
 import com.cheradip.ailanguagetutor.ui.components.CheradipFormError
 import com.cheradip.ailanguagetutor.ui.components.CheradipScrollScreen
 import com.cheradip.ailanguagetutor.ui.components.IconTextButton
+import com.cheradip.ailanguagetutor.ui.components.PasswordOutlinedTextField
 import kotlinx.coroutines.launch
 
 @Composable
@@ -43,6 +44,10 @@ fun LoginScreen(
     var loading by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
+    LaunchedEffect(Unit) {
+        username = authRepository.rememberedLoginId().orEmpty()
+    }
+
     CheradipScrollScreen(
         modifier = modifier,
         title = "Sign in",
@@ -60,13 +65,11 @@ fun LoginScreen(
             )
         }
         item {
-            OutlinedTextField(
+            PasswordOutlinedTextField(
                 value = password,
                 onValueChange = { password = it },
                 label = { Text("Password") },
                 modifier = Modifier.fillMaxWidth(),
-                visualTransformation = PasswordVisualTransformation(),
-                singleLine = true,
                 leadingIcon = { androidx.compose.material3.Icon(Icons.Default.Lock, contentDescription = null) },
             )
         }

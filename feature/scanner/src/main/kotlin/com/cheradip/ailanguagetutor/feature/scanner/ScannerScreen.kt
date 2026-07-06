@@ -237,8 +237,6 @@ fun ScannerScreen(
         )
     }
 
-    val showAutoEnhanceToggle = hasCameraPermission || isImportMode || showScanOnlyStage || showLearningReview
-
     val canAddMorePages = !uiState.isSaving && viewModel.remainingPageSlots() > 0
     val onAddScanPage: () -> Unit = {
         if (isImportMode) {
@@ -269,12 +267,6 @@ fun ScannerScreen(
                 .padding(padding)
                 .verticalScroll(rememberScrollState()),
         ) {
-            if (showAutoEnhanceToggle) {
-                AppAutoEnhanceOnScanToggle(
-                    enabled = uiState.appAutoEnhanceOnScan,
-                    onEnabledChange = viewModel::setAppAutoEnhanceOnScan,
-                )
-            }
             if (showScanOnlyStage) {
                 ScannerReadOnlyPreview(
                     imagePath = previewPath,

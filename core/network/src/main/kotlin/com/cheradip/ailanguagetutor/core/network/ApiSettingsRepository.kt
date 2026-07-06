@@ -97,10 +97,10 @@ class ApiSettingsRepository @Inject constructor(
         }
     }
 
-    /** One-time: legacy 30s default was answer timeout; reachability probe is now 7s. */
+    /** One-time: legacy defaults were answer timeouts or 7s probe; reachability probe is now 3s. */
     suspend fun migrateLegacyHomeAiReachabilityTimeoutIfNeeded() {
         val stored = context.apiSettingsDataStore.data.first()[keyHomeAiReachabilityMs] ?: return
-        if (stored == 30_000L) {
+        if (stored == 30_000L || stored == 7_000L) {
             setHomeAiReachabilityTimeoutMs(HOME_AI_REACHABILITY_TIMEOUT_MS)
         }
     }

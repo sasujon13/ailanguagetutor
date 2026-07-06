@@ -12,7 +12,7 @@ interface AppConfig {
 }
 
 /** Home AI reachability probe (not answer latency). */
-const val HOME_AI_REACHABILITY_TIMEOUT_MS = 7_000L
+const val HOME_AI_REACHABILITY_TIMEOUT_MS = 3_000L
 
 /** Home AI inference response budget after server is reachable. */
 const val HOME_AI_RESPONSE_TIMEOUT_MS = 120_000L

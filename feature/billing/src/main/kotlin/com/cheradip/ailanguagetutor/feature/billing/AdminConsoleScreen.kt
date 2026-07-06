@@ -875,7 +875,7 @@ fun AdminDeveloperOptionsTab(
     ) {
         Text("Developer options", style = MaterialTheme.typography.headlineSmall)
         Text(
-            "Admin-only runtime tuning. Home AI is probed via /health (default 7s); answers may take up to 120s.",
+            "Admin-only runtime tuning. Home AI is probed via /health (default 3s); answers may take up to 120s.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(top = 4.dp),
@@ -890,7 +890,7 @@ fun AdminDeveloperOptionsTab(
             value = homeMs,
             onValueChange = viewModel::updateHomeAiFallbackMs,
             label = { Text("Home AI reachability timeout (ms)") },
-            supportingText = { Text("0 = skip Home AI. Default 7000 — GET /health only, not answer time.") },
+            supportingText = { Text("0 = skip Home AI. Default 3000 — GET /health only, not answer time.") },
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(top = 12.dp),

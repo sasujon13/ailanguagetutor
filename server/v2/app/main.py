@@ -6,7 +6,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
-from app.routers import admin, ai_modes, ask, clean_ocr, grammar_book, health, prefetch_ai, prefetch_grammar, scan_enhance, stt, translate, translate_strings, tts
+from app.routers import admin, ai_modes, ask, clean_ocr, grammar_book, health, ide, prefetch_ai, prefetch_grammar, scan_enhance, stt, translate, translate_strings, tts
 from app.services.cache_l1 import CacheManager
 from app.services.cache_l3 import L3Cache
 from app.services.mode_router import ModeRouter
@@ -56,6 +56,7 @@ app.include_router(grammar_book.router, tags=["inference"])
 app.include_router(translate_strings.router, tags=["inference"])
 app.include_router(stt.router, tags=["inference"])
 app.include_router(tts.router, tags=["inference"])
+app.include_router(ide.router, tags=["ide"])
 app.include_router(admin.router, prefix="/admin", tags=["admin"])
 
 

@@ -40,6 +40,10 @@ Downloads Qwen, Mistral, NLLB, Whisper → OpenVINO INT8/INT4 → verifies → s
 | POST | `/ask` | stub → Qwen after setup |
 | POST | `/tts` | Piper (manual) |
 | GET | `/admin/status` | ✅ |
+| GET | `/ide/models` | Cheradip VS Code extension |
+| POST | `/ide/chat` | Streaming IDE chat (SSE) |
+| POST | `/ide/complete` | Inline completion |
+| POST | `/ide/edit` | Inline code edit |
 
 | POST | `/scan-enhance` | AI Clean levels 0–7 (ONNX + OpenCV) |
 | POST | `/scan-analyze` | Pre-process metrics + recommendation |

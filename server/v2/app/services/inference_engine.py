@@ -68,6 +68,31 @@ class InferenceEngine:
         snippet = prompt[:160].replace("\n", " ")
         return _GENERIC_TUTOR.format(snippet=snippet), primary
 
+    async def run_llm_stream(
+        self,
+        primary: ModelSlot,
+        prompt: str,
+        max_tokens: int = 512,
+    ):
+        """Yield text chunks; falls back to single-shot on stream failure."""
+        from collections.abc import AsyncIterator
+
+        for slot in fallback_chain(primary):
+            try:
+                await self.loader.ensure_llm(slot)
+                self.last_model_used = slot.value
+                self._record_model(slot.value)
+                if slot != primary:
+                    self.fallback_count += 1
+                async for chunk in self._infer_stream(slot, prompt, max_tokens):
+                    yield chunk
+                return
+            except Exception as e:
+                logger.error("Stream inference failed on %s: %s", slot.value, e)
+                continue
+        text, _ = await self.run_llm(primary, prompt, max_tokens)
+        yield text
+
     async def run_nllb(
         self,
         text: str,
@@ -133,6 +158,29 @@ class InferenceEngine:
             )
 
         return f"[{slot.value}] {prompt[:300]}"
+
+    async def _infer_stream(self, slot: ModelSlot, prompt: str, max_tokens: int):
+        backend = self.loader.backend_name
+        if backend == "ollama":
+            from app.backends.ollama import OllamaBackend
+
+            model_map = {
+                ModelSlot.QWEN_7B: _QWEN_OLLAMA,
+                ModelSlot.QWEN_14B: "qwen2.5:14b-instruct-q4_K_M",
+                ModelSlot.MISTRAL_7B: "mistral:7b-instruct-q4_K_M",
+                ModelSlot.LLAMA_8B: "llama3:8b-instruct-q4_K_M",
+                ModelSlot.DEEPSEEK_CODER: _DEEPSEEK_CODER_OLLAMA,
+                ModelSlot.QWEN_CODER_14B: _QWEN_CODER_14B_OLLAMA,
+            }
+            available = self.loader.ollama_models
+            preferred = model_map.get(slot, _QWEN_OLLAMA)
+            ollama_model = _resolve_ollama_model(preferred, available)
+            ollama = OllamaBackend(self.loader.settings.ollama_base_url)
+            async for chunk in ollama.generate_stream(ollama_model, prompt, max_tokens):
+                yield chunk
+            return
+        text = await self._infer(slot, prompt, max_tokens)
+        yield text
 
     async def _infer_nllb(self, text: str, source: str, target: str) -> str:
         if self.loader.backend_name == "ollama" and is_short_phrase(text):

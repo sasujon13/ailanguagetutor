@@ -219,3 +219,71 @@ class TranslateStringsResponse(BaseModel):
     translations: dict[str, str] = Field(default_factory=dict)
     cached: bool = False
     backend: str | None = None
+
+
+# --- Cheradip IDE (VS Code extension) ---
+
+
+class IdeMessage(BaseModel):
+    role: str = "user"
+    content: str
+
+
+class IdeFileContext(BaseModel):
+    path: str
+    content: str
+    language: str = "text"
+
+
+class IdeChatRequest(BaseModel):
+    messages: list[IdeMessage] = Field(default_factory=list)
+    model: str | None = None
+    file_context: list[IdeFileContext] = Field(default_factory=list)
+    stream: bool = True
+    max_tokens: int = Field(default=4096, ge=64, le=16384)
+
+
+class IdeChatResponse(BaseModel):
+    content: str
+    model: str
+    cached: bool = False
+
+
+class IdeCompleteRequest(BaseModel):
+    prefix: str
+    suffix: str = ""
+    filepath: str | None = None
+    language: str | None = None
+    model: str | None = None
+    max_tokens: int = Field(default=256, ge=16, le=2048)
+
+
+class IdeCompleteResponse(BaseModel):
+    completion: str
+    model: str
+
+
+class IdeEditRequest(BaseModel):
+    instruction: str
+    code: str
+    filepath: str | None = None
+    language: str | None = None
+    model: str | None = None
+    max_tokens: int = Field(default=4096, ge=64, le=16384)
+
+
+class IdeEditResponse(BaseModel):
+    edited_code: str
+    model: str
+
+
+class IdeModelInfo(BaseModel):
+    id: str
+    label: str
+    category: str = "general"
+    available: bool = True
+
+
+class IdeModelsResponse(BaseModel):
+    models: list[IdeModelInfo] = Field(default_factory=list)
+    default_model: str = "deepseek-coder-v2:latest"

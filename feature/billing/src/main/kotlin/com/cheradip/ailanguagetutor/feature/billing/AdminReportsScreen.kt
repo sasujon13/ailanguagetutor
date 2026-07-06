@@ -1,6 +1,8 @@
 package com.cheradip.ailanguagetutor.feature.billing
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Spacer
@@ -11,17 +13,24 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -38,10 +47,11 @@ import com.cheradip.ailanguagetutor.core.billing.AdminReportsSnapshot
 import com.cheradip.ailanguagetutor.core.locale.appString
 import com.cheradip.ailanguagetutor.core.network.AdminReportSettingsDto
 import com.cheradip.ailanguagetutor.core.network.AdminReportsDebugResponse
+import com.cheradip.ailanguagetutor.core.network.AdminReportsLanguagePackRow
 import com.cheradip.ailanguagetutor.core.pack.PackUsageTracker
 import com.cheradip.ailanguagetutor.ui.components.CheradipScreenEdgePadding
 import com.cheradip.ailanguagetutor.ui.components.CheradipTopBar
-import com.cheradip.ailanguagetutor.ui.components.SectionHeader
+import com.cheradip.ailanguagetutor.ui.theme.CheradipTeal
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -262,6 +272,16 @@ fun AdminReportsScreen(
     val earningsLoading by viewModel.earningsLoading.collectAsStateWithLifecycle()
     val earningsError by viewModel.earningsError.collectAsStateWithLifecycle()
 
+    var reportServicesExpanded by rememberSaveable { mutableStateOf(false) }
+    var earningsExpanded by rememberSaveable { mutableStateOf(false) }
+    var usersExpanded by rememberSaveable { mutableStateOf(false) }
+    var subscriptionsExpanded by rememberSaveable { mutableStateOf(false) }
+    var engagementExpanded by rememberSaveable { mutableStateOf(false) }
+    var languagePacksExpanded by rememberSaveable { mutableStateOf(false) }
+    var cloudAiExpanded by rememberSaveable { mutableStateOf(false) }
+    var homeAiExpanded by rememberSaveable { mutableStateOf(false) }
+    var debugReportsExpanded by rememberSaveable { mutableStateOf(false) }
+
     Scaffold(
         modifier = modifier,
         topBar = {
@@ -301,8 +321,11 @@ fun AdminReportsScreen(
                 Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
             }
 
-            SectionHeader(title = "Report services")
-            ReportCard {
+            CollapsibleReportSection(
+                title = "Report services",
+                expanded = reportServicesExpanded,
+                onToggle = { reportServicesExpanded = !reportServicesExpanded },
+            ) {
                 ReportToggleRow(
                     label = "Cloud platform reports",
                     checked = reportSettings.cloudReportsEnabled,
@@ -325,18 +348,22 @@ fun AdminReportsScreen(
                 )
             }
 
-            if (!reportSettings.cloudReportsEnabled) {
-                Text(
-                    "Cloud report generation is disabled on the server.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-
             cloud?.let { report ->
                 cloudGeneratedLabel(report.generatedAtMs)
-                SectionHeader(title = "Earnings")
-                ReportCard {
+            }
+
+            CollapsibleReportSection(
+                title = "Earnings",
+                expanded = earningsExpanded,
+                onToggle = { earningsExpanded = !earningsExpanded },
+            ) {
+                if (!reportSettings.cloudReportsEnabled) {
+                    Text(
+                        "Cloud report generation is disabled on the server.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                } else {
                     AdminEarningsReportSection(
                         loading = earningsLoading,
                         error = earningsError,
@@ -350,8 +377,25 @@ fun AdminReportsScreen(
                         onLoad = viewModel::loadEarningsReport,
                     )
                 }
-                SectionHeader(title = appString("admin_reports_users"))
-                ReportCard {
+            }
+
+            CollapsibleReportSection(
+                title = appString("admin_reports_users"),
+                expanded = usersExpanded,
+                onToggle = { usersExpanded = !usersExpanded },
+            ) {
+                val report = cloud
+                if (report == null) {
+                    Text(
+                        if (!reportSettings.cloudReportsEnabled) {
+                            "Cloud report generation is disabled on the server."
+                        } else {
+                            "No user data loaded yet. Tap Refresh."
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                } else {
                     MetricRow(appString("admin_reports_total_users"), report.totalUsers.toString())
                     MetricRow(appString("admin_reports_regular_users"), report.regularUsers.toString())
                     MetricRow(appString("admin_reports_admin_users"), report.adminUsers.toString())
@@ -359,14 +403,48 @@ fun AdminReportsScreen(
                     MetricRow(appString("admin_reports_new_7d"), report.newUsers7Days.toString())
                     MetricRow(appString("admin_reports_new_30d"), report.newUsers30Days.toString())
                 }
-                SectionHeader(title = appString("admin_reports_subscriptions"))
-                ReportCard {
+            }
+
+            CollapsibleReportSection(
+                title = appString("admin_reports_subscriptions"),
+                expanded = subscriptionsExpanded,
+                onToggle = { subscriptionsExpanded = !subscriptionsExpanded },
+            ) {
+                val report = cloud
+                if (report == null) {
+                    Text(
+                        if (!reportSettings.cloudReportsEnabled) {
+                            "Cloud report generation is disabled on the server."
+                        } else {
+                            "No subscription data loaded yet. Tap Refresh."
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                } else {
                     MetricRow(appString("admin_reports_active_total"), report.activeSubscriptions.toString())
                     MetricRow("Pro", report.activePro.toString())
                     MetricRow("Plus", report.activePlus.toString())
                 }
-                SectionHeader(title = appString("admin_reports_engagement"))
-                ReportCard {
+            }
+
+            CollapsibleReportSection(
+                title = appString("admin_reports_engagement"),
+                expanded = engagementExpanded,
+                onToggle = { engagementExpanded = !engagementExpanded },
+            ) {
+                val report = cloud
+                if (report == null) {
+                    Text(
+                        if (!reportSettings.cloudReportsEnabled) {
+                            "Cloud report generation is disabled on the server."
+                        } else {
+                            "No engagement data loaded yet. Tap Refresh."
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                } else {
                     MetricRow(appString("admin_reports_learning_activities"), report.learningActivities.toString())
                     MetricRow(appString("admin_reports_device_trials"), report.deviceTrials.toString())
                     MetricRow(appString("admin_reports_guest_ai_uses"), report.guestAiUsesTotal.toString())
@@ -375,8 +453,25 @@ fun AdminReportsScreen(
                     MetricRow(appString("admin_reports_referral_balance"), "$${"%.2f".format(report.referralBalanceUsd)}")
                     MetricRow("Referral pending (uncleared)", "$${"%.2f".format(report.referralPendingCommissionUsd)}")
                 }
-                SectionHeader(title = "Language packs")
-                ReportCard {
+            }
+
+            CollapsibleReportSection(
+                title = "Language packs",
+                expanded = languagePacksExpanded,
+                onToggle = { languagePacksExpanded = !languagePacksExpanded },
+            ) {
+                val report = cloud
+                if (report == null) {
+                    Text(
+                        if (!reportSettings.cloudReportsEnabled) {
+                            "Cloud report generation is disabled on the server."
+                        } else {
+                            "No language pack data loaded yet. Tap Refresh."
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                } else {
                     MetricRow("Active catalog packs", report.languagePackCatalogActive.toString())
                     if (report.languagePackRows.isEmpty()) {
                         Text(
@@ -385,12 +480,12 @@ fun AdminReportsScreen(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     } else {
-                        report.languagePackRows.forEach { pack ->
-                            MetricRow(
-                                pack.code.uppercase(),
-                                "v${pack.version} · ${pack.sizeBytes / 1024} KB",
-                            )
-                        }
+                        ExpandableLanguagePackRows(
+                            packs = report.languagePackRows,
+                            valueForPack = { pack ->
+                                "v${pack.version} · ${pack.sizeBytes / 1024} KB"
+                            },
+                        )
                     }
                     if (report.learningActivityByLanguage.isNotEmpty()) {
                         HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
@@ -410,8 +505,25 @@ fun AdminReportsScreen(
                         }
                     }
                 }
-                SectionHeader(title = appString("admin_reports_cloud_ai"))
-                ReportCard {
+            }
+
+            CollapsibleReportSection(
+                title = appString("admin_reports_cloud_ai"),
+                expanded = cloudAiExpanded,
+                onToggle = { cloudAiExpanded = !cloudAiExpanded },
+            ) {
+                val report = cloud
+                if (report == null) {
+                    Text(
+                        if (!reportSettings.cloudReportsEnabled) {
+                            "Cloud report generation is disabled on the server."
+                        } else {
+                            "No cloud AI data loaded yet. Tap Refresh."
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                } else {
                     MetricRow(appString("admin_reports_api_requests_today"), report.cloudAiRequestsToday.toString())
                     MetricRow(appString("admin_reports_routing_mode"), report.cloudAiRoutingMode)
                     if (report.cloudAiProviders.isEmpty()) {
@@ -442,15 +554,19 @@ fun AdminReportsScreen(
                     }
                 }
             }
-            SectionHeader(title = appString("admin_reports_home_ai"))
-            if (!reportSettings.homeAiReportsEnabled) {
-                Text(
-                    "Home AI report fetching is disabled on the server.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            ReportCard {
+
+            CollapsibleReportSection(
+                title = appString("admin_reports_home_ai"),
+                expanded = homeAiExpanded,
+                onToggle = { homeAiExpanded = !homeAiExpanded },
+            ) {
+                if (!reportSettings.homeAiReportsEnabled) {
+                    Text(
+                        "Home AI report fetching is disabled on the server.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
                 MetricRow(appString("admin_reports_home_ai_url"), homeAiUrl)
                 MetricRow(
                     appString("admin_reports_home_ai_status"),
@@ -513,9 +629,18 @@ fun AdminReportsScreen(
                 }
             }
 
-            if (reportSettings.debugReportsEnabled) {
-                SectionHeader(title = "Debug reports")
-                ReportCard {
+            CollapsibleReportSection(
+                title = "Debug reports",
+                expanded = debugReportsExpanded,
+                onToggle = { debugReportsExpanded = !debugReportsExpanded },
+            ) {
+                if (!reportSettings.debugReportsEnabled) {
+                    Text(
+                        "Debug reports are disabled on the server.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                } else {
                     val debug = debugReports
                     if (debug == null) {
                         Text(
@@ -524,10 +649,18 @@ fun AdminReportsScreen(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     } else {
-                        debug.languagePacks.forEach { pack ->
-                            MetricRow(
-                                pack.code.uppercase(),
-                                "v${pack.version}${if (pack.sizeBytes > 0) " · active" else ""}",
+                        if (debug.languagePacks.isEmpty()) {
+                            Text(
+                                "No language packs in debug report.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        } else {
+                            ExpandableLanguagePackRows(
+                                packs = debug.languagePacks,
+                                valueForPack = { pack ->
+                                    "v${pack.version}${if (pack.sizeBytes > 0) " · active" else ""}"
+                                },
                             )
                         }
                         if (debug.cloudAiProviderErrors.isNotEmpty()) {
@@ -546,12 +679,6 @@ fun AdminReportsScreen(
                         }
                     }
                 }
-            } else {
-                Text(
-                    "Debug reports are disabled on the server.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
             }
 
             Spacer(modifier = Modifier.height(24.dp))
@@ -574,6 +701,87 @@ private fun cloudGeneratedLabel(generatedAtMs: Long) {
 private fun rememberFormattedTime(ms: Long): String {
     val formatter = SimpleDateFormat("MMM d, yyyy HH:mm", Locale.getDefault())
     return formatter.format(Date(ms))
+}
+
+@Composable
+private fun CollapsibleReportSection(
+    title: String,
+    expanded: Boolean,
+    onToggle: () -> Unit,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(onClick = onToggle)
+                .padding(vertical = 10.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                title,
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.weight(1f),
+            )
+            Icon(
+                imageVector = if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                contentDescription = if (expanded) "Collapse" else "Expand",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        if (expanded) {
+            ReportCard(content = content)
+        }
+    }
+}
+
+private const val LANGUAGE_PACK_PREVIEW_COUNT = 4
+
+@Composable
+private fun ExpandableLanguagePackRows(
+    packs: List<AdminReportsLanguagePackRow>,
+    valueForPack: (AdminReportsLanguagePackRow) -> String,
+    previewCount: Int = LANGUAGE_PACK_PREVIEW_COUNT,
+) {
+    var showAll by rememberSaveable { mutableStateOf(false) }
+    val hasMore = packs.size > previewCount
+    val visiblePacks = if (showAll || !hasMore) packs else packs.take(previewCount)
+
+    Column(modifier = Modifier.fillMaxWidth()) {
+        visiblePacks.forEach { pack ->
+            MetricRow(pack.code.uppercase(), valueForPack(pack))
+        }
+        if (hasMore) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 4.dp),
+            ) {
+                if (!showAll) {
+                    Text(
+                        text = "View all",
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .clickable { showAll = true }
+                            .padding(vertical = 4.dp),
+                        color = CheradipTeal,
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                } else {
+                    Text(
+                        text = "Hide",
+                        modifier = Modifier
+                            .align(Alignment.CenterEnd)
+                            .clickable { showAll = false }
+                            .padding(vertical = 4.dp),
+                        color = CheradipTeal,
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                }
+            }
+        }
+    }
 }
 
 @Composable

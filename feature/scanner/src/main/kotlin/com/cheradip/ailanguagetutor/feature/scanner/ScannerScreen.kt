@@ -16,7 +16,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.material.icons.Icons
+import com.cheradip.ailanguagetutor.core.image.ScanTool
 import androidx.compose.material.icons.filled.Camera
 import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.Save
@@ -208,9 +210,9 @@ fun ScannerScreen(
     }
 
     val isImportMode = launchMode == ScannerLaunchMode.IMPORT
-    val showScanOnlyStage = scanOnly && uiState.scanInReview &&
-        uiState.pages.isNotEmpty() && uiState.selectedPageId != null
-    val showLearningReview = !scanOnly && uiState.pages.isNotEmpty() && uiState.selectedPageId != null
+    val showEditor = uiState.pages.isNotEmpty() && uiState.selectedPageId != null
+    val showScanOnlyStage = scanOnly && showEditor
+    val showLearningReview = !scanOnly && showEditor
     val previewPath = uiState.previewPath
         ?: uiState.pages.firstOrNull { it.id == uiState.selectedPageId }?.imagePath
 
@@ -273,17 +275,45 @@ fun ScannerScreen(
         return
     }
 
-    val selectedPage = uiState.pages.firstOrNull { it.id == uiState.selectedPageId }
-    val boundaryOriginalPath = selectedPage?.originalPath?.takeIf { it.isNotBlank() }
-        ?: selectedPage?.imagePath
+    if (uiState.showVersionCompare) {
+        ScanVersionCompareDialog(
+            label = uiState.versionCompareLabel,
+            beforePath = uiState.versionCompareBeforePath,
+            afterPath = uiState.versionCompareAfterPath,
+            onDismiss = viewModel::dismissVersionCompare,
+        )
+    }
+    if (uiState.showCustomFilterRenameDialog) {
+        val slot = uiState.customFilters.find { it.slotId == uiState.renamingCustomSlotId }
+        CustomFilterRenameDialog(
+            currentName = slot?.displayName ?: "Custom",
+            onDismiss = viewModel::dismissRenameCustomFilter,
+            onConfirm = viewModel::renameCustomFilter,
+        )
+    }
+
+    val editorScrollState = rememberScrollState()
+    val cropScrollBlocker = remember(uiState.activeTool) {
+        object : androidx.compose.ui.input.nestedscroll.NestedScrollConnection {
+            override fun onPreScroll(
+                available: androidx.compose.ui.geometry.Offset,
+                source: androidx.compose.ui.input.nestedscroll.NestedScrollSource,
+            ): androidx.compose.ui.geometry.Offset {
+                return if (uiState.activeTool == ScanTool.CROP && source == androidx.compose.ui.input.nestedscroll.NestedScrollSource.UserInput) {
+                    available
+                } else {
+                    androidx.compose.ui.geometry.Offset.Zero
+                }
+            }
+        }
+    }
 
     Scaffold(
         topBar = {
             CheradipTopBar(
                 title = if (isImportMode) "Import" else "Scanner",
                 subtitle = when {
-                    showScanOnlyStage -> "Pages kept until Save · tap thumbnail to switch"
-                    showLearningReview -> "Review pages · then Next"
+                    showEditor -> if (scanOnly) "Crop · Clean · Save" else "Crop · Clean · then Next"
                     isImportMode -> "Gallery import"
                     else -> "ML Kit document scan"
                 },
@@ -296,9 +326,23 @@ fun ScannerScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .verticalScroll(rememberScrollState()),
+                .nestedScroll(cropScrollBlocker)
+                .verticalScroll(editorScrollState),
         ) {
-            if (showScanOnlyStage) {
+            if (showEditor) {
+                ScannerPreviewArea(
+                    uiState = uiState,
+                    onUpdateCrop = viewModel::updateDraftCrop,
+                    onDeletePage = viewModel::deleteSelectedPage,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                )
+                ScannerCompareCircleRow(
+                    selected = uiState.previewCompareMode,
+                    activeTool = uiState.activeTool,
+                    onSelect = viewModel::setPreviewCompareMode,
+                    onOpenCrop = { viewModel.openTool(ScanTool.CROP) },
+                    modifier = Modifier.padding(horizontal = 8.dp),
+                )
                 ScannerPageThumbnailStrip(
                     pages = uiState.pages,
                     selectedPageId = uiState.selectedPageId,
@@ -308,10 +352,42 @@ fun ScannerScreen(
                     addPageEnabled = canAddMorePages,
                 )
                 Text(
-                    text = "${uiState.pageCount} page(s) · tap a thumbnail to switch · + to add more",
+                    text = "${uiState.pageCount} page(s) · drag green points on Crop to adjust edges",
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                     style = MaterialTheme.typography.bodySmall,
                 )
+                ScannerEditingControls(
+                    uiState = uiState,
+                    onOpenTool = viewModel::openTool,
+                    onCloseTool = viewModel::closeToolPanel,
+                    onApply = viewModel::applyCurrentTool,
+                    onPreviewCompareMode = viewModel::setPreviewCompareMode,
+                    onUndo = viewModel::undo,
+                    onRedo = viewModel::redo,
+                    onRevertAll = viewModel::revertAllEdits,
+                    onRevertCurrent = viewModel::revertCurrentTool,
+                    onRevertCurrentEffect = viewModel::revertCurrentEffect,
+                    onRevertToOriginal = viewModel::revertToOriginal,
+                    onCompareHistory = viewModel::compareWithHistory,
+                    onRestoreCrop = viewModel::restoreCropBoundaries,
+                    onRestoreColors = viewModel::restoreOriginalColors,
+                    onJumpToHistory = viewModel::jumpToHistoryStage,
+                    onJumpToStage = viewModel::jumpToStage,
+                    onAutoDetect = viewModel::autoDetectEdges,
+                    onCropPreset = viewModel::applyCropPreset,
+                    onUpdateCrop = viewModel::updateDraftCrop,
+                    onUpdateTransition = viewModel::updateDraftTransition,
+                    onUpdateClean = viewModel::updateDraftClean,
+                    onUpdateGray = viewModel::updateDraftGray,
+                    onSelectFilterPreset = viewModel::toggleCleanFilter,
+                    onToggleCleanAdjustment = viewModel::toggleCleanAdjustment,
+                    onSetExpandedCleanAdjustment = viewModel::setExpandedCleanAdjustment,
+                    onAddCustomFilter = viewModel::addCustomFilterFromSelection,
+                    onSaveCustomFilter = viewModel::saveCustomFilter,
+                    onRenameCustomFilter = viewModel::requestRenameCustomFilter,
+                    modifier = Modifier.padding(horizontal = 8.dp),
+                )
+                if (showScanOnlyStage) {
                 ScanEnhanceRecommendationBar(
                     recommendationLabel = uiState.enhanceRecommendationLabel,
                     onApplyRecommended = viewModel::applyRecommendedEnhance,
@@ -335,11 +411,6 @@ fun ScannerScreen(
                     onDeletePage = viewModel::deleteSelectedPage,
                     onRescanPage = { launchMlKitScan(true) },
                     rescanEnabled = uiState.selectedPageId != null && !uiState.isSaving,
-                    boundaryPolygon = uiState.pageBoundaryPolygon,
-                    boundaryIsCurved = uiState.pageBoundaryIsCurved,
-                    boundaryImageWidth = selectedPage?.width ?: 0,
-                    boundaryImageHeight = selectedPage?.height ?: 0,
-                    originalPreviewPath = boundaryOriginalPath,
                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                 )
                 ScanEnhanceLevelSelector(
@@ -367,56 +438,7 @@ fun ScannerScreen(
                     )
                     Text("Save")
                 }
-            } else if (showLearningReview) {
-                ScannerPageThumbnailStrip(
-                    pages = uiState.pages,
-                    selectedPageId = uiState.selectedPageId,
-                    thumbnailPathFor = viewModel::pageThumbnailPath,
-                    onSelectPage = viewModel::selectPage,
-                    onAddPage = onAddScanPage,
-                    addPageEnabled = canAddMorePages,
-                )
-                Text(
-                    text = "${uiState.pageCount} page(s) · level 1 used for OCR on Next",
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-                    style = MaterialTheme.typography.bodySmall,
-                )
-                ScanEnhanceRecommendationBar(
-                    recommendationLabel = uiState.enhanceRecommendationLabel,
-                    onApplyRecommended = viewModel::applyRecommendedEnhance,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-                )
-                ScanEnhanceModeToggle(
-                    selectedMode = uiState.enhanceMode,
-                    onModeSelected = viewModel::setEnhanceMode,
-                    aiCleanEnabled = uiState.isPremiumUser,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                )
-                ScanEnhancePreviewSection(
-                    showCompare = uiState.showLevelCompare,
-                    compareLevel1Path = uiState.compareLevel1Path,
-                    compareLevel7Path = uiState.compareLevel7Path,
-                    singlePreviewPath = uiState.enhancePreviewPath,
-                    selectedExportLevel = uiState.selectedExportLevel,
-                    cacheKey = "enhance-${uiState.selectedPageId}-${uiState.enhanceMode}-${uiState.selectedExportLevel}-${uiState.enhancePreviewRevision}",
-                    isLoading = uiState.isEnhancePreviewLoading,
-                    onSelectCompareLevel = viewModel::selectCompareLevel,
-                    onDeletePage = viewModel::deleteSelectedPage,
-                    onRescanPage = { launchMlKitScan(true) },
-                    rescanEnabled = uiState.selectedPageId != null && !uiState.isSaving,
-                    boundaryPolygon = uiState.pageBoundaryPolygon,
-                    boundaryIsCurved = uiState.pageBoundaryIsCurved,
-                    boundaryImageWidth = selectedPage?.width ?: 0,
-                    boundaryImageHeight = selectedPage?.height ?: 0,
-                    originalPreviewPath = boundaryOriginalPath,
-                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                )
-                ScanEnhanceLevelSelector(
-                    selectedLevel = uiState.selectedExportLevel,
-                    onLevelSelected = viewModel::setEnhanceLevel,
-                    mode = uiState.enhanceMode,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                )
+                } else if (showLearningReview) {
                 Button(
                     onClick = {
                         viewModel.prepareForOcr { id ->
@@ -437,6 +459,7 @@ fun ScannerScreen(
                     } else {
                         Text("Next")
                     }
+                }
                 }
             } else if (isImportMode) {
                 MlKitScanPrompt(

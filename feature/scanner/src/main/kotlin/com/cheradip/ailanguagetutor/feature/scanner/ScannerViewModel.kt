@@ -32,9 +32,7 @@ import com.cheradip.ailanguagetutor.core.image.PageEnhanceChoice
 import com.cheradip.ailanguagetutor.core.image.withProfile
 import com.cheradip.ailanguagetutor.core.image.ScanEnhanceMode
 import com.cheradip.ailanguagetutor.core.image.GrayParams
-import com.cheradip.ailanguagetutor.core.image.LiveScanBoundaryDetector
 import com.cheradip.ailanguagetutor.core.image.PageEditState
-import com.cheradip.ailanguagetutor.core.image.PointF
 import com.cheradip.ailanguagetutor.core.image.QuadPoints
 import com.cheradip.ailanguagetutor.core.image.ScanEditEngine
 import com.cheradip.ailanguagetutor.core.image.ScanExportService
@@ -148,9 +146,6 @@ data class ScannerUiState(
     val enhanceDocumentClass: String? = null,
     val isPremiumUser: Boolean = true,
     val exportProfile: ScanExportProfile = ScanExportProfile.DOCUMENT,
-    /** Normalized polygon on selected page original (post-capture review overlay). */
-    val pageBoundaryPolygon: List<PointF> = emptyList(),
-    val pageBoundaryIsCurved: Boolean = false,
 )
 
 @HiltViewModel
@@ -174,7 +169,6 @@ class ScannerViewModel @Inject constructor(
     private val pageDocumentClass = mutableMapOf<Long, String>()
     private var previewJob: Job? = null
     private var enhancePreviewJob: Job? = null
-    private var boundaryJob: Job? = null
     private var previewGeneration = 0L
     private val captureMutex = Mutex()
     private var documentSourceType: String = "scan"
@@ -224,9 +218,9 @@ class ScannerViewModel @Inject constructor(
 
     /** Scan-only: user finished or dismissed ML Kit — show export if pages exist. */
     fun onScanCaptureFinished() {
-        if (!scanOnly || _uiState.value.pages.isEmpty()) return
+        if (_uiState.value.pages.isEmpty()) return
         _uiState.update { it.copy(scanInReview = true) }
-        _uiState.value.selectedPageId?.let { applyEnhancePreviewForPage(it) }
+        _uiState.value.selectedPageId?.let { openCropEditor(it) }
         persistWorkflow()
     }
 
@@ -377,15 +371,9 @@ class ScannerViewModel @Inject constructor(
                 runCatching {
                     bytesList.forEach { bytes -> addCapturedPage(bytes, batchMode = true) }
                     val lastId = _uiState.value.pages.lastOrNull()?.id
-                    lastId?.let { refreshPreview(it) }
-                    if (scanOnly) {
-                        _uiState.update { it.copy(scanInReview = true) }
-                        lastId?.let { applyEnhancePreviewForPage(it) }
-                        lastId?.let { refreshPageBoundary(it) }
-                        persistWorkflow()
-                    } else {
-                        lastId?.let { ensureLearningEnhanceDefault(it) }
-                    }
+                    _uiState.update { it.copy(scanInReview = true) }
+                    lastId?.let { openCropEditor(it) }
+                    persistWorkflow()
                 }.onFailure { e ->
                     _uiState.update { it.copy(error = e.message) }
                 }
@@ -450,9 +438,7 @@ class ScannerViewModel @Inject constructor(
                         )
                     }
                     syncDraftFromState(pageId)
-                    refreshPreview(pageId)
-                    applyEnhancePreviewForPage(pageId)
-                    refreshPageBoundary(pageId)
+                    openCropEditor(pageId)
                     persistWorkflow()
                 }.onFailure { e ->
                     _uiState.update { it.copy(isSaving = false, error = e.message) }
@@ -522,7 +508,7 @@ class ScannerViewModel @Inject constructor(
             }
             syncDraftFromState(item.id)
             if (!batchMode) {
-                refreshPreview(item.id)
+                openCropEditor(item.id)
             }
             persistWorkflow()
             item.id
@@ -550,31 +536,7 @@ class ScannerViewModel @Inject constructor(
         syncDraftFromState(pageId)
         refreshPreview(pageId)
         applyEnhancePreviewForPage(pageId)
-        refreshPageBoundary(pageId)
         persistWorkflow()
-    }
-
-    /** Detect document boundary on page original for review overlay (flat vs curved). */
-    private fun refreshPageBoundary(pageId: Long) {
-        boundaryJob?.cancel()
-        boundaryJob = viewModelScope.launch {
-            val page = _uiState.value.pages.find { it.id == pageId } ?: return@launch
-            val path = page.originalPath.ifBlank { page.imagePath }
-            runCatching {
-                val bitmap = BitmapUtils.load(path, maxEdge = 640)
-                try {
-                    val boundary = LiveScanBoundaryDetector.detect(bitmap)
-                    _uiState.update {
-                        it.copy(
-                            pageBoundaryPolygon = boundary.polygonNorm,
-                            pageBoundaryIsCurved = boundary.isCurved,
-                        )
-                    }
-                } finally {
-                    bitmap.recycle()
-                }
-            }
-        }
     }
 
     /** Level 0 → L1/L7 compare; levels 1–7 → single preview at that level. */
@@ -863,7 +825,6 @@ class ScannerViewModel @Inject constructor(
     private fun ensureLearningEnhanceDefault(pageId: Long) {
         ensureLearningOcrLevel(pageId)
         applyEnhancePreviewForPage(pageId)
-        refreshPageBoundary(pageId)
         persistWorkflow()
     }
 
@@ -883,6 +844,21 @@ class ScannerViewModel @Inject constructor(
         }
     }
 
+    /** Open crop on original image with multi-point edge detection. */
+    private fun openCropEditor(pageId: Long) {
+        _uiState.update {
+            it.copy(
+                selectedPageId = pageId,
+                activeTool = ScanTool.CROP,
+                previewCompareMode = PreviewCompareMode.ORIGINAL,
+            )
+        }
+        syncDraftFromState(pageId)
+        detectCropCorners(pageId)
+        refreshPreview(pageId)
+        persistWorkflow()
+    }
+
     fun openTool(tool: ScanTool) {
         val resolved = if (tool == ScanTool.GRAY) ScanTool.CLEAN else tool
         if (resolved == ScanTool.SAVE) {
@@ -891,14 +867,21 @@ class ScannerViewModel @Inject constructor(
             return
         }
         val pageId = _uiState.value.selectedPageId
+        val previewMode = when (resolved) {
+            ScanTool.CROP -> PreviewCompareMode.ORIGINAL
+            else -> PreviewCompareMode.AFTER
+        }
         _uiState.update {
             it.copy(
                 activeTool = resolved,
-                previewCompareMode = PreviewCompareMode.AFTER,
+                previewCompareMode = previewMode,
             )
         }
         persistWorkflow()
         pageId ?: return
+        if (resolved == ScanTool.CROP) {
+            detectCropCorners(pageId)
+        }
         if (resolved == ScanTool.CLEAN) {
             val state = editStates[pageId] ?: return
             editStates[pageId] = state.copy(
@@ -1401,27 +1384,60 @@ class ScannerViewModel @Inject constructor(
         val state = editStates[pageId] ?: return
         viewModelScope.launch {
             val bitmap = withContext(Dispatchers.IO) { BitmapUtils.load(state.originalPath) }
-            val corners = when (preset) {
-                CropPreset.FREEFORM -> state.draftCrop.corners
-                CropPreset.RECTANGLE -> state.draftCrop.corners.toAxisAlignedRectangle()
+            val hints = DocumentDetectionHints(
+                scanType = _uiState.value.draftTransition.scanType,
+                cropPreset = preset,
+            )
+            when (preset) {
+                CropPreset.FREEFORM -> {
+                    val curve = scanEditEngine.autoDetectCurve(bitmap, hints)
+                    updateDraftCrop {
+                        it.copy(
+                            preset = preset,
+                            corners = curve.boundingQuad(),
+                            curveBoundary = curve,
+                            useCurvedBoundary = true,
+                            perspectiveCorrection = false,
+                        )
+                    }
+                }
+                CropPreset.RECTANGLE -> {
+                    val curve = scanEditEngine.autoDetectCurve(bitmap, hints)
+                    updateDraftCrop {
+                        it.copy(
+                            preset = preset,
+                            corners = curve.boundingQuad().toAxisAlignedRectangle(),
+                            curveBoundary = curve,
+                            useCurvedBoundary = true,
+                            perspectiveCorrection = true,
+                        )
+                    }
+                }
                 CropPreset.ID_CARD,
                 CropPreset.BUSINESS_CARD,
                 CropPreset.PASSPORT,
                 -> {
-                    val hints = DocumentDetectionHints(
-                        scanType = _uiState.value.draftTransition.scanType,
-                        cropPreset = preset,
-                    )
-                    scanEditEngine.autoDetectCrop(bitmap, hints)
+                    val curve = scanEditEngine.autoDetectCurve(bitmap, hints)
+                    updateDraftCrop {
+                        it.copy(
+                            preset = preset,
+                            corners = curve.boundingQuad(),
+                            curveBoundary = curve,
+                            useCurvedBoundary = true,
+                            perspectiveCorrection = true,
+                        )
+                    }
                 }
-                else -> scanEditEngine.presetCrop(preset, bitmap.width, bitmap.height)
-            }
-            updateDraftCrop {
-                it.copy(
-                    preset = preset,
-                    corners = corners,
-                    perspectiveCorrection = preset != CropPreset.FREEFORM,
-                )
+                else -> {
+                    val corners = scanEditEngine.presetCrop(preset, bitmap.width, bitmap.height)
+                    updateDraftCrop {
+                        it.copy(
+                            preset = preset,
+                            corners = corners,
+                            perspectiveCorrection = preset != CropPreset.FREEFORM,
+                        )
+                    }
+                }
             }
         }
     }

@@ -24,6 +24,7 @@ fun DocumentBoundaryOverlay(
     modifier: Modifier = Modifier,
     imageAspectRatio: Float? = null,
     strokeColor: Color = CheradipTeal,
+    showControlPoints: Boolean = true,
 ) {
     if (polygonNorm.size < 3) return
     Canvas(modifier = modifier.fillMaxSize()) {
@@ -46,12 +47,14 @@ fun DocumentBoundaryOverlay(
         )
         drawPath(path, color = strokeColor, style = stroke)
 
-        polygonNorm.forEach { p ->
-            drawCircle(
-                color = strokeColor,
-                radius = 6f,
-                center = Offset(fit.left + p.x * fit.width, fit.top + p.y * fit.height),
-            )
+        if (showControlPoints) {
+            polygonNorm.forEach { p ->
+                drawCircle(
+                    color = strokeColor,
+                    radius = 6f,
+                    center = Offset(fit.left + p.x * fit.width, fit.top + p.y * fit.height),
+                )
+            }
         }
     }
 }

@@ -182,6 +182,28 @@ class InferenceEngine:
         text = await self._infer(slot, prompt, max_tokens)
         yield text
 
+    async def run_ollama_model(self, ollama_model: str, prompt: str, max_tokens: int = 512) -> str:
+        if self.loader.backend_name != "ollama":
+            return f"[{ollama_model}] {prompt[:300]}"
+        from app.backends.ollama import OllamaBackend
+
+        ollama = OllamaBackend(self.loader.settings.ollama_base_url)
+        self.last_model_used = ollama_model
+        self._record_model(ollama_model)
+        return await ollama.generate(ollama_model, prompt, max_tokens)
+
+    async def run_ollama_stream(self, ollama_model: str, prompt: str, max_tokens: int = 512):
+        if self.loader.backend_name != "ollama":
+            yield await self.run_ollama_model(ollama_model, prompt, max_tokens)
+            return
+        from app.backends.ollama import OllamaBackend
+
+        ollama = OllamaBackend(self.loader.settings.ollama_base_url)
+        self.last_model_used = ollama_model
+        self._record_model(ollama_model)
+        async for chunk in ollama.generate_stream(ollama_model, prompt, max_tokens):
+            yield chunk
+
     async def _infer_nllb(self, text: str, source: str, target: str) -> str:
         if self.loader.backend_name == "ollama" and is_short_phrase(text):
             translated = await self._ollama_translate(text, source, target)
